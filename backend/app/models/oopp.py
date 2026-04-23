@@ -8,15 +8,14 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 
 # Počet dní před expirací kdy se zobrazí varování
-EXPIRING_SOON_DAYS = 30
-
-TrainingType = str  # alias pro čitelnost
+OOPP_EXPIRING_SOON_DAYS = 30
 
 
-class Training(Base, TimestampMixin):
-    __tablename__ = "trainings"
+class OOPPAssignment(Base, TimestampMixin):
+    __tablename__ = "oopp_assignments"
     __table_args__ = (
-        CheckConstraint("valid_months > 0", name="ck_trainings_valid_months"),
+        CheckConstraint("valid_months > 0", name="ck_oopp_valid_months"),
+        CheckConstraint("quantity > 0", name="ck_oopp_quantity"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -24,21 +23,23 @@ class Training(Base, TimestampMixin):
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
 
-    employee_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False
+    employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=True
     )
+    employee_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    training_type: Mapped[str] = mapped_column(String(50), default="other", nullable=False)
+    item_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    oopp_type: Mapped[str] = mapped_column(String(50), default="other", nullable=False)
 
-    trained_at: Mapped[date] = mapped_column(Date, nullable=False)
+    issued_at: Mapped[date] = mapped_column(Date, nullable=False)
+    quantity: Mapped[int] = mapped_column(SmallInteger, default=1, nullable=False)
+    size_spec: Mapped[str | None] = mapped_column(String(50))
+    serial_number: Mapped[str | None] = mapped_column(String(100))
 
     valid_months: Mapped[int | None] = mapped_column(SmallInteger)
     valid_until: Mapped[date | None] = mapped_column(Date)
 
-    trainer_name: Mapped[str | None] = mapped_column(String(255))
     notes: Mapped[str | None] = mapped_column(Text)
-
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
 
     created_by: Mapped[uuid.UUID] = mapped_column(
@@ -50,10 +51,10 @@ class Training(Base, TimestampMixin):
     @property
     def validity_status(self) -> str:
         """
-        Odvozený stav platnosti záznamu.
-        - 'no_expiry'      – valid_until je NULL (školení bez expiry)
-        - 'valid'          – platí, expiry je dál než EXPIRING_SOON_DAYS
-        - 'expiring_soon'  – platí, ale expiruje do EXPIRING_SOON_DAYS
+        Odvozený stav platnosti OOPP.
+        - 'no_expiry'      – valid_until je NULL
+        - 'valid'          – platí, expiry je dál než OOPP_EXPIRING_SOON_DAYS
+        - 'expiring_soon'  – platí, ale expiruje do OOPP_EXPIRING_SOON_DAYS
         - 'expired'        – platnost vypršela
         """
         if self.valid_until is None:
@@ -62,6 +63,6 @@ class Training(Base, TimestampMixin):
         delta = (self.valid_until - today).days
         if delta < 0:
             return "expired"
-        if delta <= EXPIRING_SOON_DAYS:
+        if delta <= OOPP_EXPIRING_SOON_DAYS:
             return "expiring_soon"
         return "valid"

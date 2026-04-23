@@ -16,7 +16,7 @@ from httpx import AsyncClient
 
 
 async def _setup_tenant(client: AsyncClient, suffix: str) -> tuple[dict, str]:
-    """Zaregistruje OZO a vrátí (headers, user_id)."""
+    """Zaregistruje OZO, vytvoří employee záznam a vrátí (headers, employee_id)."""
     resp = await client.post(
         "/api/v1/auth/register",
         json={
@@ -26,8 +26,12 @@ async def _setup_tenant(client: AsyncClient, suffix: str) -> tuple[dict, str]:
         },
     )
     headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
-    me = await client.get("/api/v1/users/me", headers=headers)
-    return headers, me.json()["id"]
+    emp_resp = await client.post(
+        "/api/v1/employees",
+        json={"first_name": "Kal", "last_name": suffix, "employment_type": "hpp"},
+        headers=headers,
+    )
+    return headers, emp_resp.json()["id"]
 
 
 @pytest.mark.asyncio

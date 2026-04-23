@@ -22,7 +22,7 @@ class AccidentReport(Base, TimestampMixin):
 
     # Zaměstnanec
     employee_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
+        ForeignKey("employees.id", ondelete="SET NULL")
     )
     employee_name: Mapped[str] = mapped_column(String(255), nullable=False)
     workplace: Mapped[str] = mapped_column(String(255), nullable=False)

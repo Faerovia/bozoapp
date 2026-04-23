@@ -1,11 +1,14 @@
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.permissions import require_role
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.accident_reports import (
     AccidentReportCreateRequest,
@@ -21,8 +24,36 @@ from app.services.accident_reports import (
     get_accident_reports,
     update_accident_report,
 )
+from app.services.export_pdf import generate_accident_log_pdf
 
 router = APIRouter()
+
+
+# DŮLEŽITÉ: /accident-reports/export/pdf musí být před /accident-reports/{report_id}
+@router.get("/accident-reports/export/pdf")
+async def export_accident_log_pdf_endpoint(
+    report_status: str | None = Query(None, pattern="^(draft|final|archived)$"),
+    download: bool = Query(False),
+    current_user: User = Depends(require_role("ozo", "manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """
+    Exportuje knihu úrazů jako PDF (chronologický přehled).
+    ?report_status=draft|final|archived  – filtr (výchozí: vše)
+    """
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
+    tenant_name = tenant.name if tenant else str(current_user.tenant_id)
+
+    reports = await get_accident_reports(db, current_user.tenant_id, report_status=report_status)
+    pdf_bytes = generate_accident_log_pdf(reports, tenant_name)
+
+    disposition = "attachment" if download else "inline"
+    filename = f"kniha_urazu_{date.today()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )
 
 
 @router.get("/accident-reports", response_model=list[AccidentReportResponse])

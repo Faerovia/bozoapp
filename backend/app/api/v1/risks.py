@@ -1,13 +1,17 @@
 import uuid
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.permissions import require_role
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.risks import RiskCreateRequest, RiskResponse, RiskUpdateRequest
+from app.services.export_pdf import generate_risks_pdf
 from app.services.risks import create_risk, get_risk_by_id, get_risks, update_risk
 
 router = APIRouter()
@@ -35,6 +39,35 @@ async def create_risk_endpoint(
 ) -> object:
     """Vytvoří nový záznam rizika. Přístup: ozo, manager."""
     return await create_risk(db, data, current_user.tenant_id, current_user.id)
+
+
+# DŮLEŽITÉ: /risks/export/pdf musí být před /risks/{risk_id}
+# Jinak FastAPI matchuje "export" jako UUID a vrátí 422.
+@router.get("/risks/export/pdf")
+async def export_risks_pdf(
+    risk_status: str | None = Query(None, pattern="^(active|archived)$"),
+    download: bool = Query(False),
+    current_user: User = Depends(require_role("ozo", "manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """
+    Exportuje registr rizik jako PDF (pro SÚIP kontroly, interní archivaci).
+    ?risk_status=active|archived  – filtr (výchozí: vše)
+    ?download=true                – stažení místo zobrazení v prohlížeči
+    """
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
+    tenant_name = tenant.name if tenant else str(current_user.tenant_id)
+
+    risks = await get_risks(db, current_user.tenant_id, status=risk_status)
+    pdf_bytes = generate_risks_pdf(risks, tenant_name)
+
+    disposition = "attachment" if download else "inline"
+    filename = f"registr_rizik_{date.today()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )
 
 
 @router.get("/risks/{risk_id}", response_model=RiskResponse)
