@@ -2,7 +2,7 @@ import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, health, risks, tenant, trainings, users
+from app.api.v1 import auth, health, revisions, risks, tenant, trainings, users
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -36,3 +36,4 @@ app.include_router(users.router, prefix="/api/v1", tags=["users"])
 app.include_router(tenant.router, prefix="/api/v1", tags=["tenant"])
 app.include_router(risks.router, prefix="/api/v1", tags=["risks"])
 app.include_router(trainings.router, prefix="/api/v1", tags=["trainings"])
+app.include_router(revisions.router, prefix="/api/v1", tags=["revisions", "calendar"])
