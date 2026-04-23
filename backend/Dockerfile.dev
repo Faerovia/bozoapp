@@ -2,6 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Systémové závislosti: fonty pro PDF generování (fpdf2 + DejaVu pro češtinu)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv for fast dependency installation
 RUN pip install --no-cache-dir uv
 

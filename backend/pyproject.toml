@@ -21,6 +21,7 @@ dependencies = [
     "sentry-sdk[fastapi]>=2.0.0",
     "python-multipart>=0.0.12",
     "pydantic[email]>=2.0.0",
+    "fpdf2>=2.7.0",
 ]
 
 [project.optional-dependencies]
