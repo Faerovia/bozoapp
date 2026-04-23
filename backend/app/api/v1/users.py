@@ -32,6 +32,14 @@ async def create_user_endpoint(
     return await create_user(db, data, current_user.tenant_id)
 
 
+@router.get("/users/me", response_model=UserResponse)
+async def get_current_user_profile(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Vrátí profil přihlášeného uživatele. Přístup: všechny role."""
+    return current_user
+
+
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: uuid.UUID,
