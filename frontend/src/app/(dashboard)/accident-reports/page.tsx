@@ -356,9 +356,8 @@ export default function AccidentReportsPage() {
               employee_id:          editReport.employee_id ?? "",
               injured_count:        editReport.injured_count,
               is_fatal:             editReport.is_fatal,
-              work_absence_days:    editReport.work_absence_days?.toString() ?? "",
+              work_absence_days:    editReport.work_absence_days ?? "",
               risk_review_required: editReport.risk_review_required,
-              notes:                editReport.notes ?? "",
             }}
             onSubmit={(data) => {
               setServerError(null);

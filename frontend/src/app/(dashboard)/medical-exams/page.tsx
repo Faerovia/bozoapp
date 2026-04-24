@@ -367,7 +367,7 @@ export default function MedicalExamsPage() {
               exam_type:    editExam.exam_type,
               exam_date:    editExam.exam_date,
               result:       editExam.result ?? "",
-              valid_months: editExam.valid_months ? String(editExam.valid_months) : "",
+              valid_months: editExam.valid_months ?? undefined,
               doctor_name:  editExam.doctor_name ?? "",
               notes:        editExam.notes ?? "",
             }}

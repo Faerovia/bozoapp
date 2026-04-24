@@ -328,7 +328,7 @@ export default function RevisionsPage() {
               revision_type:    editRevision.revision_type,
               location:         editRevision.location ?? "",
               last_revised_at:  editRevision.last_revised_at ?? "",
-              valid_months:     editRevision.valid_months ? String(editRevision.valid_months) : "",
+              valid_months:     editRevision.valid_months ?? undefined,
               next_revision_at: editRevision.next_revision_at ?? "",
               notes:            editRevision.notes ?? "",
             }}

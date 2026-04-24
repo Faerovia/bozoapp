@@ -387,7 +387,11 @@ export default function WorkplacesPage() {
       <PlantFormDialog
         open={!!editPlant}
         onClose={() => setEditPlant(null)}
-        defaultValues={editPlant ?? undefined}
+        defaultValues={editPlant ? {
+          name:    editPlant.name,
+          address: editPlant.address ?? undefined,
+          city:    editPlant.city ?? undefined,
+        } : undefined}
         onSubmit={(d) => { setPlantError(null); updatePlant.mutate({ id: editPlant!.id, d }); }}
         isSubmitting={updatePlant.isPending}
         serverError={plantError}
