@@ -18,6 +18,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,10 +128,15 @@ async def reset_password(
 
 async def cleanup_expired(db: AsyncSession) -> int:
     """Administrativa — smaže row. Volat z cronu / scheduled task."""
-    from sqlalchemy import delete
+    from sqlalchemy import CursorResult, delete
     now = datetime.now(UTC)
-    result = await db.execute(
-        delete(PasswordResetToken).where(PasswordResetToken.expires_at < now)
+    # Pro DML vrací AsyncSession.execute CursorResult, který má .rowcount.
+    # Typový signature je Result[Any], proto explicit cast pro mypy strict.
+    result = cast(
+        CursorResult[Any],
+        await db.execute(
+            delete(PasswordResetToken).where(PasswordResetToken.expires_at < now)
+        ),
     )
     await db.flush()
     return result.rowcount or 0

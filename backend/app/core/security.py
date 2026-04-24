@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import jwt
 from passlib.context import CryptContext
@@ -37,7 +37,8 @@ def create_access_token(user_id: uuid.UUID, tenant_id: uuid.UUID, role: str) -> 
         "type": "access",
         "exp": expire,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    # PyJWT 2.x vrací str; starší stub typingu uvádí bytes → cast pro mypy strict.
+    return cast(str, jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm))
 
 
 def create_refresh_token(
@@ -64,7 +65,7 @@ def create_refresh_token(
         payload["jti"] = jti
     if family_id is not None:
         payload["family_id"] = family_id
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return cast(str, jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm))
 
 
 def decode_token(token: str) -> dict[str, Any]:
