@@ -26,9 +26,9 @@ const EXAM_TYPES: { value: string; label: string }[] = [
 ];
 
 const EXAM_RESULTS: { value: string; label: string }[] = [
-  { value: "zpusobilyy",        label: "Způsobilý" },
-  { value: "zpusobilyy_omezeni", label: "Způsobilý s omezením" },
-  { value: "nezpusobilyy",      label: "Nezpůsobilý" },
+  { value: "zpusobily",        label: "Způsobilý" },
+  { value: "zpusobily_omezeni", label: "Způsobilý s omezením" },
+  { value: "nezpusobily",      label: "Nezpůsobilý" },
   { value: "pozbyl_zpusobilosti", label: "Pozbyl způsobilosti" },
 ];
 

@@ -11,7 +11,7 @@ class MedicalExamCreateRequest(BaseModel):
     exam_date: date
     result: str | None = Field(
         None,
-        pattern="^(zpusobilyý|zpusobilyý_omezeni|nezpusobilyý|pozbyl_zpusobilosti)$",
+        pattern="^(zpusobily|zpusobily_omezeni|nezpusobily|pozbyl_zpusobilosti)$",
     )
     physician_name: str | None = Field(None, max_length=255)
     valid_months: int | None = Field(None, gt=0, le=120)
@@ -40,7 +40,7 @@ class MedicalExamUpdateRequest(BaseModel):
     exam_date: date | None = None
     result: str | None = Field(
         None,
-        pattern="^(zpusobilyý|zpusobilyý_omezeni|nezpusobilyý|pozbyl_zpusobilosti)$",
+        pattern="^(zpusobily|zpusobily_omezeni|nezpusobily|pozbyl_zpusobilosti)$",
     )
     physician_name: str | None = Field(None, max_length=255)
     valid_months: int | None = Field(None, gt=0, le=120)

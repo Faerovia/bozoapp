@@ -144,7 +144,7 @@ export interface Revision {
 // ── Medical Exams ─────────────────────────────────────────────────────────────
 
 export type ExamType = "vstupni" | "periodicka" | "vystupni" | "mimoradna";
-export type ExamResult = "zpusobilyý" | "zpusobilyý_omezeni" | "nezpusobilyý" | "pozbyl_zpusobilosti";
+export type ExamResult = "zpusobily" | "zpusobily_omezeni" | "nezpusobily" | "pozbyl_zpusobilosti";
 
 export interface MedicalExam {
   id: string;

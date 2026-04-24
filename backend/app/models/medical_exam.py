@@ -19,7 +19,7 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 
 ExamType = Literal["vstupni", "periodicka", "vystupni", "mimoradna"]
-ExamResult = Literal["zpusobilyý", "zpusobilyý_omezeni", "nezpusobilyý", "pozbyl_zpusobilosti"]
+ExamResult = Literal["zpusobily", "zpusobily_omezeni", "nezpusobily", "pozbyl_zpusobilosti"]
 
 EXPIRING_SOON_DAYS = 60  # 2 měsíce před vypršením = varování
 
@@ -32,7 +32,7 @@ class MedicalExam(Base, TimestampMixin):
             name="ck_me_exam_type",
         ),
         CheckConstraint(
-            "result IN ('zpusobilyý','zpusobilyý_omezeni','nezpusobilyý','pozbyl_zpusobilosti') OR result IS NULL",  # noqa: E501
+            "result IN ('zpusobily','zpusobily_omezeni','nezpusobily','pozbyl_zpusobilosti') OR result IS NULL",  # noqa: E501
             name="ck_me_result",
         ),
     )
