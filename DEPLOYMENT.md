@@ -86,6 +86,51 @@ docker compose exec -T db psql -U bozoapp -d bozoapp_prod \
 
 Alternativně: `scripts/create_prod_app_role.sql` — viz níže.
 
+## 4b. Cron tasky (notifikace)
+
+Backend má několik background úloh, které je třeba spouštět pravidelně.
+
+### Týdenní notifikace revizí
+
+`app.tasks.weekly_revision_notifications` — každé pondělí v 05:00 pošle
+e-mail osobám zodpovědným za provozovny s blížícími se / překročenými
+revizemi (≤ 30 dní).
+
+```bash
+# Crontab:
+0 5 * * 1 docker exec bozoapp-backend python -m app.tasks.weekly_revision_notifications >> /var/log/bozoapp_cron.log 2>&1
+```
+
+Pro systemd timer (preferováno v produkci):
+
+```ini
+# /etc/systemd/system/bozoapp-weekly-notifications.timer
+[Unit]
+Description=BOZOapp týdenní notifikace revizí
+
+[Timer]
+OnCalendar=Mon 05:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```ini
+# /etc/systemd/system/bozoapp-weekly-notifications.service
+[Unit]
+Description=BOZOapp týdenní notifikace — spuštění
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec bozoapp-backend \
+    python -m app.tasks.weekly_revision_notifications
+```
+
+`systemctl enable --now bozoapp-weekly-notifications.timer`
+
+Ověření: `systemctl list-timers bozoapp*` a `journalctl -u bozoapp-weekly-notifications`.
+
 ## 5. Backup strategie
 
 ### Denní pg_dump → Hetzner Object Storage
