@@ -15,8 +15,6 @@ from datetime import date, timedelta
 import pytest
 from httpx import AsyncClient
 
-
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 async def _register_ozo(client: AsyncClient, suffix: str) -> str:
