@@ -122,7 +122,7 @@ async def create_workplace_endpoint(
     try:
         return await create_workplace(db, data, current_user.tenant_id, current_user.id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
 
 
 @router.get("/workplaces/{workplace_id}", response_model=WorkplaceResponse)
@@ -220,7 +220,7 @@ async def create_rfa_endpoint(
     try:
         return await create_rfa(db, data, current_user.tenant_id, current_user.id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
 
 
 @router.get("/risk-factors/{rfa_id}", response_model=RiskFactorAssessmentResponse)

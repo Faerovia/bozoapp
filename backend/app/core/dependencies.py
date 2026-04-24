@@ -70,9 +70,13 @@ async def get_current_user(
     except (JWTError, KeyError, ValueError):
         raise exc
 
-    # Nastav RLS kontext pro tuto transakci.
-    # UUID z JWT je bezpečný vstup (validován výše).
-    await db.execute(text(f"SET LOCAL app.current_tenant_id = '{tenant_id}'"))
+    # Nastav RLS kontext pro tuto transakci přes set_config()
+    # s parameter bindingem (bezpečnější než SET LOCAL s f-stringem).
+    # Třetí parametr `true` = SET LOCAL (scoped na transakci).
+    await db.execute(
+        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+        {"tid": str(tenant_id)},
+    )
 
     result = await db.execute(
         select(User).where(User.id == user_id, User.is_active == True)  # noqa: E712

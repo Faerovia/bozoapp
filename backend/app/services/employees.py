@@ -70,7 +70,7 @@ async def create_employee(
         ).scalar_one_or_none()
         if user is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="user_id neexistuje v tomto tenantu",
             )
 
@@ -111,7 +111,7 @@ async def update_employee(
         ).scalar_one_or_none()
         if user is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="user_id neexistuje v tomto tenantu",
             )
 

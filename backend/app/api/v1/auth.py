@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -102,8 +102,18 @@ async def refresh(
     except (JWTError, KeyError, ValueError):
         raise exc
 
+    # Nastav RLS kontext aby SELECT User prošel přes FORCE ROW LEVEL SECURITY
+    await db.execute(
+        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+        {"tid": str(tenant_id)},
+    )
+
     result = await db.execute(
-        select(User).where(User.id == user_id, User.is_active == True)  # noqa: E712
+        select(User).where(
+            User.id == user_id,
+            User.tenant_id == tenant_id,
+            User.is_active == True,  # noqa: E712
+        )
     )
     user = result.scalar_one_or_none()
     if user is None:
@@ -117,9 +127,27 @@ async def refresh(
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response) -> None:
-    """Smaže auth cookies – odhlásí uživatele."""
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/api/v1/auth/refresh")
+    """Smaže auth cookies – odhlásí uživatele.
+
+    Pro správné smazání musí delete_cookie mít stejné atributy (secure,
+    samesite, path) jako originální set_cookie; jinak některé browsery
+    cookie nezruší.
+    """
+    is_prod = settings.is_production
+    response.delete_cookie(
+        "access_token",
+        path="/",
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+    )
+    response.delete_cookie(
+        "refresh_token",
+        path="/api/v1/auth/refresh",
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+    )
 
 
 @router.get("/auth/me", response_model=UserResponse)

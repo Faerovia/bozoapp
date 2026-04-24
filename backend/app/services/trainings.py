@@ -1,10 +1,29 @@
 import uuid
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.employee import Employee
 from app.models.training import Training
 from app.schemas.trainings import TrainingCreateRequest, TrainingUpdateRequest
+
+
+async def _assert_employee_in_tenant(
+    db: AsyncSession, employee_id: uuid.UUID, tenant_id: uuid.UUID
+) -> None:
+    """Ochrana proti cross-tenant FK injection — employee_id musí patřit do tenantu."""
+    result = await db.execute(
+        select(Employee.id).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == tenant_id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="employee_id neexistuje v tomto tenantu",
+        )
 
 
 async def get_trainings(
@@ -54,6 +73,7 @@ async def create_training(
     tenant_id: uuid.UUID,
     created_by: uuid.UUID,
 ) -> Training:
+    await _assert_employee_in_tenant(db, data.employee_id, tenant_id)
     training = Training(
         tenant_id=tenant_id,
         created_by=created_by,

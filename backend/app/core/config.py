@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,12 +24,35 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
+    # CORS: čárkami oddělené origins (FRONTEND URL) pro produkci
+    # Příklad: "https://app.bozoapp.cz,https://admin.bozoapp.cz"
+    cors_origins: str = ""
+
     # Observability
     sentry_dsn: str = ""
 
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        if not self.cors_origins:
+            return []
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @field_validator("secret_key")
+    @classmethod
+    def secret_key_not_default(cls, v: str) -> str:
+        """Ochrana proti zapomenuté změně default secret_key v produkci."""
+        if v in ("", "change-me-generate-a-real-secret"):
+            raise ValueError(
+                "SECRET_KEY není nastaven nebo stále obsahuje defaultní hodnotu. "
+                "Vygeneruj: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY musí mít alespoň 32 znaků")
+        return v
 
 
 @lru_cache

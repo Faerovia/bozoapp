@@ -6,10 +6,42 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.accident_report import AccidentReport
+from app.models.employee import Employee
+from app.models.risk import Risk
 from app.schemas.accident_reports import (
     AccidentReportCreateRequest,
     AccidentReportUpdateRequest,
 )
+
+
+async def _assert_fk_in_tenant(
+    db: AsyncSession,
+    *,
+    employee_id: uuid.UUID | None,
+    risk_id: uuid.UUID | None,
+    tenant_id: uuid.UUID,
+) -> None:
+    """Ochrana proti cross-tenant FK injection."""
+    if employee_id is not None:
+        res = await db.execute(
+            select(Employee.id).where(
+                Employee.id == employee_id, Employee.tenant_id == tenant_id
+            )
+        )
+        if res.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="employee_id neexistuje v tomto tenantu",
+            )
+    if risk_id is not None:
+        res = await db.execute(
+            select(Risk.id).where(Risk.id == risk_id, Risk.tenant_id == tenant_id)
+        )
+        if res.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="risk_id neexistuje v tomto tenantu",
+            )
 
 
 async def get_accident_reports(
@@ -50,6 +82,12 @@ async def create_accident_report(
     tenant_id: uuid.UUID,
     created_by: uuid.UUID,
 ) -> AccidentReport:
+    await _assert_fk_in_tenant(
+        db,
+        employee_id=data.employee_id,
+        risk_id=data.risk_id,
+        tenant_id=tenant_id,
+    )
     # Svědky serializuj do JSONB-friendly formátu
     witnesses_data = [
         {"name": w.name, "signed_at": w.signed_at.isoformat() if w.signed_at else None}
@@ -96,11 +134,25 @@ async def update_accident_report(
 ) -> AccidentReport:
     if report.status != "draft":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Finalizovaný záznam nelze upravovat",
         )
 
     update_fields = data.model_dump(exclude_unset=True)
+
+    # FK tenant validace
+    new_employee_id = update_fields.get("employee_id")
+    new_risk_id = update_fields.get("risk_id")
+    if (
+        ("employee_id" in update_fields and new_employee_id is not None)
+        or ("risk_id" in update_fields and new_risk_id is not None)
+    ):
+        await _assert_fk_in_tenant(
+            db,
+            employee_id=new_employee_id if "employee_id" in update_fields else None,
+            risk_id=new_risk_id if "risk_id" in update_fields else None,
+            tenant_id=report.tenant_id,
+        )
 
     # Svědky zpracuj zvlášť
     if "witnesses" in update_fields and update_fields["witnesses"] is not None:
@@ -122,7 +174,7 @@ async def finalize_accident_report(
     """Draft → final. Nastaví risk_review_required = True."""
     if report.status != "draft":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Nelze finalizovat záznam ve stavu '{report.status}'",
         )
     report.status = "final"
@@ -137,12 +189,12 @@ async def complete_risk_review(
     """Potvrdí, že OZO zkontroloval/upravil rizika po úrazu."""
     if report.status == "archived":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Archivovaný záznam nelze upravovat",
         )
     if not report.risk_review_required:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Revize rizik nebyla vyžadována",
         )
     report.risk_review_completed_at = datetime.now(UTC)

@@ -32,7 +32,9 @@ async def register_user(
     RLS bypass: při registraci ještě nemáme tenant_id, takže
     dočasně nastavíme superadmin flag aby INSERT prošel přes RLS.
     """
-    await db.execute(text("SET LOCAL app.is_superadmin = 'true'"))
+    await db.execute(
+        text("SELECT set_config('app.is_superadmin', 'true', true)")
+    )
 
     tenant = Tenant(name=data.tenant_name, slug=_slugify(data.tenant_name))
     db.add(tenant)
@@ -64,7 +66,9 @@ async def login_user(
     RLS bypass: hledáme uživatele podle emailu napříč tenanty,
     tenant_id ještě neznáme.
     """
-    await db.execute(text("SET LOCAL app.is_superadmin = 'true'"))
+    await db.execute(
+        text("SELECT set_config('app.is_superadmin', 'true', true)")
+    )
 
     result = await db.execute(
         select(User).where(User.email == email, User.is_active == True)  # noqa: E712

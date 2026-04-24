@@ -87,7 +87,7 @@ async def test_create_exam_with_valid_months(client: AsyncClient) -> None:
         client, headers, eid,
         exam_date=str(today),
         valid_months=24,
-        result="zpusobilyý",
+        result="zpusobily",
     )
     assert exam["valid_until"] is not None
     # valid_until = today + 24 měsíce
@@ -127,11 +127,11 @@ async def test_update_exam(client: AsyncClient) -> None:
 
     resp = await client.patch(
         f"/api/v1/medical-exams/{exam['id']}",
-        json={"result": "zpusobilyý", "physician_name": "MUDr. Novák"},
+        json={"result": "zpusobily", "physician_name": "MUDr. Novák"},
         headers=headers,
     )
     assert resp.status_code == 200
-    assert resp.json()["result"] == "zpusobilyý"
+    assert resp.json()["result"] == "zpusobily"
     assert resp.json()["physician_name"] == "MUDr. Novák"
 
 
