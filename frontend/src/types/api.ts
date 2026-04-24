@@ -117,27 +117,70 @@ export interface Workplace {
   notes: string | null;
 }
 
-// ── Trainings ─────────────────────────────────────────────────────────────────
+// ── Trainings (commit 11a+): šablona + přiřazení + pokusy ────────────────────
 
-export type TrainingType =
-  | "bozp_initial" | "bozp_periodic" | "fire_initial" | "fire_periodic"
-  | "first_aid" | "driver" | "machinery" | "chemical" | "other";
-
+export type TrainingType = "bozp" | "po" | "other";
+export type TrainerKind = "ozo_bozp" | "ozo_po" | "employer";
 export type ValidityStatus = "no_expiry" | "valid" | "expiring_soon" | "expired";
+export type AssignmentStatus = "pending" | "completed" | "expired" | "revoked";
 
 export interface Training {
   id: string;
-  employee_id: string;
-  employee_name: string | null;
+  tenant_id: string;
   title: string;
   training_type: TrainingType;
-  trained_at: string;
-  valid_months: number | null;
-  valid_until: string | null;
-  validity_status: ValidityStatus;
-  trainer_name: string | null;
+  trainer_kind: TrainerKind;
+  valid_months: number;
+  content_pdf_path: string | null;
+  has_test: boolean;
+  question_count: number;
+  pass_percentage: number | null;
   notes: string | null;
-  status: "active" | "archived";
+  created_by: string;
+  created_at: string;
+}
+
+export interface TrainingAssignment {
+  id: string;
+  tenant_id: string;
+  training_id: string;
+  training_title: string | null;
+  training_type: string | null;
+  employee_id: string;
+  employee_name: string | null;
+  assigned_at: string;
+  deadline: string;
+  last_completed_at: string | null;
+  valid_until: string | null;
+  validity_status: string;
+  status: AssignmentStatus;
+}
+
+export interface TestQuestionForAttempt {
+  question_index: number;
+  question: string;
+  options: string[];
+}
+
+export interface StartTestResponse {
+  assignment_id: string;
+  training_title: string;
+  pass_percentage: number;
+  questions: TestQuestionForAttempt[];
+}
+
+export interface SubmitTestResponse {
+  attempt_id: string;
+  score_percentage: number;
+  passed: boolean;
+  pass_percentage: number;
+  assignment: TrainingAssignment;
+}
+
+export interface AssignmentCreateResponse {
+  created_count: number;
+  skipped_existing_count: number;
+  errors: string[];
 }
 
 // ── Revisions ─────────────────────────────────────────────────────────────────
