@@ -182,6 +182,14 @@ async def create_employee(
     )
     db.add(employee)
     await db.flush()
+
+    # Nastav zodpovědnosti (M:N) pokud byly zadány
+    if data.responsible_plant_ids:
+        from app.services.revisions import set_employee_responsibilities
+        await set_employee_responsibilities(
+            db, employee.id, data.responsible_plant_ids, tenant_id
+        )
+
     return employee, generated_password
 
 
@@ -227,10 +235,22 @@ async def update_employee(
             field_name="job_position_id",
         )
 
+    # Apply responsible_plant_ids separately (not a column on Employee)
+    resp_plants: list[uuid.UUID] | None = update_fields.pop(
+        "responsible_plant_ids", None
+    )
+
     for field, value in update_fields.items():
         setattr(employee, field, value)
 
     await db.flush()
+
+    if resp_plants is not None:
+        from app.services.revisions import set_employee_responsibilities
+        await set_employee_responsibilities(
+            db, employee.id, resp_plants, employee.tenant_id
+        )
+
     return employee
 
 

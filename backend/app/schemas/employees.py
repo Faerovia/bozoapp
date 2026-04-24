@@ -24,6 +24,10 @@ class EmployeeCreateRequest(BaseModel):
     # Zodpovědnost za vyhrazená technická zařízení — pokud zaškrtnuto, user
     # dostane role `equipment_responsible` místo defaultního `employee`.
     is_equipment_responsible: bool = False
+    # Seznam provozoven, za které je zaměstnanec zodpovědný (M:N).
+    # Pokud prázdný seznam + is_equipment_responsible=True → role se nastaví,
+    # ale notifikace nedostává (musí admin doplnit přes PUT responsibilities).
+    responsible_plant_ids: list[uuid.UUID] = Field(default_factory=list)
 
     personal_id: str | None = Field(None, max_length=20)
     # Rodné číslo — GDPR zvláštní kategorie, ukládáno Fernet-encrypted.
@@ -73,6 +77,9 @@ class EmployeeUpdateRequest(BaseModel):
     # Equipment responsible toggle — přepne roli linked usera mezi
     # equipment_responsible ↔ employee.
     is_equipment_responsible: bool | None = None
+    # Volitelné: nahradí aktuální seznam zodpovědných provozoven. Pokud je
+    # pole vynechané, M:N vazba se nemění.
+    responsible_plant_ids: list[uuid.UUID] | None = None
 
 
 class EmployeeResponse(BaseModel):

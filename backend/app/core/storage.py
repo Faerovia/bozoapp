@@ -24,8 +24,10 @@ log = logging.getLogger(__name__)
 MAX_TRAINING_PDF_BYTES = 3 * 1024 * 1024   # 3 MB
 MAX_LOGO_BYTES = 1 * 1024 * 1024           # 1 MB
 MAX_TEST_CSV_BYTES = 500 * 1024            # 500 KB
+MAX_REVISION_FILE_BYTES = 5 * 1024 * 1024  # 5 MB (PDF nebo foto z terénu)
 _ALLOWED_PDF_MIME = "application/pdf"
 _ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+_ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".heic"}
 
 
 def _upload_root() -> Path:
@@ -79,6 +81,47 @@ def save_tenant_logo(
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_bytes(content)
     return rel_path
+
+
+def save_revision_record_file(
+    tenant_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    record_id: uuid.UUID,
+    content: bytes,
+    filename: str,
+) -> tuple[str | None, str | None]:
+    """
+    Uloží přílohu k záznamu revize — PDF nebo obrázek.
+    Vrací (pdf_path, image_path), z toho právě jedno je None.
+    """
+    if len(content) > MAX_REVISION_FILE_BYTES:
+        raise ValueError(
+            f"Soubor je příliš velký (max {MAX_REVISION_FILE_BYTES // 1024 // 1024} MB)"
+        )
+
+    ext = Path(filename).suffix.lower()
+
+    # PDF větev
+    if ext == ".pdf":
+        if not content.startswith(b"%PDF"):
+            raise ValueError("Soubor má příponu .pdf ale není platné PDF")
+        rel_path = f"revisions/{tenant_id}/{revision_id}/{record_id}.pdf"
+        full = _safe_join(rel_path)
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(content)
+        return rel_path, None
+
+    # Obrázková větev
+    if ext in _ALLOWED_IMAGE_EXTENSIONS:
+        rel_path = f"revisions/{tenant_id}/{revision_id}/{record_id}{ext}"
+        full = _safe_join(rel_path)
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(content)
+        return None, rel_path
+
+    raise ValueError(
+        "Nepodporovaný formát (povoleno: PDF, PNG, JPG, JPEG, WEBP, HEIC)"
+    )
 
 
 def read_file(rel_path: str) -> bytes:

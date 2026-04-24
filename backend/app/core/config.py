@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # Dev: mount jako docker volume; produkce: sync na S3 (TODO: S3 wrapper).
     upload_dir: str = "/app/uploads"
 
+    # Veřejná URL aplikace (frontend) — používá se pro odkazy v emailech
+    # a v obsahu QR kódů (sken vede na /devices/{qr_token}/record).
+    app_public_url: str = "http://localhost:3000"
+
     # Observability
     sentry_dsn: str = ""
 
