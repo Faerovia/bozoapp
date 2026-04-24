@@ -168,7 +168,7 @@ export default function WorkplacesPage() {
 
   const { data: plants = [], isLoading: plantsLoading } = useQuery<Plant[]>({
     queryKey: ["plants"],
-    queryFn: () => api.get("/workplaces/plants"),
+    queryFn: () => api.get("/plants"),
   });
 
   const { data: workplaces = [], isLoading: workplacesLoading } = useQuery<Workplace[]>({
@@ -182,19 +182,19 @@ export default function WorkplacesPage() {
   // ── Plant mutations ────────────────────────────────────────────────────────
 
   const createPlant = useMutation({
-    mutationFn: (d: PlantForm) => api.post("/workplaces/plants", d),
+    mutationFn: (d: PlantForm) => api.post("/plants", d),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["plants"] }); setPlantCreate(false); },
     onError: (err) => setPlantError(err instanceof ApiError ? err.detail : "Chyba serveru"),
   });
 
   const updatePlant = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: Partial<PlantForm> }) => api.patch(`/workplaces/plants/${id}`, d),
+    mutationFn: ({ id, d }: { id: string; d: Partial<PlantForm> }) => api.patch(`/plants/${id}`, d),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["plants"] }); setEditPlant(null); },
     onError: (err) => setPlantError(err instanceof ApiError ? err.detail : "Chyba serveru"),
   });
 
   const deletePlant = useMutation({
-    mutationFn: (id: string) => api.delete(`/workplaces/plants/${id}`),
+    mutationFn: (id: string) => api.delete(`/plants/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["plants"] }),
   });
 
