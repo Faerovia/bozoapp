@@ -22,7 +22,7 @@ async def list_risks(
     status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[RiskResponse]:
     """
     Vrátí registr rizik tenantu.
     Volitelný filtr: ?status=active nebo ?status=archived

@@ -47,7 +47,7 @@ async def list_plants(
     plant_status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(require_role("ozo", "manager", "employee")),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[PlantResponse]:
     return await get_plants(db, current_user.tenant_id, status=plant_status)
 
 
@@ -106,7 +106,7 @@ async def list_workplaces(
     workplace_status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(require_role("ozo", "manager", "employee")),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[WorkplaceResponse]:
     return await get_workplaces(
         db, current_user.tenant_id, plant_id=plant_id, status=workplace_status
     )
@@ -170,7 +170,7 @@ async def list_risk_factors(
     rfa_status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(require_role("ozo", "manager", "employee")),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[RiskFactorAssessmentResponse]:
     return await get_risk_factor_assessments(
         db, current_user.tenant_id, workplace_id=workplace_id, status=rfa_status
     )

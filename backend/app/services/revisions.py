@@ -141,7 +141,7 @@ async def get_calendar_items(
                 source="revision",
                 source_id=rev.id,
                 title=rev.title,
-                due_date=rev.next_revision_at,  # type: ignore[arg-type]
+                due_date=rev.next_revision_at,
                 due_status=_compute_due_status(rev.next_revision_at),  # type: ignore[arg-type]
                 responsible_user_id=rev.responsible_user_id,
                 detail_url=f"/api/v1/revisions/{rev.id}",
@@ -161,7 +161,7 @@ async def get_calendar_items(
                 source="risk",
                 source_id=risk.id,
                 title=risk.title,
-                due_date=risk.review_date,  # type: ignore[arg-type]
+                due_date=risk.review_date,
                 due_status=_compute_due_status(risk.review_date),  # type: ignore[arg-type]
                 responsible_user_id=risk.responsible_user_id,
                 detail_url=f"/api/v1/risks/{risk.id}",
@@ -181,7 +181,7 @@ async def get_calendar_items(
                 source="training",
                 source_id=training.id,
                 title=f"{training.title} – {training.employee_id}",
-                due_date=training.valid_until,  # type: ignore[arg-type]
+                due_date=training.valid_until,
                 due_status=_compute_due_status(training.valid_until),  # type: ignore[arg-type]
                 responsible_user_id=None,
                 detail_url=f"/api/v1/trainings/{training.id}",

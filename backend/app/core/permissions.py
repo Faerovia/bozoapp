@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import Depends, HTTPException, status
 
 from app.core.dependencies import get_current_user
@@ -9,7 +11,7 @@ from app.models.user import User
 # employee – zaměstnanec, přístup jen ke svým záznamům
 
 
-def require_role(*roles: str):
+def require_role(*roles: str) -> Any:
     """
     FastAPI dependency factory. Použití:
 

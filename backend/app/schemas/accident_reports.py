@@ -134,7 +134,7 @@ class AccidentReportResponse(BaseModel):
     drug_test_result: str | None
 
     injured_signed_at: date | None
-    witnesses: list  # [{name, signed_at}]
+    witnesses: list[dict]  # [{name, signed_at}]
     supervisor_name: str | None
     supervisor_signed_at: date | None
 

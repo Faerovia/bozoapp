@@ -27,7 +27,7 @@ async def list_job_positions(
     work_category: str | None = Query(None, pattern="^(1|2|2R|3|4)$"),
     current_user: User = Depends(require_role("ozo", "manager", "employee")),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[JobPositionResponse]:
     return await get_job_positions(
         db, current_user.tenant_id, status=jp_status, work_category=work_category
     )

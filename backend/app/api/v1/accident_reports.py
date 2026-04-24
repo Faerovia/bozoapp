@@ -64,7 +64,7 @@ async def list_accident_reports(
     risk_review_pending: bool | None = Query(None),
     current_user: User = Depends(require_role("ozo", "manager")),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[AccidentReportResponse]:
     """
     Vrátí záznamy o pracovních úrazech.
     Filtry: ?report_status=draft|final|archived, ?risk_review_pending=true

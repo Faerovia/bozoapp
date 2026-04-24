@@ -35,7 +35,7 @@ async def get_calendar(
     days_ahead: int = Query(90, ge=1, le=365),
     current_user: User = Depends(require_role("ozo", "manager")),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[CalendarItem]:
     """
     Agregovaný přehled nadcházejících termínů (revize, přezkum rizik, expiry školení).
     Řazeno vzestupně podle termínu. Překročené termíny jsou zahrnuty vždy.
@@ -53,7 +53,7 @@ async def list_revisions(
     due_status: str | None = Query(None, pattern="^(no_schedule|ok|due_soon|overdue)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[RevisionResponse]:
     """Vrátí záznamy o revizích. Přístup: všechny role."""
     return await get_revisions(
         db, current_user.tenant_id,

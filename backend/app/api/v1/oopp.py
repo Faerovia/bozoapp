@@ -33,7 +33,7 @@ async def list_oopp(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[OOPPResponse]:
     """
     Vrátí evidenci OOPP.
     Employee vidí pouze vlastní záznamy.

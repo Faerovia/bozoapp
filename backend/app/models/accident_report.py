@@ -69,7 +69,7 @@ class AccidentReport(Base, TimestampMixin):
 
     # Podpisy
     injured_signed_at: Mapped[date | None] = mapped_column(Date)
-    witnesses: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    witnesses: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
     supervisor_name: Mapped[str | None] = mapped_column(String(255))
     supervisor_signed_at: Mapped[date | None] = mapped_column(Date)
 

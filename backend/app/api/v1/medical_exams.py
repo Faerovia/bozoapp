@@ -39,7 +39,7 @@ async def list_medical_exams(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list:
+) -> list[MedicalExamResponse]:
     """
     Vrátí evidenci lékařských prohlídek.
     Employee vidí pouze vlastní záznamy.
