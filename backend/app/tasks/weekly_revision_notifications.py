@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
@@ -113,7 +114,7 @@ async def _collect_and_send(db: AsyncSession) -> int:
 
     # 2) Pro každou získej odpovědné zaměstnance přes M:N
     # Grouping key: (employee.id, plant_id) → list[Revision]
-    per_employee_plant: dict[tuple, list[Revision]] = defaultdict(list)
+    per_employee_plant: dict[tuple[uuid.UUID, uuid.UUID], list[Revision]] = defaultdict(list)
 
     for rev in due_revisions:
         assert rev.plant_id is not None  # filter above
@@ -141,7 +142,7 @@ async def _collect_and_send(db: AsyncSession) -> int:
 
     # 3) Vytvoř maps pro rychlý lookup
     plant_ids = {p for _, p in per_employee_plant}
-    plant_names: dict = {}
+    plant_names: dict[uuid.UUID, str] = {}
     for pid in plant_ids:
         name = (await db.execute(
             select(Plant.name).where(Plant.id == pid)
@@ -149,7 +150,7 @@ async def _collect_and_send(db: AsyncSession) -> int:
         plant_names[pid] = name or "Neznámá provozovna"
 
     employee_ids = {eid for eid, _ in per_employee_plant}
-    employees_map: dict = {}
+    employees_map: dict[uuid.UUID, Employee] = {}
     for eid in employee_ids:
         emp = (await db.execute(
             select(Employee).where(Employee.id == eid)
@@ -162,25 +163,25 @@ async def _collect_and_send(db: AsyncSession) -> int:
     sent_count = 0
 
     for (employee_id, plant_id), revisions in per_employee_plant.items():
-        employee = employees_map.get(employee_id)
-        if employee is None or not employee.email:
+        emp_obj = employees_map.get(employee_id)
+        if emp_obj is None or not emp_obj.email:
             continue
 
         pairs = [(r, (r.next_revision_at - today).days if r.next_revision_at else 999)
                  for r in revisions]
-        subject, body = _build_email_body(employee, plant_names[plant_id], pairs)
+        subject, body = _build_email_body(emp_obj, plant_names[plant_id], pairs)
 
         try:
             await sender.send(EmailMessage(
-                to=employee.email,
+                to=emp_obj.email,
                 subject=subject,
                 body_text=body,
             ))
             sent_count += 1
             log.info("Sent notification to %s (%d revisions, plant=%s)",
-                     employee.email, len(revisions), plant_names[plant_id])
+                     emp_obj.email, len(revisions), plant_names[plant_id])
         except Exception:  # noqa: BLE001
-            log.exception("Failed to send notification to %s", employee.email)
+            log.exception("Failed to send notification to %s", emp_obj.email)
 
     return sent_count
 
