@@ -8,12 +8,14 @@ Pokrývá:
 - /auth/logout revokuje všechny aktivní refresh tokeny usera
 - Rotation probíhá přes httpOnly cookie, nikoli Bearer
 """
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import decode_token
+from app.core.security import create_refresh_token, decode_token
 from app.models.refresh_token import RefreshToken
 
 
@@ -136,10 +138,7 @@ async def test_logout_revokes_all_user_tokens(
 @pytest.mark.asyncio
 async def test_refresh_without_jti_rejected(client: AsyncClient) -> None:
     """Staré tokeny bez jti/family_id (pre-migration 013) nesmí projít."""
-    from app.core.security import create_refresh_token
-
     # Vytvoř token bez jti — simulace legacy tokenu
-    import uuid
     legacy = create_refresh_token(uuid.uuid4(), uuid.uuid4())
     resp = await client.post(
         "/api/v1/auth/refresh",

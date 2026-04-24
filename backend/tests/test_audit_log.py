@@ -9,8 +9,6 @@ Pokrývá:
 - Tenant isolation: audit_log vidí jen záznamy vlastního tenantu
 - hashed_password se NEZAPISUJE do new_values
 """
-from datetime import date
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text

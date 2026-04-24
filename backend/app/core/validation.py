@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 async def assert_in_tenant(
     db: AsyncSession,
-    model: type["DeclarativeBase"],
+    model: type[DeclarativeBase],
     entity_id: uuid.UUID,
     tenant_id: uuid.UUID,
     *,
