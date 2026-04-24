@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.validation import assert_in_tenant
 from app.models.employee import Employee
+from app.models.user import User
 from app.schemas.employees import EmployeeCreateRequest, EmployeeUpdateRequest
 
 
@@ -62,17 +63,7 @@ async def create_employee(
 ) -> Employee:
     # Pokud je zadáno user_id, ověříme že user existuje ve stejném tenantu
     if data.user_id is not None:
-        from app.models.user import User
-        user = (
-            await db.execute(
-                select(User).where(User.id == data.user_id, User.tenant_id == tenant_id)
-            )
-        ).scalar_one_or_none()
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="user_id neexistuje v tomto tenantu",
-            )
+        await assert_in_tenant(db, User, data.user_id, tenant_id, field_name="user_id")
 
     employee = Employee(
         tenant_id=tenant_id,
@@ -100,20 +91,9 @@ async def update_employee(
 
     # Pokud se mění user_id, ověříme tenant příslušnost
     if "user_id" in update_fields and update_fields["user_id"] is not None:
-        from app.models.user import User
-        user = (
-            await db.execute(
-                select(User).where(
-                    User.id == update_fields["user_id"],
-                    User.tenant_id == employee.tenant_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="user_id neexistuje v tomto tenantu",
-            )
+        await assert_in_tenant(
+            db, User, update_fields["user_id"], employee.tenant_id, field_name="user_id"
+        )
 
     for field, value in update_fields.items():
         setattr(employee, field, value)

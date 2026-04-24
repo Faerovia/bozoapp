@@ -5,9 +5,15 @@
  * (same-origin). credentials: 'include' není potřeba – jsme na stejném originu.
  *
  * 401 → redirect na /login (access token expiroval, uživatel se musí znovu přihlásit)
+ *
+ * CSRF (double-submit cookie): backend setuje non-httpOnly `csrf_token` cookie
+ * při loginu/registraci/refreshi. Pro state-changing requesty (POST/PUT/PATCH/
+ * DELETE) ho musíme přiložit jako X-CSRF-Token header. Cookie přečteme z
+ * document.cookie.
  */
 
 const BASE = "/api/v1";
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export class ApiError extends Error {
   constructor(
@@ -18,14 +24,28 @@ export class ApiError extends Error {
   }
 }
 
+function getCsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 async function request<T>(
   method: string,
   path: string,
   body?: unknown
 ): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body) headers["Content-Type"] = "application/json";
+
+  if (!SAFE_METHODS.has(method)) {
+    const csrf = getCsrfToken();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
   });

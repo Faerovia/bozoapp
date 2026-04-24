@@ -16,8 +16,10 @@ dependencies = [
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     "pydantic-settings>=2.6.0",
-    "python-jose[cryptography]>=3.3.0",
+    "pyjwt[crypto]>=2.9.0",
     "passlib[argon2]>=1.7.4",
+    "slowapi>=0.1.9",
+    "redis>=5.2.0",
     "sentry-sdk[fastapi]>=2.0.0",
     "python-multipart>=0.0.12",
     "pydantic[email]>=2.0.0",
@@ -32,6 +34,7 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "types-passlib",
+    "types-pyjwt",
 ]
 
 [tool.ruff]

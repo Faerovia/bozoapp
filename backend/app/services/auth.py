@@ -1,8 +1,14 @@
 import re
 
+from fastapi import HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import (
+    apply_login_delay,
+    record_login_failure,
+    record_login_success,
+)
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -12,6 +18,12 @@ from app.core.security import (
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.auth import RegisterRequest
+
+# Pre-computed Argon2 hash libovolné hodnoty. Používáme ho v login flow,
+# pokud uživatel neexistuje — `verify_password` musí stejně proběhnout
+# (stejná CPU/time cost) aby útočník nedokázal rozlišit "neexistující email"
+# od "existující email, špatné heslo" podle timing.
+_DUMMY_PASSWORD_HASH = hash_password("dummy-password-not-used-for-login")
 
 
 def _slugify(name: str) -> str:
@@ -63,9 +75,25 @@ async def login_user(
     Ověří přihlašovací údaje.
     Vrátí (user, access_token, refresh_token) nebo None.
 
+    Ochrany:
+    - **Progressive delay**: před ověřením spi úměrně počtu fail pokusů
+      pro daný email (Redis counter). Nad prahem → 429.
+    - **Timing attack resistance**: při neexistujícím emailu voláme
+      verify_password proti dummy hashi, aby celkový čas byl stejný jako
+      pro existujícího uživatele se špatným heslem.
+
     RLS bypass: hledáme uživatele podle emailu napříč tenanty,
     tenant_id ještě neznáme.
     """
+    # 1) Progressive delay podle fail countu. Volá se PŘED jakýmkoli DB/crypto
+    #    dotazem, aby attacker platil čas i kdyby o email nic nevěděl.
+    can_proceed = await apply_login_delay(email)
+    if not can_proceed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Účet je dočasně zablokován pro příliš mnoho neúspěšných pokusů.",
+        )
+
     await db.execute(
         text("SELECT set_config('app.is_superadmin', 'true', true)")
     )
@@ -75,8 +103,18 @@ async def login_user(
     )
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(password, user.hashed_password):
+    # 2) Timing attack ochrana: pokud user neexistuje, ověřujeme dummy hash,
+    #    abychom spotřebovali stejný Argon2 time jako legit login.
+    if user is None:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
+        await record_login_failure(email)
         return None
+
+    if not verify_password(password, user.hashed_password):
+        await record_login_failure(email)
+        return None
+
+    await record_login_success(email)
 
     access_token = create_access_token(user.id, user.tenant_id, user.role)
     refresh_token = create_refresh_token(user.id, user.tenant_id)

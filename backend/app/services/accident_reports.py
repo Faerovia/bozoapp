@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.validation import assert_in_tenant
 from app.models.accident_report import AccidentReport
 from app.models.employee import Employee
 from app.models.risk import Risk
@@ -21,27 +22,11 @@ async def _assert_fk_in_tenant(
     risk_id: uuid.UUID | None,
     tenant_id: uuid.UUID,
 ) -> None:
-    """Ochrana proti cross-tenant FK injection."""
+    """Ochrana proti cross-tenant FK injection přes employee_id a risk_id."""
     if employee_id is not None:
-        res = await db.execute(
-            select(Employee.id).where(
-                Employee.id == employee_id, Employee.tenant_id == tenant_id
-            )
-        )
-        if res.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="employee_id neexistuje v tomto tenantu",
-            )
+        await assert_in_tenant(db, Employee, employee_id, tenant_id, field_name="employee_id")
     if risk_id is not None:
-        res = await db.execute(
-            select(Risk.id).where(Risk.id == risk_id, Risk.tenant_id == tenant_id)
-        )
-        if res.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="risk_id neexistuje v tomto tenantu",
-            )
+        await assert_in_tenant(db, Risk, risk_id, tenant_id, field_name="risk_id")
 
 
 async def get_accident_reports(

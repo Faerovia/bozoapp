@@ -2,12 +2,11 @@ import uuid
 
 from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import JWTError, decode_token
 from app.models.user import User
 
 # HTTPBearer s auto_error=False → nevyhodí 403 pokud header chybí,

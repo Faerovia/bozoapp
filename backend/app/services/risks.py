@@ -1,25 +1,12 @@
 import uuid
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.validation import assert_in_tenant
 from app.models.risk import Risk
 from app.models.user import User
 from app.schemas.risks import RiskCreateRequest, RiskUpdateRequest
-
-
-async def _assert_user_in_tenant(
-    db: AsyncSession, user_id: uuid.UUID, tenant_id: uuid.UUID
-) -> None:
-    result = await db.execute(
-        select(User.id).where(User.id == user_id, User.tenant_id == tenant_id)
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="responsible_user_id neexistuje v tomto tenantu",
-        )
 
 
 async def get_risks(
@@ -51,7 +38,9 @@ async def create_risk(
     created_by: uuid.UUID,
 ) -> Risk:
     if data.responsible_user_id is not None:
-        await _assert_user_in_tenant(db, data.responsible_user_id, tenant_id)
+        await assert_in_tenant(
+            db, User, data.responsible_user_id, tenant_id, field_name="responsible_user_id"
+        )
     risk = Risk(
         tenant_id=tenant_id,
         created_by=created_by,
@@ -81,8 +70,9 @@ async def update_risk(
         "responsible_user_id" in update_fields
         and update_fields["responsible_user_id"] is not None
     ):
-        await _assert_user_in_tenant(
-            db, update_fields["responsible_user_id"], risk.tenant_id
+        await assert_in_tenant(
+            db, User, update_fields["responsible_user_id"], risk.tenant_id,
+            field_name="responsible_user_id",
         )
     for field, value in update_fields.items():
         setattr(risk, field, value)

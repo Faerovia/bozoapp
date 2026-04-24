@@ -1,28 +1,12 @@
 import uuid
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.validation import assert_in_tenant
 from app.models.employee import Employee
 from app.models.oopp import OOPPAssignment
 from app.schemas.oopp import OOPPCreateRequest, OOPPUpdateRequest
-
-
-async def _assert_employee_in_tenant(
-    db: AsyncSession, employee_id: uuid.UUID, tenant_id: uuid.UUID
-) -> None:
-    result = await db.execute(
-        select(Employee.id).where(
-            Employee.id == employee_id,
-            Employee.tenant_id == tenant_id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="employee_id neexistuje v tomto tenantu",
-        )
 
 
 async def get_oopp_assignments(
@@ -75,7 +59,9 @@ async def create_oopp_assignment(
     created_by: uuid.UUID,
 ) -> OOPPAssignment:
     if data.employee_id is not None:
-        await _assert_employee_in_tenant(db, data.employee_id, tenant_id)
+        await assert_in_tenant(
+            db, Employee, data.employee_id, tenant_id, field_name="employee_id"
+        )
     assignment = OOPPAssignment(
         tenant_id=tenant_id,
         created_by=created_by,
@@ -101,8 +87,9 @@ async def update_oopp_assignment(
 ) -> OOPPAssignment:
     update_fields = data.model_dump(exclude_unset=True)
     if "employee_id" in update_fields and update_fields["employee_id"] is not None:
-        await _assert_employee_in_tenant(
-            db, update_fields["employee_id"], assignment.tenant_id
+        await assert_in_tenant(
+            db, Employee, update_fields["employee_id"], assignment.tenant_id,
+            field_name="employee_id",
         )
     for field, value in update_fields.items():
         setattr(assignment, field, value)
