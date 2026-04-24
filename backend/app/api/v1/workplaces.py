@@ -8,6 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.permissions import require_role
+from app.core.storage import (
+    MAX_TRAINING_PDF_BYTES,
+    delete_file,
+    read_file,
+    save_rfa_factor_pdf,
+)
+from app.models.risk_factor_assessment import RF_FIELDS
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.workplaces import (
@@ -22,13 +29,6 @@ from app.schemas.workplaces import (
     WorkplaceUpdateRequest,
 )
 from app.services.export_pdf import generate_risk_factor_list_pdf
-from app.core.storage import (
-    MAX_TRAINING_PDF_BYTES,
-    delete_file,
-    read_file,
-    save_rfa_factor_pdf,
-)
-from app.models.risk_factor_assessment import RF_FIELDS
 from app.services.workplaces import (
     clear_rfa_factor_pdf,
     create_plant,
