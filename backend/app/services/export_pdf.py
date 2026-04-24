@@ -184,35 +184,45 @@ TRAINING_TYPE_CS = {
 }
 
 def generate_trainings_pdf(trainings: Sequence[Training], tenant_name: str) -> bytes:
-    pdf = _ExportPDF("PŘEHLED ŠKOLENÍ BOZP/PO", tenant_name)
+    """
+    Export seznamu školících ŠABLON (ne individuálních přiřazení).
+    Po refactoru migrace 022 je Training = šablona; přehled přiřazení
+    (kdo má co splnit / kdy expiruje) bude v samostatném exportu nad
+    TrainingAssignment (TODO).
+    """
+    pdf = _ExportPDF("PŘEHLED ŠABLON ŠKOLENÍ BOZP/PO", tenant_name)
+
+    trainer_cs = {
+        "ozo_bozp": "OZO BOZP",
+        "ozo_po": "OZO PO",
+        "employer": "Zaměstnavatel",
+    }
+    type_cs = {"bozp": "BOZP", "po": "PO", "other": "Ostatní"}
 
     cols = [
-        ("Název školení", 70),
+        ("Název školení", 90),
         ("Typ", 28),
-        ("Datum školení", 26),
-        ("Platnost do", 24),
-        ("Stav platnosti", 28),
-        ("Lektor/Školitel", 40),
-        ("Platnost (měs.)", 24),
-        ("Status", 18),
-        ("Poznámky", 39),
+        ("Platnost (měs.)", 28),
+        ("Školitel", 40),
+        ("Test", 22),
+        ("Pozn.", 62),
     ]
     pdf.table_header(cols)
 
     for i, t in enumerate(trainings):
         pdf.table_row([
-            (t.title, 70),
-            (TRAINING_TYPE_CS.get(t.training_type, t.training_type), 28),
-            (_fmt_date(t.trained_at), 26),
-            (_fmt_date(t.valid_until), 24),
-            (VALIDITY_CS.get(t.validity_status, t.validity_status), 28),
-            (t.trainer_name or "—", 40),
-            (str(t.valid_months) if t.valid_months else "—", 24),
-            ("Aktivní" if t.status == "active" else "Archiv.", 18),
-            (t.notes or "—", 39),
+            (t.title, 90),
+            (type_cs.get(t.training_type, t.training_type), 28),
+            (str(t.valid_months), 28),
+            (trainer_cs.get(t.trainer_kind, t.trainer_kind), 40),
+            (
+                f"Ano ({t.question_count} ot., {t.pass_percentage}%)" if t.has_test else "Ne",
+                22,
+            ),
+            (t.notes or "—", 62),
         ], shade=i % 2 == 1)
 
-    pdf.section_note(f"Celkem záznamů: {len(trainings)}")
+    pdf.section_note(f"Celkem šablon: {len(trainings)}")
     return bytes(pdf.output())
 
 

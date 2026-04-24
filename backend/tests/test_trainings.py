@@ -1,281 +1,234 @@
 """
-Testy pro evidenci školení BOZP/PO.
-
-Klíčové BOZP invarianty které testujeme:
-- valid_until se automaticky vypočítá z trained_at + valid_months
-- školení bez valid_months → validity_status = 'no_expiry'
-- správné odvozování validity_status (valid / expiring_soon / expired)
-- employee vidí pouze vlastní záznamy (ne záznamy ostatních)
-- employee nesmí vytvářet záznamy
-- archivace místo smazání
-
-Po refaktoru (007_employees):
-- employee_id odkazuje na employees.id (ne users.id)
-- employee access se resolvuje přes employees.user_id
+Testy nového Training modelu (commit 11a):
+Training (šablona) + TrainingAssignment + TrainingAttempt.
 """
-
-from datetime import date, timedelta
+import io
 
 import pytest
 from httpx import AsyncClient
 
 
-async def _ozo_headers(client: AsyncClient, suffix: str = "") -> dict:
+async def _ozo_headers(client: AsyncClient, suffix: str) -> tuple[dict, str]:
     resp = await client.post(
         "/api/v1/auth/register",
         json={
-            "email": f"ozo{suffix}@skoleni.cz",
+            "email": f"ozo_tr_{suffix}@me.cz",
             "password": "heslo1234",
-            "tenant_name": f"Firma {suffix}",
+            "tenant_name": f"Firma TR {suffix}",
         },
     )
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    data = resp.json()
+    headers = {"Authorization": f"Bearer {data['access_token']}"}
+    return headers, data["access_token"]
 
 
-async def _create_employee(client: AsyncClient, ozo_headers: dict, suffix: str, user_id: str | None = None) -> str:
-    """Vytvoří HR záznam zaměstnance a vrátí jeho employees.id."""
-    resp = await client.post(
-        "/api/v1/employees",
-        json={
-            "first_name": "Testovací",
-            "last_name": f"Zaměstnanec {suffix}",
-            "user_id": user_id,
-            "employment_type": "hpp",
-        },
-        headers=ozo_headers,
-    )
-    assert resp.status_code == 201, f"create_employee failed: {resp.json()}"
+async def _create_employee(
+    client: AsyncClient, headers: dict, last: str, email: str | None = None
+) -> str:
+    payload: dict = {
+        "first_name": "Emp",
+        "last_name": last,
+        "employment_type": "hpp",
+    }
+    if email:
+        payload["email"] = email
+    resp = await client.post("/api/v1/employees", json=payload, headers=headers)
+    assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
 
-async def _employee_in_tenant(client: AsyncClient, ozo_headers: dict, suffix: str) -> tuple[dict, str]:
-    """
-    Vytvoří employee User (auth) + Employee (HR) ve stejném tenantu.
-    Vrátí (employee_headers, employee_record_id).
-    """
-    await client.post(
-        "/api/v1/users",
-        json={"email": f"emp{suffix}@skoleni.cz", "password": "heslo1234", "role": "employee"},
-        headers=ozo_headers,
-    )
-    login = await client.post(
-        "/api/v1/auth/login",
-        json={"email": f"emp{suffix}@skoleni.cz", "password": "heslo1234"},
-    )
-    emp_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-    user_id = (await client.get("/api/v1/users/me", headers=emp_headers)).json()["id"]
-
-    # Vytvoříme HR záznam propojený s tímto userem
-    emp_id = await _create_employee(client, ozo_headers, suffix, user_id=user_id)
-    return emp_headers, emp_id
-
-
-def _training_payload(employee_id: str, **overrides) -> dict:
-    base = {
-        "employee_id": employee_id,
-        "title": "BOZP vstupní školení",
-        "training_type": "bozp_initial",
-        "trained_at": "2025-01-15",
-        "valid_months": 24,
-        "trainer_name": "Ing. Novák",
+async def _create_training(
+    client: AsyncClient, headers: dict, title: str, **extra
+) -> dict:
+    payload = {
+        "title": title,
+        "training_type": "bozp",
+        "trainer_kind": "employer",
+        "valid_months": 12,
+        **extra,
     }
-    base.update(overrides)
-    return base
+    resp = await client.post("/api/v1/trainings", json=payload, headers=headers)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
 
 
-# ── Vytváření záznamů ─────────────────────────────────────────────────────────
+# ── Training template CRUD ───────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_create_training_computes_valid_until(client: AsyncClient) -> None:
-    """valid_until musí být trained_at + valid_months měsíců."""
-    ozo_headers = await _ozo_headers(client, "t1")
-    emp_id = await _create_employee(client, ozo_headers, "t1")
+async def test_create_training_template(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "t1")
+    t = await _create_training(client, headers, "BOZP vstupní školení")
+    assert t["title"] == "BOZP vstupní školení"
+    assert t["training_type"] == "bozp"
+    assert t["trainer_kind"] == "employer"
+    assert t["valid_months"] == 12
+    assert t["has_test"] is False
+    assert t["question_count"] == 0
 
+
+@pytest.mark.asyncio
+async def test_duplicate_title_rejected(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "t2")
+    await _create_training(client, headers, "Duplicitní")
     resp = await client.post(
         "/api/v1/trainings",
-        json=_training_payload(emp_id, trained_at="2025-01-15", valid_months=24),
-        headers=ozo_headers,
+        json={"title": "Duplicitní", "training_type": "bozp", "valid_months": 12},
+        headers=headers,
+    )
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_list_trainings(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "t3")
+    await _create_training(client, headers, "A")
+    await _create_training(client, headers, "B")
+    resp = await client.get("/api/v1/trainings", headers=headers)
+    assert resp.status_code == 200
+    titles = [t["title"] for t in resp.json()]
+    assert "A" in titles and "B" in titles
+
+
+@pytest.mark.asyncio
+async def test_update_training_valid_months(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "t4")
+    t = await _create_training(client, headers, "ToUpdate", valid_months=6)
+    upd = await client.patch(
+        f"/api/v1/trainings/{t['id']}",
+        json={"valid_months": 24},
+        headers=headers,
+    )
+    assert upd.status_code == 200
+    assert upd.json()["valid_months"] == 24
+
+
+@pytest.mark.asyncio
+async def test_delete_training(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "t5")
+    t = await _create_training(client, headers, "ToDelete")
+    resp = await client.delete(f"/api/v1/trainings/{t['id']}", headers=headers)
+    assert resp.status_code == 204
+    get_resp = await client.get(f"/api/v1/trainings/{t['id']}", headers=headers)
+    assert get_resp.status_code == 404
+
+
+# ── Assignments ──────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_create_assignments_bulk(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "a1")
+    t = await _create_training(client, headers, "Vstupní")
+    e1 = await _create_employee(client, headers, "E1")
+    e2 = await _create_employee(client, headers, "E2")
+
+    resp = await client.post(
+        "/api/v1/trainings/assignments",
+        json={"training_id": t["id"], "employee_ids": [e1, e2]},
+        headers=headers,
     )
     assert resp.status_code == 201
-    data = resp.json()
-    assert data["valid_until"] == "2027-01-15"
-    assert data["validity_status"] == "valid"
+    body = resp.json()
+    assert body["created_count"] == 2
+    assert body["skipped_existing_count"] == 0
 
 
 @pytest.mark.asyncio
-async def test_create_training_no_expiry(client: AsyncClient) -> None:
-    """Školení bez valid_months → valid_until None, validity_status = no_expiry."""
-    ozo_headers = await _ozo_headers(client, "t2")
-    emp_id = await _create_employee(client, ozo_headers, "t2")
+async def test_assignments_skip_duplicate(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "a2")
+    t = await _create_training(client, headers, "Dup")
+    e1 = await _create_employee(client, headers, "Dup")
 
-    resp = await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id, valid_months=None),
-        headers=ozo_headers,
+    r1 = await client.post(
+        "/api/v1/trainings/assignments",
+        json={"training_id": t["id"], "employee_ids": [e1]},
+        headers=headers,
     )
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["valid_until"] is None
-    assert data["validity_status"] == "no_expiry"
+    assert r1.json()["created_count"] == 1
 
-
-@pytest.mark.asyncio
-async def test_create_training_explicit_valid_until(client: AsyncClient) -> None:
-    """Explicitně zadaný valid_until má přednost."""
-    ozo_headers = await _ozo_headers(client, "t3")
-    emp_id = await _create_employee(client, ozo_headers, "t3")
-
-    resp = await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id, valid_months=12, valid_until="2028-06-30"),
-        headers=ozo_headers,
+    r2 = await client.post(
+        "/api/v1/trainings/assignments",
+        json={"training_id": t["id"], "employee_ids": [e1]},
+        headers=headers,
     )
-    assert resp.status_code == 201
-    assert resp.json()["valid_until"] == "2028-06-30"
-
-
-# ── Výpočet validity_status ───────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_validity_status_expired(client: AsyncClient) -> None:
-    """Školení s valid_until v minulosti → expired."""
-    ozo_headers = await _ozo_headers(client, "t4")
-    emp_id = await _create_employee(client, ozo_headers, "t4")
-
-    resp = await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id, valid_months=None, valid_until="2020-01-01"),
-        headers=ozo_headers,
-    )
-    assert resp.json()["validity_status"] == "expired"
+    assert r2.json()["created_count"] == 0
+    assert r2.json()["skipped_existing_count"] == 1
 
 
 @pytest.mark.asyncio
-async def test_validity_status_expiring_soon(client: AsyncClient) -> None:
-    """Školení expirující do 30 dní → expiring_soon."""
-    ozo_headers = await _ozo_headers(client, "t5")
-    emp_id = await _create_employee(client, ozo_headers, "t5")
-
-    soon = (date.today() + timedelta(days=15)).isoformat()
-    resp = await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id, valid_months=None, valid_until=soon),
-        headers=ozo_headers,
-    )
-    assert resp.json()["validity_status"] == "expiring_soon"
-
-
-# ── Filtrování ────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_filter_by_validity_status(client: AsyncClient) -> None:
-    ozo_headers = await _ozo_headers(client, "t6")
-    emp_id = await _create_employee(client, ozo_headers, "t6")
-
+async def test_assignment_deadline_7_days(client: AsyncClient) -> None:
+    from datetime import date
+    headers, _ = await _ozo_headers(client, "a3")
+    t = await _create_training(client, headers, "Deadline")
+    emp_id = await _create_employee(client, headers, "Dead")
     await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id, valid_months=None, valid_until="2099-01-01"),
-        headers=ozo_headers,
+        "/api/v1/trainings/assignments",
+        json={"training_id": t["id"], "employee_ids": [emp_id]},
+        headers=headers,
     )
-    await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id, valid_months=None, valid_until="2020-01-01"),
-        headers=ozo_headers,
+    list_resp = await client.get(
+        f"/api/v1/trainings/{t['id']}/assignments", headers=headers
     )
-
-    valid_resp = await client.get("/api/v1/trainings?validity_status=valid", headers=ozo_headers)
-    expired_resp = await client.get("/api/v1/trainings?validity_status=expired", headers=ozo_headers)
-
-    assert all(t["validity_status"] == "valid" for t in valid_resp.json())
-    assert all(t["validity_status"] == "expired" for t in expired_resp.json())
+    ta = list_resp.json()[0]
+    assigned = date.fromisoformat(ta["assigned_at"][:10])
+    deadline = date.fromisoformat(ta["deadline"][:10])
+    assert (deadline - assigned).days == 7
 
 
-# ── Přístupová práva ──────────────────────────────────────────────────────────
+# ── Test CSV parsing ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_employee_sees_only_own_trainings(client: AsyncClient) -> None:
-    """
-    Kritický invariant: employee nesmí vidět záznamy jiných zaměstnanců.
-    OZO vidí záznamy obou.
-    """
-    ozo_headers = await _ozo_headers(client, "t7")
-    emp_a_headers, emp_a_id = await _employee_in_tenant(client, ozo_headers, "7a")
-    emp_b_headers, emp_b_id = await _employee_in_tenant(client, ozo_headers, "7b")
+async def test_upload_test_csv_too_few_rejected(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "cs1")
+    t = await _create_training(client, headers, "S testem")
 
-    await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_a_id, title="Školení A"),
-        headers=ozo_headers,
+    csv_short = b"otazka,spravna,a,b,c\n" + b"\n".join(
+        f"q{i},correct{i},w1_{i},w2_{i},w3_{i}".encode() for i in range(4)
     )
-    await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_b_id, title="Školení B"),
-        headers=ozo_headers,
+    resp = await client.post(
+        f"/api/v1/trainings/{t['id']}/test",
+        data={"pass_percentage": "80"},
+        files={"file": ("test.csv", io.BytesIO(csv_short), "text/csv")},
+        headers=headers,
     )
-
-    # Employee A vidí jen své záznamy
-    resp_a = await client.get("/api/v1/trainings", headers=emp_a_headers)
-    titles_a = [t["title"] for t in resp_a.json()]
-    assert "Školení A" in titles_a
-    assert "Školení B" not in titles_a
-
-    # OZO vidí oba
-    resp_ozo = await client.get("/api/v1/trainings", headers=ozo_headers)
-    titles_ozo = [t["title"] for t in resp_ozo.json()]
-    assert "Školení A" in titles_ozo
-    assert "Školení B" in titles_ozo
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_employee_cannot_create_training(client: AsyncClient) -> None:
-    ozo_headers = await _ozo_headers(client, "t8")
-    emp_headers, emp_id = await _employee_in_tenant(client, ozo_headers, "8")
+async def test_upload_test_csv_valid(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "cs2")
+    t = await _create_training(client, headers, "S testem OK")
+
+    lines = ["otazka,spravna,a,b,c"]
+    for i in range(5):
+        lines.append(f"Otazka {i}?,Spravna{i},Spatna1_{i},Spatna2_{i},Spatna3_{i}")
+    csv_content = "\n".join(lines).encode("utf-8")
 
     resp = await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id),
-        headers=emp_headers,
+        f"/api/v1/trainings/{t['id']}/test",
+        data={"pass_percentage": "80"},
+        files={"file": ("test.csv", io.BytesIO(csv_content), "text/csv")},
+        headers=headers,
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["question_count"] == 5
+    assert resp.json()["pass_percentage"] == 80
 
 
 @pytest.mark.asyncio
-async def test_employee_cannot_read_other_employee_detail(client: AsyncClient) -> None:
-    """Employee nesmí fetchnout detail školení jiného zaměstnance přes /trainings/{id}."""
-    ozo_headers = await _ozo_headers(client, "t9")
-    emp_a_headers, emp_a_id = await _employee_in_tenant(client, ozo_headers, "9a")
-    emp_b_headers, _ = await _employee_in_tenant(client, ozo_headers, "9b")
-
-    create_resp = await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_a_id),
-        headers=ozo_headers,
-    )
-    training_id = create_resp.json()["id"]
-
-    # Employee B se pokusí číst školení Employee A
-    resp = await client.get(f"/api/v1/trainings/{training_id}", headers=emp_b_headers)
-    assert resp.status_code == 403
+async def test_test_template_downloadable(client: AsyncClient) -> None:
+    headers, _ = await _ozo_headers(client, "cs3")
+    resp = await client.get("/api/v1/trainings/test-template", headers=headers)
+    assert resp.status_code == 200
 
 
-# ── Archivace ─────────────────────────────────────────────────────────────────
+# ── Tenant isolation ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_archive_training_keeps_record(client: AsyncClient) -> None:
-    """Kritický BOZP invariant: záznamy o školeních se nesmí fyzicky mazat."""
-    ozo_headers = await _ozo_headers(client, "t10")
-    emp_id = await _create_employee(client, ozo_headers, "t10")
+async def test_training_tenant_isolation(client: AsyncClient) -> None:
+    h_a, _ = await _ozo_headers(client, "iso_a")
+    h_b, _ = await _ozo_headers(client, "iso_b")
 
-    create_resp = await client.post(
-        "/api/v1/trainings",
-        json=_training_payload(emp_id),
-        headers=ozo_headers,
-    )
-    training_id = create_resp.json()["id"]
+    await _create_training(client, h_a, "A training")
 
-    del_resp = await client.delete(f"/api/v1/trainings/{training_id}", headers=ozo_headers)
-    assert del_resp.status_code == 204
-
-    get_resp = await client.get(f"/api/v1/trainings/{training_id}", headers=ozo_headers)
-    assert get_resp.status_code == 200
-    assert get_resp.json()["status"] == "archived"
+    resp_b = await client.get("/api/v1/trainings", headers=h_b)
+    assert all(t["title"] != "A training" for t in resp_b.json())

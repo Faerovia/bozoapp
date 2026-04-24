@@ -126,40 +126,19 @@ async def test_dashboard_pending_risk_reviews(client: AsyncClient) -> None:
 # ── expiring_trainings ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_dashboard_expiring_trainings(client: AsyncClient) -> None:
-    """Školení s valid_until <= dnes + 30 dní se projeví v počtu."""
-    headers, user_id = await _ozo_headers(client, "d3")
-
-    # Školení expirující za 10 dní – má být v počtu
-    soon = (date.today() + timedelta(days=10)).isoformat()
-    await client.post(
-        "/api/v1/trainings",
-        json={
-            "employee_id": user_id,
-            "title": "Brzy expirující",
-            "training_type": "bozp_initial",
-            "trained_at": "2024-01-01",
-            "valid_until": soon,
-        },
-        headers=headers,
-    )
-
-    # Školení platné ještě 90 dní – NESMÍ být v počtu
-    far = (date.today() + timedelta(days=90)).isoformat()
-    await client.post(
-        "/api/v1/trainings",
-        json={
-            "employee_id": user_id,
-            "title": "Dlouhodobě platné",
-            "training_type": "fire_warden",
-            "trained_at": "2024-01-01",
-            "valid_until": far,
-        },
-        headers=headers,
-    )
-
+async def test_dashboard_expiring_trainings_counts_zero_without_assignments(
+    client: AsyncClient,
+) -> None:
+    """
+    Po commitu 11a je `expiring_trainings` počítáno z TrainingAssignment.valid_until,
+    ne z Training.valid_until (Training je nyní šablona). Tento test ověří,
+    že bez approved assignments je počet 0. Skutečné flow (přiřazení + splnění
+    testu → expirující assignment) je pokryté v test_trainings.py.
+    """
+    headers, _ = await _ozo_headers(client, "d3")
     resp = await client.get("/api/v1/dashboard", headers=headers)
-    assert resp.json()["expiring_trainings"] == 1
+    assert resp.status_code == 200
+    assert resp.json()["expiring_trainings"] == 0
 
 
 # ── overdue_revisions ─────────────────────────────────────────────────────────

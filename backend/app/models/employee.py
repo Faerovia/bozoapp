@@ -30,14 +30,23 @@ class Employee(Base, TimestampMixin):
     # Rodné číslo — GDPR Čl. 9 zvláštní kategorie. Fernet-encrypted at rest.
     # V DB je to ciphertext (~150 chars), aplikace vidí plaintext transparentně.
     personal_id: Mapped[str | None] = mapped_column(EncryptedString(256))
+    # Osobní číslo (employee ID u zaměstnavatele) — unikátní v rámci tenantu,
+    # volitelné (brigádníci ho nemusí mít).
+    personal_number: Mapped[str | None] = mapped_column(String(50))
     birth_date: Mapped[date | None] = mapped_column(Date)
 
     # Kontakt
     email: Mapped[str | None] = mapped_column(String(255))
     phone: Mapped[str | None] = mapped_column(String(50))
 
-    # Pracovní zařazení (FK přidány v budoucích migracích)
+    # Trvalé bydliště
+    address_street: Mapped[str | None] = mapped_column(String(200))
+    address_city: Mapped[str | None] = mapped_column(String(100))
+    address_zip: Mapped[str | None] = mapped_column(String(10))
+
+    # Pracovní zařazení (FK na plants/workplaces/job_positions)
     job_position_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    plant_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     workplace_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
 
     # Typ pracovního poměru

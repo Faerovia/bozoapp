@@ -31,6 +31,9 @@ services:
       dockerfile: Dockerfile.dev
     volumes:
       - ./backend:/app
+      # Persistentní storage pro PDF školení + loga firem (commit 11a).
+      # V produkci synchronizovat na S3 (Hetzner Object Storage).
+      - backend_uploads:/app/uploads
     ports:
       - "8000:8000"
     env_file:
@@ -62,9 +65,13 @@ services:
     env_file:
       - .env
     environment:
+      # Server-side proxy target — uvnitř docker networku `backend` hostname.
+      BACKEND_INTERNAL_URL: http://backend:8000
+      # Browser-side URL (aktuálně nevyužíváno, všechno jde přes Next.js proxy).
       NEXT_PUBLIC_API_URL: http://localhost:8000
     depends_on:
       - backend
 
 volumes:
   postgres_data:
+  backend_uploads:

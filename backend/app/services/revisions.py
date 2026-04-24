@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.validation import assert_in_tenant
 from app.models.revision import DUE_SOON_DAYS, Revision
 from app.models.risk import Risk
-from app.models.training import Training
+from app.models.training import Training, TrainingAssignment
 from app.models.user import User
 from app.schemas.revisions import CalendarItem, RevisionCreateRequest, RevisionUpdateRequest
 
@@ -181,24 +181,26 @@ async def get_calendar_items(
                 detail_url=f"/api/v1/risks/{risk.id}",
             ))
 
-    # 3. Školení s valid_until
-    training_result = await db.execute(
-        select(Training).where(
-            Training.tenant_id == tenant_id,
-            Training.status == "active",
-            Training.valid_until.is_not(None),
+    # 3. Školící přiřazení s valid_until (splněná, blížící se expiraci)
+    ta_result = await db.execute(
+        select(TrainingAssignment, Training)
+        .join(Training, TrainingAssignment.training_id == Training.id)
+        .where(
+            TrainingAssignment.tenant_id == tenant_id,
+            TrainingAssignment.status == "completed",
+            TrainingAssignment.valid_until.is_not(None),
         )
     )
-    for training in training_result.scalars():
-        if training.valid_until <= horizon:  # type: ignore[operator]
+    for ta, training in ta_result.all():
+        if ta.valid_until <= horizon:  # type: ignore[operator]
             items.append(CalendarItem(
                 source="training",
-                source_id=training.id,
-                title=f"{training.title} – {training.employee_id}",
-                due_date=training.valid_until,
-                due_status=_compute_due_status(training.valid_until),  # type: ignore[arg-type]
+                source_id=ta.id,
+                title=training.title,
+                due_date=ta.valid_until,
+                due_status=_compute_due_status(ta.valid_until),  # type: ignore[arg-type]
                 responsible_user_id=None,
-                detail_url=f"/api/v1/trainings/{training.id}",
+                detail_url=f"/api/v1/trainings/assignments/{ta.id}",
             ))
 
     # Seřadit: nejdříve overdue, pak nejbližší termíny

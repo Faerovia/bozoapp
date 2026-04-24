@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Users,
@@ -15,22 +16,106 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { logout } from "@/lib/api";
+import { api, logout } from "@/lib/api";
+import type { UserResponse } from "@/types/api";
 
-const NAV_ITEMS = [
-  { href: "/dashboard",         label: "Dashboard",            icon: LayoutDashboard },
-  { href: "/employees",         label: "Zaměstnanci",          icon: Users },
-  { href: "/trainings",         label: "Školení",              icon: GraduationCap },
-  { href: "/revisions",         label: "Revize",               icon: Wrench },
-  { href: "/accident-reports",  label: "Pracovní úrazy",       icon: AlertTriangle },
-  { href: "/oopp",              label: "OOPP",                 icon: HardHat },
-  { href: "/workplaces",        label: "Pracoviště",           icon: Building2 },
-  { href: "/medical-exams",     label: "Lékařské prohlídky",   icon: Stethoscope },
-  { href: "/job-positions",     label: "Pracovní pozice",      icon: Briefcase },
+// ── Role model (sjednocené s backend/permissions.py) ─────────────────────────
+type Role =
+  | "admin"
+  | "ozo"
+  | "hr_manager"
+  | "equipment_responsible"
+  | "employee";
+
+// Tenant-level "managers" = plný přístup v tenantu (OZO + HR)
+const MANAGERS: Role[] = ["ozo", "hr_manager"];
+// Všechny tenant role (employee + responsible + managers)
+const ALL_TENANT: Role[] = ["ozo", "hr_manager", "equipment_responsible", "employee"];
+
+interface NavItem {
+  href: string;
+  // Label může být role-aware (employee vidí "Školící centrum" místo "Školení")
+  label: string | ((role: Role) => string);
+  icon: React.ComponentType<{ className?: string }>;
+  roles: Role[];
+}
+
+const NAV_ITEMS: NavItem[] = [
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    roles: MANAGERS,
+  },
+  {
+    href: "/employees",
+    label: "Zaměstnanci",
+    icon: Users,
+    roles: MANAGERS,
+  },
+  {
+    href: "/trainings",
+    // OZO/HR spravují školení, zaměstnanec/equipment_responsible je absolvuje
+    label: (role) =>
+      role === "employee" || role === "equipment_responsible"
+        ? "Školící centrum"
+        : "Školení",
+    icon: GraduationCap,
+    roles: ALL_TENANT,
+  },
+  {
+    href: "/revisions",
+    label: "Revize",
+    icon: Wrench,
+    // OZO/HR + equipment_responsible (správa svých vyhrazených zařízení)
+    roles: ["ozo", "hr_manager", "equipment_responsible"],
+  },
+  {
+    href: "/accident-reports",
+    label: "Pracovní úrazy",
+    icon: AlertTriangle,
+    roles: MANAGERS,
+  },
+  {
+    href: "/oopp",
+    label: "OOPP",
+    icon: HardHat,
+    roles: ALL_TENANT,
+  },
+  {
+    href: "/workplaces",
+    label: "Pracoviště",
+    icon: Building2,
+    roles: MANAGERS,
+  },
+  {
+    href: "/medical-exams",
+    label: "Lékařské prohlídky",
+    icon: Stethoscope,
+    roles: ALL_TENANT,
+  },
+  {
+    href: "/job-positions",
+    label: "Pracovní pozice",
+    icon: Briefcase,
+    roles: MANAGERS,
+  },
 ];
+
 
 export function Sidebar() {
   const pathname = usePathname();
+
+  const { data: user } = useQuery<UserResponse>({
+    queryKey: ["me"],
+    queryFn: () => api.get("/auth/me"),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const role = (user?.role as Role | undefined) ?? null;
+  const visible = role
+    ? NAV_ITEMS.filter((item) => item.roles.includes(role))
+    : [];
 
   return (
     <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
@@ -45,8 +130,9 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="space-y-0.5">
-          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          {visible.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + "/");
+            const labelText = typeof label === "function" ? label(role!) : label;
             return (
               <li key={href}>
                 <Link
@@ -59,7 +145,7 @@ export function Sidebar() {
                   )}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  {label}
+                  {labelText}
                 </Link>
               </li>
             );

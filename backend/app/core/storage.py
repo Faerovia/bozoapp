@@ -1,0 +1,126 @@
+"""
+File storage pro uploads (PDF obsah školení, loga firem).
+
+Zatím lokální filesystem v `settings.upload_dir`. Do budoucna lze snadno
+přepnout na S3-kompatibilní backend přes Protocol (viz email sender pattern).
+
+Cesty v DB jsou RELATIVNÍ vzhledem k upload_dir, např:
+  "trainings/{tid}/{training_id}/content.pdf"
+  "tenants/{tid}/logo.png"
+
+To umožní migrovat storage bez přepisu DB.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import uuid
+from pathlib import Path
+
+from app.core.config import get_settings
+
+log = logging.getLogger(__name__)
+
+MAX_TRAINING_PDF_BYTES = 3 * 1024 * 1024   # 3 MB
+MAX_LOGO_BYTES = 1 * 1024 * 1024           # 1 MB
+MAX_TEST_CSV_BYTES = 500 * 1024            # 500 KB
+_ALLOWED_PDF_MIME = "application/pdf"
+_ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+
+
+def _upload_root() -> Path:
+    return Path(get_settings().upload_dir)
+
+
+def _safe_join(*parts: str) -> Path:
+    """Join cesta vůči upload_root s ochranou proti ../ escape."""
+    root = _upload_root().resolve()
+    candidate = root.joinpath(*parts).resolve()
+    # Ochrana proti traversal
+    try:
+        candidate.relative_to(root)
+    except ValueError as e:
+        raise ValueError(f"Path traversal attempt: {candidate}") from e
+    return candidate
+
+
+def save_training_pdf(
+    tenant_id: uuid.UUID, training_id: uuid.UUID, content: bytes
+) -> str:
+    """Uloží PDF obsahu školení a vrátí relativní cestu pro DB."""
+    if len(content) > MAX_TRAINING_PDF_BYTES:
+        raise ValueError(
+            f"PDF je příliš velké (max {MAX_TRAINING_PDF_BYTES // 1024 // 1024} MB)"
+        )
+    if not content.startswith(b"%PDF"):
+        raise ValueError("Soubor není platné PDF")
+
+    rel_path = f"trainings/{tenant_id}/{training_id}/content.pdf"
+    full = _safe_join(rel_path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_bytes(content)
+    return rel_path
+
+
+def save_tenant_logo(
+    tenant_id: uuid.UUID, content: bytes, filename: str
+) -> str:
+    """Uloží logo firmy. Vrací relativní cestu."""
+    if len(content) > MAX_LOGO_BYTES:
+        raise ValueError(
+            f"Logo je příliš velké (max {MAX_LOGO_BYTES // 1024} KB)"
+        )
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_LOGO_EXTENSIONS:
+        raise ValueError(f"Nepodporovaný formát loga (povoleno: {_ALLOWED_LOGO_EXTENSIONS})")
+
+    rel_path = f"tenants/{tenant_id}/logo{ext}"
+    full = _safe_join(rel_path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_bytes(content)
+    return rel_path
+
+
+def read_file(rel_path: str) -> bytes:
+    """Načte soubor podle relativní cesty. Raises FileNotFoundError."""
+    full = _safe_join(rel_path)
+    return full.read_bytes()
+
+
+def file_exists(rel_path: str | None) -> bool:
+    if not rel_path:
+        return False
+    try:
+        return _safe_join(rel_path).is_file()
+    except ValueError:
+        return False
+
+
+def delete_file(rel_path: str | None) -> None:
+    if not rel_path:
+        return
+    try:
+        full = _safe_join(rel_path)
+        if full.is_file():
+            full.unlink()
+    except (ValueError, OSError) as e:
+        log.warning("Could not delete file %s: %s", rel_path, e)
+
+
+def ensure_upload_dir_exists() -> None:
+    """Volat při startupu. Vytvoří root adresář pokud chybí."""
+    root = _upload_root()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        log.warning("Could not create upload dir %s: %s", root, e)
+
+
+# For tests — reset helper
+def _reset_for_tests() -> None:
+    """Pouze pro testy — vyčistí obsah upload_dir."""
+    root = _upload_root()
+    if root.exists():
+        for p in root.rglob("*"):
+            if p.is_file():
+                os.remove(p)

@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Prázdné = encryption disabled (dev/test), ale v produkci povinné.
     fernet_key: str = ""
 
+    # Upload directory pro PDF školení a loga firem.
+    # Dev: mount jako docker volume; produkce: sync na S3 (TODO: S3 wrapper).
+    upload_dir: str = "/app/uploads"
+
     # Observability
     sentry_dsn: str = ""
 

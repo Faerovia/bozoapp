@@ -44,10 +44,16 @@ export function Dialog({ open, onClose, title, description, children, size = "md
       {/* Overlay */}
       <div className="absolute inset-0 bg-black/40" />
 
-      {/* Panel */}
-      <div className={cn("relative z-10 w-full rounded-lg bg-white shadow-xl", widths[size])}>
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-gray-200 px-6 py-4">
+      {/* Panel — max výška 90vh, flex column aby body mohlo scrollovat */}
+      <div
+        className={cn(
+          "relative z-10 flex w-full flex-col rounded-lg bg-white shadow-xl",
+          "max-h-[90vh]",
+          widths[size]
+        )}
+      >
+        {/* Header — sticky (nescrolluje s body) */}
+        <div className="flex flex-shrink-0 items-start justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold text-gray-900">{title}</h2>
             {description && <p className="mt-0.5 text-sm text-gray-500">{description}</p>}
@@ -60,8 +66,8 @@ export function Dialog({ open, onClose, title, description, children, size = "md
           </button>
         </div>
 
-        {/* Body */}
-        <div className="px-6 py-5">{children}</div>
+        {/* Body — scrollable když obsah přeteče */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
       </div>
     </div>
   );

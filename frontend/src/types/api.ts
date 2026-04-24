@@ -45,17 +45,26 @@ export interface Employee {
   user_id: string | null;
   first_name: string;
   last_name: string;
+  full_name: string;
   personal_id: string | null;
+  personal_number: string | null;
   birth_date: string | null;
   email: string | null;
   phone: string | null;
+  address_street: string | null;
+  address_city: string | null;
+  address_zip: string | null;
   employment_type: EmploymentType;
   status: EmployeeStatus;
   hired_at: string | null;
+  terminated_at: string | null;
   notes: string | null;
-  job_position_id: string | null;
+  plant_id: string | null;
   workplace_id: string | null;
-  created_at: string;
+  job_position_id: string | null;
+  // Jen v response POST /employees pokud service vygeneroval heslo pro nový
+  // auth účet. GET endpointy vracejí vždy null.
+  generated_password?: string | null;
 }
 
 export interface EmployeeCreate {
@@ -66,10 +75,19 @@ export interface EmployeeCreate {
   phone?: string | null;
   birth_date?: string | null;
   personal_id?: string | null;
+  personal_number?: string | null;
+  address_street?: string | null;
+  address_city?: string | null;
+  address_zip?: string | null;
   hired_at?: string | null;
   notes?: string | null;
-  job_position_id?: string | null;
+  plant_id?: string | null;
   workplace_id?: string | null;
+  job_position_id?: string | null;
+  user_id?: string | null;
+  create_user_account?: boolean;
+  user_password?: string | null;
+  is_equipment_responsible?: boolean;
 }
 
 // ── Job Positions ──────────────────────────────────────────────────────────────

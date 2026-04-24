@@ -1,87 +1,154 @@
+"""Training šablony, přiřazení, pokusy, submit."""
 import uuid
-from datetime import date
-from typing import Literal
+from datetime import date, datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
-TrainingType = Literal[
-    "bozp_initial",      # BOZP vstupní školení (§37 ZP)
-    "bozp_periodic",     # BOZP periodické opakování
-    "fire_protection",   # Školení PO (zákon 133/1985 Sb.)
-    "first_aid",         # První pomoc
-    "equipment",         # Obsluha zařízení (jeřáby, VZV, tlakové nádoby...)
-    "other",             # Ostatní
-]
+TrainingType = Literal["bozp", "po", "other"]
+TrainerKind = Literal["ozo_bozp", "ozo_po", "employer"]
+AssignmentStatus = Literal["pending", "completed", "expired", "revoked"]
 
-TrainingStatus = Literal["active", "archived"]
 
-ValidityStatus = Literal["no_expiry", "valid", "expiring_soon", "expired"]
+# ── Question / test struktura ────────────────────────────────────────────────
 
+class TestQuestion(BaseModel):
+    """Otázka uložená v Training.test_questions. Správná je 'correct_answer'."""
+    question: str = Field(..., min_length=1, max_length=1000)
+    correct_answer: str = Field(..., min_length=1, max_length=500)
+    wrong_answers: list[str] = Field(..., min_length=3, max_length=3)
+
+
+# ── Training (šablona) ───────────────────────────────────────────────────────
 
 class TrainingCreateRequest(BaseModel):
-    employee_id: uuid.UUID
-
     title: str = Field(..., min_length=1, max_length=255)
-    training_type: TrainingType = "other"
-
-    trained_at: date
-
-    # Platnost: buď valid_months (vypočítá valid_until), nebo valid_until přímo,
-    # nebo ani jedno (trvalé školení bez expiry).
-    valid_months: int | None = Field(None, gt=0, le=600)  # max 50 let
-    valid_until: date | None = None
-
-    trainer_name: str | None = Field(None, max_length=255)
+    training_type: TrainingType = "bozp"
+    trainer_kind: TrainerKind = "employer"
+    valid_months: int = Field(..., gt=0, le=600)
+    # test_questions a pass_percentage se nastavují samostatně přes upload_test_csv
     notes: str | None = None
-
-    @model_validator(mode="after")
-    def resolve_valid_until(self) -> "TrainingCreateRequest":
-        """
-        Pokud je zadán valid_months a valid_until není explicitně nastaven,
-        vypočítá valid_until = trained_at + valid_months měsíců.
-        Pokud je zadán valid_until přímo, valid_months se ignoruje pro výpočet.
-        """
-        if self.valid_until is None and self.valid_months is not None:
-            # Výpočet: přidat měsíce k trained_at
-            month = self.trained_at.month + self.valid_months
-            year = self.trained_at.year + (month - 1) // 12
-            month = ((month - 1) % 12) + 1
-            # Ošetři přetečení dnů (e.g. 31. jan + 1 měsíc = 28/29 feb)
-            import calendar
-            last_day = calendar.monthrange(year, month)[1]
-            day = min(self.trained_at.day, last_day)
-            from datetime import date as date_type
-            self.valid_until = date_type(year, month, day)
-        return self
 
 
 class TrainingUpdateRequest(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=255)
     training_type: TrainingType | None = None
-    trained_at: date | None = None
+    trainer_kind: TrainerKind | None = None
     valid_months: int | None = Field(None, gt=0, le=600)
-    valid_until: date | None = None
-    trainer_name: str | None = Field(None, max_length=255)
+    pass_percentage: int | None = Field(None, ge=0, le=100)
     notes: str | None = None
-    status: TrainingStatus | None = None
 
 
 class TrainingResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    employee_id: uuid.UUID
-
     title: str
     training_type: str
-
-    trained_at: date
-    valid_months: int | None
-    valid_until: date | None
-    validity_status: str  # no_expiry | valid | expiring_soon | expired
-
-    trainer_name: str | None
+    trainer_kind: str
+    valid_months: int
+    content_pdf_path: str | None
+    # Vracíme jen boolean + count, plné otázky jen při spuštění testu
+    has_test: bool
+    question_count: int
+    pass_percentage: int | None
     notes: str | None
-    status: str
     created_by: uuid.UUID
+    created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Assignment ───────────────────────────────────────────────────────────────
+
+class AssignmentCreateRequest(BaseModel):
+    """Hromadné přiřazení: jeden training → N zaměstnanců."""
+    training_id: uuid.UUID
+    employee_ids: list[uuid.UUID] = Field(..., min_length=1)
+
+
+class AssignmentCreateResponse(BaseModel):
+    created_count: int
+    skipped_existing_count: int
+    errors: list[str] = []
+
+
+class AssignmentResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    training_id: uuid.UUID
+    training_title: str | None = None  # join helper, naplněno v service
+    training_type: str | None = None
+    employee_id: uuid.UUID
+    employee_name: str | None = None   # join helper
+    assigned_at: datetime
+    deadline: datetime
+    last_completed_at: datetime | None
+    valid_until: date | None
+    validity_status: str
+    status: str
+
+    model_config = {"from_attributes": True}
+
+
+# ── Spuštění testu / submit ─────────────────────────────────────────────────
+
+class TestQuestionForAttempt(BaseModel):
+    """Vrácená verze otázky pro zaměstnance — odpovědi v náhodném pořadí."""
+    question_index: int
+    question: str
+    # 4 odpovědi v náhodném pořadí (včetně správné, ale klient neví která)
+    options: list[str]
+
+
+class StartTestResponse(BaseModel):
+    assignment_id: uuid.UUID
+    training_title: str
+    pass_percentage: int
+    questions: list[TestQuestionForAttempt]
+
+
+class AnswerSubmit(BaseModel):
+    question_index: int
+    chosen_answer_text: str
+
+
+class SubmitTestRequest(BaseModel):
+    answers: list[AnswerSubmit]
+
+
+class SubmitTestResponse(BaseModel):
+    attempt_id: uuid.UUID
+    score_percentage: int
+    passed: bool
+    pass_percentage: int
+    assignment: AssignmentResponse
+
+
+class MarkReadRequest(BaseModel):
+    """Pro training bez testu — uživatel klikne "Potvrdit absolvování"."""
+    pass
+
+
+# ── Test CSV import ──────────────────────────────────────────────────────────
+
+class TestUploadResponse(BaseModel):
+    question_count: int
+    pass_percentage: int
+
+
+# ── PDF content upload ───────────────────────────────────────────────────────
+
+class ContentUploadResponse(BaseModel):
+    content_pdf_path: str
+    size_bytes: int
+
+
+# ── Group assign helper ──────────────────────────────────────────────────────
+
+class GroupAssignRequest(BaseModel):
+    """Přiřadit training všem zaměstnancům odpovídajícím filtru."""
+    training_id: uuid.UUID
+    plant_id: uuid.UUID | None = None
+    workplace_id: uuid.UUID | None = None
+    job_position_id: uuid.UUID | None = None
+    only_active: bool = True

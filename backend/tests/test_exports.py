@@ -71,23 +71,9 @@ async def test_export_risks_pdf_download(client: AsyncClient) -> None:
 
 
 # ── Přehled školení ───────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_export_trainings_pdf(client: AsyncClient) -> None:
-    headers, user_id = await _setup(client, "ex4")
-    await client.post(
-        "/api/v1/trainings",
-        json={
-            "employee_id": user_id,
-            "title": "BOZP vstupní",
-            "training_type": "bozp_initial",
-            "trained_at": "2025-01-15",
-            "valid_months": 24,
-        },
-        headers=headers,
-    )
-    resp = await client.get("/api/v1/trainings/export/pdf", headers=headers)
-    _assert_pdf(resp)
+# POZNÁMKA: /trainings/export/pdf byl v commit 11a odstraněn — starý endpoint
+# předpokládal schéma s employee_id a trained_at. Po refaktoru na šablony +
+# přiřazení bude export řešen nad TrainingAssignment v samostatném commitu.
 
 
 # ── Harmonogram revizí ────────────────────────────────────────────────────────

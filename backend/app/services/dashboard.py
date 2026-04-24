@@ -8,7 +8,7 @@ from app.models.accident_report import AccidentReport
 from app.models.medical_exam import EXPIRING_SOON_DAYS as ME_EXPIRING_SOON_DAYS
 from app.models.medical_exam import MedicalExam
 from app.models.revision import Revision
-from app.models.training import EXPIRING_SOON_DAYS, Training
+from app.models.training import EXPIRING_SOON_DAYS, TrainingAssignment
 from app.schemas.dashboard import DashboardResponse
 from app.services.revisions import get_calendar_items
 
@@ -29,16 +29,16 @@ async def get_dashboard(db: AsyncSession, tenant_id: uuid.UUID) -> DashboardResp
         )
     ).scalar_one()
 
-    # 2. Expirující nebo expirovaná aktivní školení
-    #    valid_until IS NOT NULL AND valid_until <= today + EXPIRING_SOON_DAYS
+    # 2. Expirující nebo expirovaná aktivní přiřazení školení
+    #    (počítáme přiřazení zaměstnancům, ne šablony — jedna šablona může mít N assignment)
     expiring_horizon = today + timedelta(days=EXPIRING_SOON_DAYS)
     expiring_trainings: int = (
         await db.execute(
             select(func.count()).where(
-                Training.tenant_id == tenant_id,
-                Training.status == "active",
-                Training.valid_until.is_not(None),
-                Training.valid_until <= expiring_horizon,
+                TrainingAssignment.tenant_id == tenant_id,
+                TrainingAssignment.status.in_(["pending", "completed"]),
+                TrainingAssignment.valid_until.is_not(None),
+                TrainingAssignment.valid_until <= expiring_horizon,
             )
         )
     ).scalar_one()

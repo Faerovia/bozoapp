@@ -228,20 +228,33 @@ async def test_employee_rejects_cross_tenant_user_id(client: AsyncClient) -> Non
 
 
 # ── Happy path: FK ze stejného tenantu projde ────────────────────────────────
+# Po refaktoru Training v commitu 11a má FK validaci employee_id už jen
+# flow `POST /trainings/assignments` (šablona nemá employee_id přímo).
 
 @pytest.mark.asyncio
 async def test_training_accepts_own_tenant_employee(client: AsyncClient) -> None:
     h_a, _, _ = await _register_tenant(client, "fk9")
     emp_a = await _create_employee(client, h_a, "OwnTenant")
 
-    resp = await client.post(
+    # Vytvoř šablonu (bez employee_id — ten přiřazení flow)
+    t_resp = await client.post(
         "/api/v1/trainings",
         json={
-            "employee_id": emp_a,
             "title": "BOZP školení",
-            "training_type": "bozp_initial",
-            "trained_at": str(date.today()),
+            "training_type": "bozp",
+            "trainer_kind": "employer",
+            "valid_months": 12,
         },
         headers=h_a,
     )
-    assert resp.status_code == 201
+    assert t_resp.status_code == 201
+    training_id = t_resp.json()["id"]
+
+    # Přiřaď employee ze STEJNÉHO tenantu — FK check propustí
+    assign_resp = await client.post(
+        "/api/v1/trainings/assignments",
+        json={"training_id": training_id, "employee_ids": [emp_a]},
+        headers=h_a,
+    )
+    assert assign_resp.status_code == 201
+    assert assign_resp.json()["created_count"] == 1

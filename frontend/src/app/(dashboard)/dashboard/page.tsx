@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { DashboardResponse, CalendarItem } from "@/types/api";
+import type { DashboardResponse, CalendarItem, UserResponse } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -128,12 +130,48 @@ function CalendarTable({ items }: { items: CalendarItem[] }) {
 
 // ── Dashboard page ────────────────────────────────────────────────────────────
 
+// Role povolené na dashboard (zbytek je přesměrován na svou landing stránku).
+const DASHBOARD_ROLES = ["ozo", "hr_manager", "admin"];
+
+// Kam přesměrovat role, které dashboard nevidí.
+const ROLE_LANDING: Record<string, string> = {
+  employee: "/trainings",
+  equipment_responsible: "/revisions",
+};
+
 export default function DashboardPage() {
+  const router = useRouter();
+
+  // Role guard — pokud user nemá přístup na dashboard, přesměruj na jeho landing.
+  const { data: me } = useQuery<UserResponse>({
+    queryKey: ["me"],
+    queryFn: () => api.get("/auth/me"),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const allowed = me ? DASHBOARD_ROLES.includes(me.role) : null;
+
+  useEffect(() => {
+    if (me && !DASHBOARD_ROLES.includes(me.role)) {
+      router.replace(ROLE_LANDING[me.role] ?? "/trainings");
+    }
+  }, [me, router]);
+
   const { data, isLoading, isError } = useQuery<DashboardResponse>({
     queryKey: ["dashboard"],
     queryFn: () => api.get("/dashboard"),
-    refetchInterval: 5 * 60 * 1000, // auto-refresh každých 5 minut
+    refetchInterval: 5 * 60 * 1000,
+    // Nedotaž se na /dashboard dokud neznáme roli nebo pokud není povolená
+    // (jinak by employee vygeneroval 403 zbytečně).
+    enabled: allowed === true,
   });
+
+  // Dokud nevíme roli nebo jsme v redirectu, nerenderuj nic
+  if (!me || allowed === false) {
+    return (
+      <div className="p-6 text-sm text-gray-400">Načítám…</div>
+    );
+  }
 
   return (
     <div>

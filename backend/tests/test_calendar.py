@@ -63,25 +63,15 @@ async def test_calendar_aggregates_all_sources(client: AsyncClient) -> None:
         headers=headers,
     )
 
-    # Školení s valid_until
-    await client.post(
-        "/api/v1/trainings",
-        json={
-            "employee_id": user_id,
-            "title": "BOZP školení",
-            "training_type": "bozp_periodic",
-            "trained_at": "2020-01-01",
-            "valid_until": soon,
-        },
-        headers=headers,
-    )
+    # Poznámka: training source v kalendáři se generuje z TrainingAssignment
+    # po refaktoru commit 11a. Vyžaduje completed assignment, což vyžaduje
+    # employee user s heslem pro submit/mark-read. Pokryto v test_trainings.py.
 
     resp = await client.get("/api/v1/calendar", headers=headers)
     assert resp.status_code == 200
     sources = {item["source"] for item in resp.json()}
     assert "revision" in sources
     assert "risk" in sources
-    assert "training" in sources
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,9 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.permissions import require_role
 from app.models.user import User
+from app.schemas.employees import PasswordRegenerateResponse
 from app.schemas.users import UserCreateRequest, UserResponse, UserUpdateRequest
+from app.services.employees import regenerate_user_password
 from app.services.users import create_user, get_user_by_id, get_users, update_user
 
 router = APIRouter()
@@ -112,3 +114,32 @@ async def deactivate_user(
 
     user.is_active = False
     await db.flush()
+
+
+@router.post(
+    "/users/{user_id}/regenerate-password",
+    response_model=PasswordRegenerateResponse,
+)
+async def regenerate_password(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_role("admin", "ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> PasswordRegenerateResponse:
+    """
+    Vygeneruje nové heslo pro cílového uživatele. Vrací plaintext jednou —
+    správce (OZO/HR/admin) ho předá uživateli. Revokuje všechny existující
+    refresh tokeny → force re-login.
+
+    Není určeno pro reset vlastního hesla; pro to slouží /auth/forgot-password.
+    """
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pro reset vlastního hesla použij /auth/forgot-password",
+        )
+    target = await get_user_by_id(db, user_id, current_user.tenant_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uživatel nenalezen")
+
+    new_password = await regenerate_user_password(db, target)
+    return PasswordRegenerateResponse(new_password=new_password)

@@ -43,6 +43,7 @@ from app.core.observability import (
 )
 from app.core.rate_limit import limiter
 from app.core.security import JWTError, decode_token
+from app.core.storage import ensure_upload_dir_exists
 
 settings = get_settings()
 
@@ -88,6 +89,9 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 # audit_log tabulky. Middleware níže do ContextVar napumpuje request-level
 # metadata (IP, user_agent, user_id, tenant_id), aby měl listener co loggovat.
 install_audit_listeners()
+
+# Upload dir (PDF školení, loga firem) — vytvoří adresář pokud chybí.
+ensure_upload_dir_exists()
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):

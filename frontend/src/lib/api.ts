@@ -79,6 +79,45 @@ export const api = {
   delete: <T = void>(path: string) => request<T>("DELETE", path),
 };
 
+/**
+ * Multipart upload. Pro importní flow (CSV → /employees/import).
+ * Nepřidává Content-Type — browser nastaví s boundary automaticky.
+ */
+export async function uploadFile<T>(
+  path: string,
+  file: File,
+  fieldName: string = "file",
+): Promise<T> {
+  const formData = new FormData();
+  formData.append(fieldName, file);
+
+  const headers: Record<string, string> = {};
+  const csrf = getCsrfToken();
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+    credentials: "same-origin",
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") window.location.href = "/login";
+    throw new ApiError(401, "Neautorizovaný přístup");
+  }
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const err = await res.json();
+      if (typeof err.detail === "string") detail = err.detail;
+      else if (Array.isArray(err.detail)) detail = err.detail.map((e: { msg: string }) => e.msg).join(", ");
+    } catch {}
+    throw new ApiError(res.status, detail);
+  }
+  return res.json() as Promise<T>;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export async function login(email: string, password: string) {

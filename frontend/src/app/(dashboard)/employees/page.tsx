@@ -5,9 +5,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { UserPlus, Pencil, UserX, Download } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
-import type { Employee, EmploymentType, JobPosition, Workplace } from "@/types/api";
+import { UserPlus, Pencil, UserX, Download, RefreshCw, Copy, Upload, FileText } from "lucide-react";
+import { api, ApiError, uploadFile } from "@/lib/api";
+import type { Employee, EmploymentType, JobPosition, Plant, Workplace } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,21 +44,41 @@ const schema = z.object({
   first_name:       z.string().min(1, "Jméno je povinné"),
   last_name:        z.string().min(1, "Příjmení je povinné"),
   employment_type:  z.enum(["hpp", "dpp", "dpc", "externista", "brigádník"] as const),
-  email:            z.string().email("Neplatný email").or(z.literal("")).optional(),
-  phone:            z.string().optional(),
-  hired_at:         z.string().optional(),
+
+  // Identifikace
+  personal_id:      z.string().optional(),       // rodné číslo
+  personal_number:  z.string().optional(),       // osobní číslo ve firmě
   birth_date:       z.string().optional(),
-  personal_id:      z.string().optional(),
-  notes:            z.string().optional(),
-  job_position_id:  z.string().uuid().or(z.literal("")).optional().transform(v => v || null),
+
+  // Kontakt — email je povinný (vytvoří přihlašovací účet)
+  email:            z.string().email("Neplatný email"),
+  phone:            z.string().optional(),
+
+  // Heslo — frontend ho negeneruje, server ho vygeneruje při create
+  // a vrátí v generated_password. Editace pomocí refresh tlačítka.
+  user_password:    z.string().optional(),
+
+  // Trvalé bydliště
+  address_street:   z.string().optional(),
+  address_city:     z.string().optional(),
+  address_zip:      z.string().optional(),
+
+  // Pracovní zařazení
+  plant_id:         z.string().uuid().or(z.literal("")).optional().transform(v => v || null),
   workplace_id:     z.string().uuid().or(z.literal("")).optional().transform(v => v || null),
+  job_position_id:  z.string().uuid().or(z.literal("")).optional().transform(v => v || null),
+
+  hired_at:         z.string().optional(),
+  notes:            z.string().optional(),
+
+  is_equipment_responsible: z.boolean().default(false),
 });
 
 type FormData = z.infer<typeof schema>;
 
-// ── Formulář ─────────────────────────────────────────────────────────────────
-
 const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+// ── Formulář ─────────────────────────────────────────────────────────────────
 
 function EmployeeForm({
   defaultValues,
@@ -66,22 +86,48 @@ function EmployeeForm({
   isSubmitting,
   serverError,
   jobPositions,
+  plants,
   workplaces,
+  isEdit = false,
+  editUserId = null,
+  onRegeneratePassword,
 }: {
   defaultValues?: Partial<FormData>;
   onSubmit: (data: FormData) => void;
   isSubmitting: boolean;
   serverError: string | null;
   jobPositions: JobPosition[];
+  plants: Plant[];
   workplaces: Workplace[];
+  isEdit?: boolean;
+  editUserId?: string | null;
+  onRegeneratePassword?: (userId: string) => void;
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: defaultValues ?? { employment_type: "hpp" },
-  });
+  const { register, handleSubmit, watch, setValue, formState: { errors } } =
+    useForm<FormData>({
+      resolver: zodResolver(schema),
+      defaultValues: defaultValues ?? {
+        employment_type: "hpp",
+        is_equipment_responsible: false,
+      },
+    });
+
+  // Cascading dropdown: Plant → Workplace
+  const selectedPlant = watch("plant_id");
+  const selectedWorkplace = watch("workplace_id");
+  const availableWorkplaces = selectedPlant
+    ? workplaces.filter(w => w.plant_id === selectedPlant)
+    : workplaces;
+
+  // Pokud se změní Plant, ale aktuální workplace nepatří do něj → vymazat
+  const workplaceValid = availableWorkplaces.some(w => w.id === selectedWorkplace);
+  if (selectedPlant && selectedWorkplace && !workplaceValid) {
+    setValue("workplace_id", null);
+  }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {/* Jméno + příjmení */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="first_name">Jméno *</Label>
@@ -95,78 +141,188 @@ function EmployeeForm({
         </div>
       </div>
 
+      {/* Typ úvazku + Equipment responsible checkbox */}
+      <div className="grid grid-cols-2 gap-3 items-end">
+        <div className="space-y-1.5">
+          <Label htmlFor="employment_type">Typ úvazku *</Label>
+          <select id="employment_type" {...register("employment_type")} className={SELECT_CLS}>
+            {EMPLOYMENT_TYPES.map(t => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
+        <label className="flex items-start gap-2 pb-2 cursor-pointer">
+          <input
+            type="checkbox"
+            {...register("is_equipment_responsible")}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm">
+            <span className="font-medium">Osoba zodpovědná za vyhraz. zařízení</span>
+            <br />
+            <span className="text-xs text-gray-500">
+              Získá přístup do modulu Revize
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {/* Provozovna (plant) → Pracoviště (workplace) — cascading */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="plant_id">Provozovna</Label>
+          <select id="plant_id" {...register("plant_id")} className={SELECT_CLS}>
+            <option value="">— Nevybráno —</option>
+            {plants.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {plants.length === 0 && (
+            <p className="text-xs text-gray-400">Nejprve vytvořte provozovnu</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="workplace_id">Pracoviště</Label>
+          <select
+            id="workplace_id"
+            {...register("workplace_id")}
+            className={SELECT_CLS}
+            disabled={!selectedPlant && plants.length > 0}
+          >
+            <option value="">— Nevybráno —</option>
+            {availableWorkplaces.map(w => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+          {selectedPlant && availableWorkplaces.length === 0 && (
+            <p className="text-xs text-gray-400">Žádná pracoviště v této provozovně</p>
+          )}
+          {!selectedPlant && plants.length > 0 && (
+            <p className="text-xs text-gray-400">Nejprve vyberte provozovnu</p>
+          )}
+        </div>
+      </div>
+
+      {/* Pracovní pozice */}
       <div className="space-y-1.5">
-        <Label htmlFor="employment_type">Typ úvazku *</Label>
-        <select id="employment_type" {...register("employment_type")} className={SELECT_CLS}>
-          {EMPLOYMENT_TYPES.map(t => (
-            <option key={t.value} value={t.value}>{t.label}</option>
+        <Label htmlFor="job_position_id">Pracovní pozice</Label>
+        <select id="job_position_id" {...register("job_position_id")} className={SELECT_CLS}>
+          <option value="">— Nevybráno —</option>
+          {jobPositions.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.name}{p.work_category ? ` (kat. ${p.work_category})` : ""}
+            </option>
           ))}
         </select>
       </div>
 
+      {/* Email + Heslo (s refresh tlačítkem) */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">Email *</Label>
           <Input id="email" type="email" {...register("email")} />
           {errors.email && <p className="text-xs text-red-600">{errors.email.message}</p>}
+          {!isEdit && (
+            <p className="text-xs text-gray-400">
+              Z emailu bude uživatelské jméno pro přihlášení.
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="phone">Telefon</Label>
-          <Input id="phone" {...register("phone")} />
+          <Label htmlFor="user_password">Heslo</Label>
+          <div className="flex gap-2">
+            <Input
+              id="user_password"
+              type="text"
+              value={
+                isEdit
+                  ? (editUserId ? "••••••••" : "Bez účtu")
+                  : "(vygeneruje se po uložení)"
+              }
+              disabled
+              className="flex-1 font-mono text-xs"
+            />
+            {isEdit && editUserId && onRegeneratePassword && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm("Vygenerovat nové heslo? Uživatel bude muset znovu přihlásit.")) {
+                    onRegeneratePassword(editUserId);
+                  }
+                }}
+                className="rounded-md border border-gray-300 px-3 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors"
+                title="Vygenerovat nové heslo"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {isEdit && !editUserId && (
+            <p className="text-xs text-amber-600">
+              Tento zaměstnanec nemá přihlašovací účet (vytvořen před zavedením auto-účtů).
+            </p>
+          )}
         </div>
       </div>
 
+      {/* Telefon */}
+      <div className="space-y-1.5">
+        <Label htmlFor="phone">Telefon</Label>
+        <Input id="phone" {...register("phone")} />
+      </div>
+
+      {/* Identifikace */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="hired_at">Datum nástupu</Label>
-          <Input id="hired_at" type="date" {...register("hired_at")} />
+          <Label htmlFor="personal_id">Rodné číslo</Label>
+          <Input id="personal_id" placeholder="YYMMDD/XXXX" {...register("personal_id")} />
         </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="personal_number">Osobní číslo</Label>
+          <Input
+            id="personal_number"
+            placeholder="např. 2024-001"
+            {...register("personal_number")}
+          />
+        </div>
+      </div>
+
+      {/* Datum narození + nástupu */}
+      <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="birth_date">Datum narození</Label>
           <Input id="birth_date" type="date" {...register("birth_date")} />
         </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="hired_at">Datum nástupu</Label>
+          <Input id="hired_at" type="date" {...register("hired_at")} />
+        </div>
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="personal_id">Rodné číslo / Osobní číslo</Label>
-        <Input id="personal_id" {...register("personal_id")} />
-      </div>
-
-      {/* Pracovní zařazení */}
+      {/* Trvalé bydliště */}
       <div className="border-t border-gray-100 pt-4">
         <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
-          Pracovní zařazení
+          Trvalé bydliště
         </p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="job_position_id">Pracovní pozice</Label>
-            <select id="job_position_id" {...register("job_position_id")} className={SELECT_CLS}>
-              <option value="">— Nevybráno —</option>
-              {jobPositions.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name}{p.work_category ? ` (kat. ${p.work_category})` : ""}
-                </option>
-              ))}
-            </select>
-            {jobPositions.length === 0 && (
-              <p className="text-xs text-gray-400">Nejprve vytvořte pracovní pozice</p>
-            )}
+            <Label htmlFor="address_street">Ulice a č.p.</Label>
+            <Input id="address_street" {...register("address_street")} />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="workplace_id">Pracoviště</Label>
-            <select id="workplace_id" {...register("workplace_id")} className={SELECT_CLS}>
-              <option value="">— Nevybráno —</option>
-              {workplaces.map(w => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-            {workplaces.length === 0 && (
-              <p className="text-xs text-gray-400">Nejprve vytvořte pracoviště</p>
-            )}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5 col-span-2">
+              <Label htmlFor="address_city">Město</Label>
+              <Input id="address_city" {...register("address_city")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="address_zip">PSČ</Label>
+              <Input id="address_zip" placeholder="000 00" {...register("address_zip")} />
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Poznámky */}
       <div className="space-y-1.5">
         <Label htmlFor="notes">Poznámky</Label>
         <textarea
@@ -190,6 +346,319 @@ function EmployeeForm({
   );
 }
 
+// ── Import response typy ─────────────────────────────────────────────────────
+
+interface ImportSuccessRow {
+  row: number;
+  employee_id: string;
+  full_name: string;
+  email: string | null;
+  generated_password: string | null;
+}
+interface ImportErrorRow {
+  row: number;
+  error: string;
+  raw: Record<string, string>;
+}
+interface ImportResponse {
+  total_rows: number;
+  created_count: number;
+  error_count: number;
+  created: ImportSuccessRow[];
+  errors: ImportErrorRow[];
+}
+
+// ── Import dialog ────────────────────────────────────────────────────────────
+
+function ImportDialog({
+  open,
+  onClose,
+  onImported,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [result, setResult] = useState<ImportResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function downloadTemplate() {
+    // Přímý download přes browser (server endpoint vrátí CSV attachment).
+    // Musíme přes window.open aby cookies + proxy fungovalo správně.
+    window.open("/api/v1/employees/import/template", "_blank");
+  }
+
+  async function submit() {
+    if (!file) return;
+    setError(null);
+    setIsUploading(true);
+    try {
+      const res = await uploadFile<ImportResponse>("/employees/import", file);
+      setResult(res);
+      if (res.created_count > 0) onImported();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Nahrávání selhalo");
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  function reset() {
+    setFile(null);
+    setResult(null);
+    setError(null);
+  }
+
+  function handleClose() {
+    reset();
+    onClose();
+  }
+
+  return (
+    <Dialog open={open} onClose={handleClose} title="Import zaměstnanců z CSV" size="lg">
+      {!result ? (
+        <div className="space-y-5">
+          {/* Vzor ke stažení */}
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
+            <div className="flex items-start gap-3">
+              <FileText className="h-5 w-5 shrink-0 text-blue-600 mt-0.5" />
+              <div className="flex-1 text-sm">
+                <p className="font-medium text-blue-900">Nepřipravili jste soubor?</p>
+                <p className="mt-1 text-blue-800">
+                  Stáhněte si vzorový CSV s přesnou hlavičkou a příkladem.
+                  Otevřete ho v Excelu, doplňte zaměstnance a nahrajte zpět.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={downloadTemplate}>
+                <Download className="h-3.5 w-3.5 mr-1" />
+                Vzor CSV
+              </Button>
+            </div>
+          </div>
+
+          {/* Informace o formátu */}
+          <div className="text-xs text-gray-600 space-y-1">
+            <p className="font-medium">Požadavky na soubor:</p>
+            <ul className="list-disc list-inside space-y-0.5 pl-2">
+              <li>Formát .csv (UTF-8, oddělovač čárka nebo středník)</li>
+              <li>Povinné sloupce: <code className="bg-gray-100 px-1 rounded">first_name</code>, <code className="bg-gray-100 px-1 rounded">last_name</code></li>
+              <li>Provozovna / pracoviště / pozice — zadejte <strong>přesný název</strong> (musí už existovat v systému)</li>
+              <li>Datum ve formátu <code className="bg-gray-100 px-1 rounded">YYYY-MM-DD</code></li>
+              <li>Boolean (is_equipment_responsible / create_user_account): <code className="bg-gray-100 px-1 rounded">true</code> / <code className="bg-gray-100 px-1 rounded">false</code></li>
+              <li>Max 5 MB na soubor</li>
+            </ul>
+          </div>
+
+          {/* Upload */}
+          <div className="space-y-1.5">
+            <Label htmlFor="csv_file">Vyberte CSV soubor</Label>
+            <input
+              id="csv_file"
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100"
+            />
+            {file && (
+              <p className="text-xs text-gray-500">
+                {file.name} ({(file.size / 1024).toFixed(1)} KB)
+              </p>
+            )}
+          </div>
+
+          {error && (
+            <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button variant="outline" onClick={handleClose}>Zrušit</Button>
+            <Button onClick={submit} disabled={!file} loading={isUploading}>
+              <Upload className="h-4 w-4 mr-1.5" />
+              Importovat
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <ImportResult result={result} onClose={handleClose} onReset={reset} />
+      )}
+    </Dialog>
+  );
+}
+
+// ── Import výsledek ──────────────────────────────────────────────────────────
+
+function ImportResult({
+  result,
+  onClose,
+  onReset,
+}: {
+  result: ImportResponse;
+  onClose: () => void;
+  onReset: () => void;
+}) {
+  const passwordsToShow = result.created.filter(r => r.generated_password);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <div className="rounded-md bg-gray-100 p-3">
+          <div className="text-2xl font-semibold text-gray-900">{result.total_rows}</div>
+          <div className="text-xs text-gray-500">Celkem řádků</div>
+        </div>
+        <div className="rounded-md bg-green-100 p-3">
+          <div className="text-2xl font-semibold text-green-800">{result.created_count}</div>
+          <div className="text-xs text-green-700">Vytvořeno</div>
+        </div>
+        <div className={cn(
+          "rounded-md p-3",
+          result.error_count > 0 ? "bg-red-100" : "bg-gray-50"
+        )}>
+          <div className={cn(
+            "text-2xl font-semibold",
+            result.error_count > 0 ? "text-red-800" : "text-gray-400"
+          )}>
+            {result.error_count}
+          </div>
+          <div className={cn(
+            "text-xs",
+            result.error_count > 0 ? "text-red-700" : "text-gray-400"
+          )}>
+            Chyb
+          </div>
+        </div>
+      </div>
+
+      {/* Vygenerovaná hesla */}
+      {passwordsToShow.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-4">
+          <p className="text-sm font-medium text-amber-900 mb-2">
+            Vygenerovaná hesla ({passwordsToShow.length}) — zapište si je hned, znovu se nezobrazí:
+          </p>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-amber-800 border-b border-amber-200">
+                <th className="py-1 pr-2">Jméno</th>
+                <th className="py-1 pr-2">Email</th>
+                <th className="py-1">Heslo</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono">
+              {passwordsToShow.map(r => (
+                <tr key={r.employee_id} className="border-b border-amber-100">
+                  <td className="py-1 pr-2 whitespace-nowrap">{r.full_name}</td>
+                  <td className="py-1 pr-2 text-gray-700">{r.email}</td>
+                  <td className="py-1 text-amber-900 font-semibold select-all">{r.generated_password}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button
+            type="button"
+            onClick={() => {
+              const text = passwordsToShow
+                .map(r => `${r.full_name}\t${r.email ?? ""}\t${r.generated_password}`)
+                .join("\n");
+              navigator.clipboard.writeText(text);
+            }}
+            className="mt-2 text-xs text-amber-800 hover:text-amber-900 underline"
+          >
+            Zkopírovat do schránky (tab-separated)
+          </button>
+        </div>
+      )}
+
+      {/* Chyby */}
+      {result.errors.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-red-800">
+            Řádky které se nepodařilo importovat:
+          </p>
+          <div className="max-h-60 overflow-y-auto rounded-md border border-red-200">
+            <table className="w-full text-xs">
+              <thead className="bg-red-50 sticky top-0">
+                <tr>
+                  <th className="text-left py-2 px-3 font-medium text-red-800">Řádek</th>
+                  <th className="text-left py-2 px-3 font-medium text-red-800">Chyba</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.errors.map((e, i) => (
+                  <tr key={i} className="border-t border-red-100">
+                    <td className="py-1.5 px-3 align-top font-mono">{e.row}</td>
+                    <td className="py-1.5 px-3 text-red-700">{e.error}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+        <Button variant="outline" onClick={onReset}>Importovat další</Button>
+        <Button onClick={onClose}>Zavřít</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Heslo modal (po úspěšném vytvoření nebo regeneraci) ─────────────────────
+
+function PasswordModal({
+  open,
+  password,
+  email,
+  onClose,
+}: {
+  open: boolean;
+  password: string | null;
+  email: string | null;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Dialog open={open} onClose={onClose} title="Vygenerované heslo" size="sm">
+      {password && (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            {email
+              ? <>Pro uživatele <strong>{email}</strong>:</>
+              : "Nové heslo:"}
+          </p>
+          <div className="flex items-center gap-2 rounded-md bg-gray-100 p-3 font-mono text-sm">
+            <code className="flex-1 select-all">{password}</code>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(password);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="rounded p-1.5 text-gray-500 hover:bg-white hover:text-blue-600 transition-colors"
+              title="Kopírovat"
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+          </div>
+          {copied && <p className="text-xs text-green-600">Zkopírováno do schránky.</p>}
+          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+            Heslo se zobrazí pouze TEĎ. Předejte ho uživateli, který si ho po
+            přihlášení může změnit.
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={onClose}>Rozumím</Button>
+          </div>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 // ── Stránka ───────────────────────────────────────────────────────────────────
 
 export default function EmployeesPage() {
@@ -197,7 +666,9 @@ export default function EmployeesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [passwordModal, setPasswordModal] = useState<{ password: string; email: string | null } | null>(null);
 
   const { data: employees = [], isLoading } = useQuery<Employee[]>({
     queryKey: ["employees", statusFilter],
@@ -210,6 +681,12 @@ export default function EmployeesPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: plants = [] } = useQuery<Plant[]>({
+    queryKey: ["plants"],
+    queryFn: () => api.get("/plants"),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: workplaces = [] } = useQuery<Workplace[]>({
     queryKey: ["workplaces"],
     queryFn: () => api.get("/workplaces"),
@@ -217,8 +694,16 @@ export default function EmployeesPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: FormData) => api.post("/employees", data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["employees"] }); setCreateOpen(false); },
+    // Backend auto-creates user account when email is provided (povinné od
+    // commitu 9c). Heslo vygeneruje server a vrátí v response.generated_password.
+    mutationFn: (data: FormData) => api.post<Employee>("/employees", data),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      setCreateOpen(false);
+      if (res.generated_password) {
+        setPasswordModal({ password: res.generated_password, email: res.email });
+      }
+    },
     onError: (err) => setServerError(err instanceof ApiError ? err.detail : "Chyba serveru"),
   });
 
@@ -234,6 +719,16 @@ export default function EmployeesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
   });
 
+  const regenerateMutation = useMutation({
+    mutationFn: (userId: string) =>
+      api.post<{ new_password: string }>(`/users/${userId}/regenerate-password`),
+    onSuccess: (res) => {
+      setPasswordModal({ password: res.new_password, email: editEmployee?.email ?? null });
+    },
+    onError: (err) =>
+      alert(err instanceof ApiError ? err.detail : "Nepodařilo se vygenerovat heslo"),
+  });
+
   function formatDate(iso: string | null) {
     if (!iso) return "—";
     return new Date(iso).toLocaleDateString("cs-CZ");
@@ -244,15 +739,24 @@ export default function EmployeesPage() {
       <Header
         title="Zaměstnanci"
         actions={
-          <Button onClick={() => { setServerError(null); setCreateOpen(true); }} size="sm">
-            <UserPlus className="h-4 w-4 mr-1.5" />
-            Přidat zaměstnance
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-1.5" />
+              Import CSV
+            </Button>
+            <Button onClick={() => { setServerError(null); setCreateOpen(true); }} size="sm">
+              <UserPlus className="h-4 w-4 mr-1.5" />
+              Přidat zaměstnance
+            </Button>
+          </div>
         }
       />
 
       <div className="p-6 space-y-4">
-        {/* Filtry */}
         <div className="flex items-center gap-2">
           {(["", "active", "terminated", "on_leave"] as const).map(val => (
             <button
@@ -279,7 +783,6 @@ export default function EmployeesPage() {
           </Button>
         </div>
 
-        {/* Tabulka */}
         <Card>
           <CardContent className="p-0">
             {isLoading ? (
@@ -300,6 +803,7 @@ export default function EmployeesPage() {
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
                       <th className="text-left py-3 px-4 font-medium text-gray-500">Jméno</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-500">Os. č.</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-500">Úvazek</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-500">Status</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-500">Email</th>
@@ -313,6 +817,7 @@ export default function EmployeesPage() {
                         <td className="py-3 px-4 font-medium text-gray-900">
                           {emp.last_name} {emp.first_name}
                         </td>
+                        <td className="py-3 px-4 text-gray-600 text-xs">{emp.personal_number || "—"}</td>
                         <td className="py-3 px-4 text-gray-600 uppercase text-xs font-medium">
                           {emp.employment_type}
                         </td>
@@ -368,6 +873,7 @@ export default function EmployeesPage() {
           isSubmitting={createMutation.isPending}
           serverError={serverError}
           jobPositions={jobPositions}
+          plants={plants}
           workplaces={workplaces}
         />
       </Dialog>
@@ -381,6 +887,9 @@ export default function EmployeesPage() {
       >
         {editEmployee && (
           <EmployeeForm
+            isEdit
+            editUserId={editEmployee.user_id}
+            onRegeneratePassword={(uid) => regenerateMutation.mutate(uid)}
             defaultValues={{
               first_name:      editEmployee.first_name,
               last_name:       editEmployee.last_name,
@@ -390,9 +899,15 @@ export default function EmployeesPage() {
               hired_at:        editEmployee.hired_at ?? "",
               birth_date:      editEmployee.birth_date ?? "",
               personal_id:     editEmployee.personal_id ?? "",
+              personal_number: editEmployee.personal_number ?? "",
+              address_street:  editEmployee.address_street ?? "",
+              address_city:    editEmployee.address_city ?? "",
+              address_zip:     editEmployee.address_zip ?? "",
               notes:           editEmployee.notes ?? "",
-              job_position_id: editEmployee.job_position_id ?? "",
-              workplace_id:    editEmployee.workplace_id ?? "",
+              plant_id:        editEmployee.plant_id ?? null,
+              workplace_id:    editEmployee.workplace_id ?? null,
+              job_position_id: editEmployee.job_position_id ?? null,
+              is_equipment_responsible: false, // neznáme z API; zatím false
             }}
             onSubmit={(data) => {
               setServerError(null);
@@ -401,10 +916,26 @@ export default function EmployeesPage() {
             isSubmitting={updateMutation.isPending}
             serverError={serverError}
             jobPositions={jobPositions}
+            plants={plants}
             workplaces={workplaces}
           />
         )}
       </Dialog>
+
+      {/* Dialog: Vygenerované heslo */}
+      <PasswordModal
+        open={!!passwordModal}
+        password={passwordModal?.password ?? null}
+        email={passwordModal?.email ?? null}
+        onClose={() => setPasswordModal(null)}
+      />
+
+      {/* Dialog: Import CSV */}
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => qc.invalidateQueries({ queryKey: ["employees"] })}
+      />
     </div>
   );
 }
