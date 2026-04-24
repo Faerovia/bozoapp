@@ -82,7 +82,12 @@ def upgrade() -> None:
             )
     """)
 
-    # Index pro filter podle provozovny a typu
+    # Migrace 004 vytvořila idx_revisions_type nad sloupcem revision_type.
+    # V novém modelu je to device_type — dropneme starý index a vytvoříme
+    # nový pod stejným jménem (pro zpětnou kompat se starými dotazy).
+    op.execute("DROP INDEX IF EXISTS idx_revisions_type")
+
+    # Indexy pro filtrování podle provozovny, typu a QR lookupu
     op.execute("CREATE INDEX idx_revisions_plant ON revisions(tenant_id, plant_id)")
     op.execute("CREATE INDEX idx_revisions_type ON revisions(tenant_id, device_type)")
     op.execute("CREATE INDEX idx_revisions_qr ON revisions(qr_token)")
