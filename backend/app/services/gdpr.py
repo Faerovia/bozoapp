@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import delete, select, text
@@ -66,9 +66,7 @@ def _serialize_row(instance: Any) -> dict[str, Any]:
         value = getattr(instance, name, None)
         if isinstance(value, uuid.UUID):
             out[name] = str(value)
-        elif isinstance(value, datetime):
-            out[name] = value.isoformat()
-        elif hasattr(value, "isoformat"):
+        elif isinstance(value, datetime | date | time):
             out[name] = value.isoformat()
         elif value is None or isinstance(value, (str, int, float, bool, list, dict)):
             out[name] = value

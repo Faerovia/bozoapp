@@ -49,7 +49,9 @@ async def health_readiness(
             settings.redis_url, socket_connect_timeout=1.0, socket_timeout=1.0,
         )
         try:
-            await client.ping()
+            # redis-py typing překrývá sync/async variantu — `await` sedí
+            # na runtime (async client), mypy strict nad tím vrtí hlavou.
+            await client.ping()  # type: ignore[misc]
             checks["redis"] = "ok"
         finally:
             await client.aclose()
