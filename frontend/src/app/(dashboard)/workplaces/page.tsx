@@ -1,422 +1,934 @@
 "use client";
 
+/**
+ * Modul „Provozovny, pracoviště, pozice".
+ *
+ * Hierarchie:
+ *   Plant (provozovna)  — rozbalovací karta
+ *     └─ Workplace (pracoviště)
+ *         └─ JobPosition (pozice) — každá má 1:1 RiskFactorAssessment
+ *
+ * CRUD na všech úrovních. RFA se vyplňuje v samostatném dialogu
+ * (matrix 13 faktorů × 5 hodnocení) s možností uploadu PDF per faktor.
+ */
+
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Building2, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
+import {
+  Plus, Pencil, Trash2, ChevronDown, ChevronRight,
+  Building2, Briefcase, Factory, ShieldCheck, Download,
+} from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { Plant, Workplace } from "@/types/api";
+import type {
+  Plant, Workplace, JobPosition, RiskFactorAssessment,
+} from "@/types/api";
+import { RF_ORDER, RF_LABELS, RISK_RATINGS } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
-// ── Schemata ──────────────────────────────────────────────────────────────────
+const INPUT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
-const plantSchema = z.object({
-  name:    z.string().min(1, "Název je povinný"),
-  address: z.string().optional(),
-  city:    z.string().optional(),
-});
-
-const workplaceSchema = z.object({
-  plant_id: z.string().uuid("Vyberte provozovnu"),
-  name:     z.string().min(1, "Název je povinný"),
-  notes:    z.string().optional(),
-});
-
-type PlantForm     = z.infer<typeof plantSchema>;
-type WorkplaceForm = z.infer<typeof workplaceSchema>;
-
-const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
-
-// ── Plant dialog ──────────────────────────────────────────────────────────────
-
-function PlantFormDialog({
-  open,
-  onClose,
-  defaultValues,
-  onSubmit,
-  isSubmitting,
-  serverError,
-  isEdit,
-}: {
-  open: boolean;
-  onClose: () => void;
-  defaultValues?: Partial<PlantForm>;
-  onSubmit: (d: PlantForm) => void;
-  isSubmitting: boolean;
-  serverError: string | null;
-  isEdit?: boolean;
-}) {
-  const { register, handleSubmit, formState: { errors } } = useForm<PlantForm>({
-    resolver: zodResolver(plantSchema),
-    defaultValues,
-  });
-
-  return (
-    <Dialog open={open} onClose={onClose} title={isEdit ? "Upravit provozovnu" : "Nová provozovna"} size="sm">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="p-name">Název *</Label>
-          <Input id="p-name" {...register("name")} placeholder="např. Sklad Praha" />
-          {errors.name && <p className="text-xs text-red-600">{errors.name.message}</p>}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="p-address">Adresa</Label>
-          <Input id="p-address" {...register("address")} placeholder="Ulice a číslo" />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="p-city">Město</Label>
-          <Input id="p-city" {...register("city")} placeholder="Praha" />
-        </div>
-        {serverError && (
-          <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{serverError}</div>
-        )}
-        <div className="flex justify-end pt-2">
-          <Button type="submit" loading={isSubmitting}>Uložit</Button>
-        </div>
-      </form>
-    </Dialog>
-  );
+function errMsg(err: unknown): string {
+  return err instanceof ApiError ? err.detail : "Chyba serveru";
 }
 
-// ── Workplace dialog ──────────────────────────────────────────────────────────
+function getCsrf(): string | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
 
-function WorkplaceFormDialog({
-  open,
-  onClose,
-  plants,
+// ── Plant form ─────────────────────────────────────────────────────────────
+
+function PlantForm({
   defaultValues,
   onSubmit,
   isSubmitting,
-  serverError,
-  isEdit,
+  error,
 }: {
-  open: boolean;
-  onClose: () => void;
-  plants: Plant[];
-  defaultValues?: Partial<WorkplaceForm>;
-  onSubmit: (d: WorkplaceForm) => void;
+  defaultValues?: Partial<Plant>;
+  onSubmit: (data: Partial<Plant>) => void;
   isSubmitting: boolean;
-  serverError: string | null;
-  isEdit?: boolean;
+  error: string | null;
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<WorkplaceForm>({
-    resolver: zodResolver(workplaceSchema),
-    defaultValues,
+  const [form, setForm] = useState<Partial<Plant>>({
+    name: defaultValues?.name ?? "",
+    address: defaultValues?.address ?? "",
+    city: defaultValues?.city ?? "",
+    zip_code: defaultValues?.zip_code ?? "",
+    ico: defaultValues?.ico ?? "",
   });
 
   return (
-    <Dialog open={open} onClose={onClose} title={isEdit ? "Upravit pracoviště" : "Nové pracoviště"} size="sm">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="w-plant">Provozovna *</Label>
-          <select id="w-plant" {...register("plant_id")} className={SELECT_CLS}>
-            <option value="">— Vyberte provozovnu —</option>
-            {plants.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-          {errors.plant_id && <p className="text-xs text-red-600">{errors.plant_id.message}</p>}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="w-name">Název pracoviště *</Label>
-          <Input id="w-name" {...register("name")} placeholder="např. Montážní hala A" />
-          {errors.name && <p className="text-xs text-red-600">{errors.name.message}</p>}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="w-notes">Poznámky</Label>
-          <textarea
-            id="w-notes"
-            {...register("notes")}
-            rows={2}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSubmit(form); }}
+      className="space-y-3"
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="name">Název provozovny *</Label>
+        <Input
+          id="name"
+          value={form.name ?? ""}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          required
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5 col-span-2">
+          <Label htmlFor="address">Adresa</Label>
+          <Input
+            id="address"
+            value={form.address ?? ""}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
           />
         </div>
-        {serverError && (
-          <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{serverError}</div>
-        )}
-        <div className="flex justify-end pt-2">
-          <Button type="submit" loading={isSubmitting}>Uložit</Button>
+        <div className="space-y-1.5">
+          <Label htmlFor="city">Město</Label>
+          <Input
+            id="city"
+            value={form.city ?? ""}
+            onChange={(e) => setForm({ ...form, city: e.target.value })}
+          />
         </div>
-      </form>
-    </Dialog>
+        <div className="space-y-1.5">
+          <Label htmlFor="zip_code">PSČ</Label>
+          <Input
+            id="zip_code"
+            value={form.zip_code ?? ""}
+            onChange={(e) => setForm({ ...form, zip_code: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ico">IČO</Label>
+          <Input
+            id="ico"
+            value={form.ico ?? ""}
+            onChange={(e) => setForm({ ...form, ico: e.target.value })}
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <Button type="submit" loading={isSubmitting}>Uložit</Button>
+      </div>
+    </form>
   );
 }
 
-// ── Stránka ───────────────────────────────────────────────────────────────────
+// ── Workplace form ─────────────────────────────────────────────────────────
+
+function WorkplaceForm({
+  plantId,
+  defaultValues,
+  onSubmit,
+  isSubmitting,
+  error,
+}: {
+  plantId: string;
+  defaultValues?: Partial<Workplace>;
+  onSubmit: (data: { plant_id: string; name: string; notes: string | null }) => void;
+  isSubmitting: boolean;
+  error: string | null;
+}) {
+  const [name, setName] = useState(defaultValues?.name ?? "");
+  const [notes, setNotes] = useState(defaultValues?.notes ?? "");
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({ plant_id: plantId, name, notes: notes || null });
+      }}
+      className="space-y-3"
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="wp_name">Název pracoviště *</Label>
+        <Input
+          id="wp_name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="wp_notes">Poznámky</Label>
+        <textarea
+          id="wp_notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={2}
+          className={cn(INPUT_CLS, "resize-none")}
+        />
+      </div>
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      <div className="flex justify-end">
+        <Button type="submit" loading={isSubmitting}>Uložit</Button>
+      </div>
+    </form>
+  );
+}
+
+// ── JobPosition form ──────────────────────────────────────────────────────
+
+function PositionForm({
+  workplaceId,
+  defaultValues,
+  onSubmit,
+  isSubmitting,
+  error,
+}: {
+  workplaceId: string;
+  defaultValues?: Partial<JobPosition>;
+  onSubmit: (data: {
+    workplace_id: string; name: string; description: string | null;
+    work_category: string | null; medical_exam_period_months: number | null;
+  }) => void;
+  isSubmitting: boolean;
+  error: string | null;
+}) {
+  const [name, setName] = useState(defaultValues?.name ?? "");
+  const [description, setDescription] = useState(defaultValues?.description ?? "");
+  const [workCategory, setWorkCategory] = useState(defaultValues?.work_category ?? "");
+  const [examPeriod, setExamPeriod] = useState(
+    defaultValues?.medical_exam_period_months?.toString() ?? ""
+  );
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({
+          workplace_id: workplaceId,
+          name,
+          description: description || null,
+          work_category: workCategory || null,
+          medical_exam_period_months: examPeriod ? parseInt(examPeriod, 10) : null,
+        });
+      }}
+      className="space-y-3"
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="pos_name">Název pozice *</Label>
+        <Input
+          id="pos_name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="pos_desc">Popis</Label>
+        <textarea
+          id="pos_desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          className={cn(INPUT_CLS, "resize-none")}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="pos_cat">Kategorie práce (override)</Label>
+          <select
+            id="pos_cat"
+            value={workCategory}
+            onChange={(e) => setWorkCategory(e.target.value)}
+            className={INPUT_CLS}
+          >
+            <option value="">— dle RFA —</option>
+            {RISK_RATINGS.map((r) => (
+              <option key={r} value={r}>Kategorie {r}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400">
+            Prázdné = derivuje z hodnocení rizik
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="pos_period">Lhůta LP (měsíce)</Label>
+          <Input
+            id="pos_period"
+            type="number"
+            min="1"
+            value={examPeriod}
+            onChange={(e) => setExamPeriod(e.target.value)}
+            placeholder="dle kategorie"
+          />
+        </div>
+      </div>
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      <div className="flex justify-end">
+        <Button type="submit" loading={isSubmitting}>Uložit</Button>
+      </div>
+    </form>
+  );
+}
+
+// ── RFA matrix dialog body ────────────────────────────────────────────────
+
+function RfaMatrixBody({
+  positionId,
+  onClose,
+}: {
+  positionId: string;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { data: rfa, isLoading } = useQuery<RiskFactorAssessment>({
+    queryKey: ["rfa-by-position", positionId],
+    queryFn: () => api.get(`/job-positions/${positionId}/risk-assessment`),
+  });
+
+  const updateRfa = useMutation({
+    mutationFn: (patch: Partial<RiskFactorAssessment>) =>
+      api.patch(`/risk-factors/${rfa!.id}`, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rfa-by-position", positionId] });
+      qc.invalidateQueries({ queryKey: ["positions"] });
+    },
+    onError: (err) => setSaveError(errMsg(err)),
+  });
+
+  const deletePdf = useMutation({
+    mutationFn: (factor: string) =>
+      api.delete(`/risk-factors/${rfa!.id}/pdf/${factor}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rfa-by-position", positionId] });
+    },
+  });
+
+  async function uploadPdf(factor: string, file: File) {
+    if (!rfa) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    const headers: Record<string, string> = {};
+    const csrf = getCsrf();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    const res = await fetch(`/api/v1/risk-factors/${rfa.id}/pdf/${factor}`, {
+      method: "POST",
+      body: fd,
+      headers,
+      credentials: "same-origin",
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setSaveError(body.detail ?? `HTTP ${res.status}`);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["rfa-by-position", positionId] });
+  }
+
+  if (isLoading || !rfa) {
+    return <div className="h-32 animate-pulse bg-gray-50 rounded" />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-xs text-gray-500">
+        Navrhovaná kategorie: <strong>{rfa.category_proposed}</strong>
+        {rfa.category_override && (
+          <> · Přepsáno na <strong>{rfa.category_override}</strong></>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-xs text-gray-500">
+              <th className="text-left py-2 px-3">Faktor</th>
+              {RISK_RATINGS.map((r) => (
+                <th key={r} className="text-center py-2 px-3 w-14">{r}</th>
+              ))}
+              <th className="text-center py-2 px-3 w-8">—</th>
+              <th className="text-center py-2 px-3 w-32">Měření (PDF)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {RF_ORDER.map((factor) => {
+              const currentRating = rfa[factor];
+              const pdfField = `${factor}_pdf_path` as keyof RiskFactorAssessment;
+              const hasPdf = !!rfa[pdfField];
+              return (
+                <tr key={factor}>
+                  <td className="py-2 px-3 font-medium text-gray-700">
+                    {RF_LABELS[factor]}
+                  </td>
+                  {RISK_RATINGS.map((r) => (
+                    <td key={r} className="text-center py-1">
+                      <input
+                        type="radio"
+                        name={`rating-${factor}`}
+                        checked={currentRating === r}
+                        onChange={() => updateRfa.mutate({ [factor]: r })}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                      />
+                    </td>
+                  ))}
+                  <td className="text-center py-1">
+                    <input
+                      type="radio"
+                      name={`rating-${factor}`}
+                      checked={currentRating === null}
+                      onChange={() => updateRfa.mutate({ [factor]: null })}
+                      className="h-4 w-4 text-gray-400 focus:ring-gray-300"
+                      title="Neaplikuje se"
+                    />
+                  </td>
+                  <td className="text-center py-1">
+                    {hasPdf ? (
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            window.open(`/api/v1/risk-factors/${rfa.id}/pdf/${factor}`, "_blank")
+                          }
+                          className="rounded p-1 text-blue-600 hover:bg-blue-50"
+                          title="Otevřít PDF"
+                        >
+                          <Download className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm("Smazat PDF?")) deletePdf.mutate(factor);
+                          }}
+                          className="rounded p-1 text-red-600 hover:bg-red-50"
+                          title="Smazat PDF"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="cursor-pointer text-xs text-blue-600 hover:underline">
+                        Nahrát…
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) uploadPdf(factor, f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {saveError && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+          {saveError}
+        </div>
+      )}
+
+      <div className="flex justify-end pt-2">
+        <Button onClick={onClose} variant="outline">Zavřít</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Nested: positions under a workplace ───────────────────────────────────
+
+function PositionsTable({
+  workplaceId,
+  onEditPosition,
+  onDeletePosition,
+  onOpenRfa,
+}: {
+  workplaceId: string;
+  onEditPosition: (jp: JobPosition) => void;
+  onDeletePosition: (jp: JobPosition) => void;
+  onOpenRfa: (jp: JobPosition) => void;
+}) {
+  const { data: positions = [] } = useQuery<JobPosition[]>({
+    queryKey: ["positions", workplaceId],
+    queryFn: () => api.get(`/job-positions?workplace_id=${workplaceId}&jp_status=active`),
+  });
+
+  if (positions.length === 0) {
+    return (
+      <div className="text-xs text-gray-400 py-2 pl-8">
+        Žádné pozice.
+      </div>
+    );
+  }
+
+  return (
+    <div className="pl-8">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-gray-500">
+            <th className="text-left py-1 font-medium">Pozice</th>
+            <th className="text-left py-1 font-medium w-24">Kategorie</th>
+            <th className="text-left py-1 font-medium w-28">Lhůta LP</th>
+            <th className="w-32" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {positions.map((jp) => (
+            <tr key={jp.id} className="hover:bg-gray-50/50">
+              <td className="py-1.5 pr-2 font-medium text-gray-800">
+                <Briefcase className="inline h-3.5 w-3.5 mr-1 text-gray-400" />
+                {jp.name}
+              </td>
+              <td className="py-1.5 text-gray-600">
+                {jp.effective_category ? (
+                  <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">
+                    {jp.effective_category}
+                  </span>
+                ) : "—"}
+              </td>
+              <td className="py-1.5 text-gray-500 text-xs">
+                {jp.effective_exam_period_months
+                  ? `${jp.effective_exam_period_months} měs.`
+                  : "—"}
+              </td>
+              <td className="py-1.5">
+                <div className="flex items-center justify-end gap-1">
+                  <button
+                    onClick={() => onOpenRfa(jp)}
+                    className="rounded p-1 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50"
+                    title="Hodnocení rizik"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => onEditPosition(jp)}
+                    className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                    title="Upravit"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => onDeletePosition(jp)}
+                    className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                    title="Archivovat"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function WorkplacesSection({
+  plantId,
+  onEditWp,
+  onDeleteWp,
+  onAddPos,
+  onEditPos,
+  onDeletePos,
+  onOpenRfa,
+}: {
+  plantId: string;
+  onEditWp: (wp: Workplace) => void;
+  onDeleteWp: (wp: Workplace) => void;
+  onAddPos: (workplaceId: string) => void;
+  onEditPos: (jp: JobPosition) => void;
+  onDeletePos: (jp: JobPosition) => void;
+  onOpenRfa: (jp: JobPosition) => void;
+}) {
+  const { data: workplaces = [] } = useQuery<Workplace[]>({
+    queryKey: ["workplaces", plantId],
+    queryFn: () => api.get(`/workplaces?plant_id=${plantId}&wp_status=active`),
+  });
+
+  if (workplaces.length === 0) {
+    return (
+      <div className="text-xs text-gray-400 py-2 pl-6">
+        Žádná pracoviště. Přidejte tlačítkem &bdquo;Pracoviště&ldquo; v řádku provozovny.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {workplaces.map((wp) => (
+        <div key={wp.id} className="pl-6 border-l-2 border-gray-100">
+          <div className="flex items-center justify-between py-1.5">
+            <div className="flex items-center gap-2">
+              <Factory className="h-4 w-4 text-gray-400" />
+              <span className="font-medium text-gray-800">{wp.name}</span>
+              {wp.notes && (
+                <span className="text-xs text-gray-400">· {wp.notes}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => onAddPos(wp.id)}
+                className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+              >
+                <Plus className="h-3 w-3" /> Pozice
+              </button>
+              <button
+                onClick={() => onEditWp(wp)}
+                className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                title="Upravit"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => onDeleteWp(wp)}
+                className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                title="Archivovat"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <PositionsTable
+            workplaceId={wp.id}
+            onEditPosition={onEditPos}
+            onDeletePosition={onDeletePos}
+            onOpenRfa={onOpenRfa}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Stránka ──────────────────────────────────────────────────────────────
 
 export default function WorkplacesPage() {
   const qc = useQueryClient();
+  const [expandedPlants, setExpandedPlants] = useState<Set<string>>(new Set());
 
-  // Plants state
-  const [plantCreate, setPlantCreate]         = useState(false);
-  const [editPlant, setEditPlant]             = useState<Plant | null>(null);
-  const [plantError, setPlantError]           = useState<string | null>(null);
+  const [plantModal, setPlantModal] = useState<{ mode: "create" | "edit"; plant?: Plant } | null>(null);
+  const [wpModal, setWpModal] = useState<{ mode: "create" | "edit"; plantId: string; wp?: Workplace } | null>(null);
+  const [posModal, setPosModal] = useState<{ mode: "create" | "edit"; workplaceId: string; jp?: JobPosition } | null>(null);
+  const [rfaModal, setRfaModal] = useState<JobPosition | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // Workplaces state
-  const [workplaceCreate, setWorkplaceCreate] = useState(false);
-  const [editWorkplace, setEditWorkplace]     = useState<Workplace | null>(null);
-  const [workplaceError, setWorkplaceError]   = useState<string | null>(null);
-
-  // ── Queries ────────────────────────────────────────────────────────────────
-
-  const { data: plants = [], isLoading: plantsLoading } = useQuery<Plant[]>({
-    queryKey: ["plants"],
-    queryFn: () => api.get("/plants"),
+  const { data: plants = [], isLoading } = useQuery<Plant[]>({
+    queryKey: ["plants", "active"],
+    queryFn: () => api.get("/plants?plant_status=active"),
   });
-
-  const { data: workplaces = [], isLoading: workplacesLoading } = useQuery<Workplace[]>({
-    queryKey: ["workplaces"],
-    queryFn: () => api.get("/workplaces"),
-  });
-
-  // Helper: plant name lookup
-  const plantName = (id: string) => plants.find(p => p.id === id)?.name ?? "—";
-
-  // ── Plant mutations ────────────────────────────────────────────────────────
 
   const createPlant = useMutation({
-    mutationFn: (d: PlantForm) => api.post("/plants", d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["plants"] }); setPlantCreate(false); },
-    onError: (err) => setPlantError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+    mutationFn: (data: Partial<Plant>) => api.post("/plants", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["plants"] });
+      setPlantModal(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
   });
-
   const updatePlant = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: Partial<PlantForm> }) => api.patch(`/plants/${id}`, d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["plants"] }); setEditPlant(null); },
-    onError: (err) => setPlantError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+    mutationFn: ({ id, data }: { id: string; data: Partial<Plant> }) =>
+      api.patch(`/plants/${id}`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["plants"] });
+      setPlantModal(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
   });
-
   const deletePlant = useMutation({
     mutationFn: (id: string) => api.delete(`/plants/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["plants"] }),
   });
 
-  // ── Workplace mutations ────────────────────────────────────────────────────
-
-  const createWorkplace = useMutation({
-    mutationFn: (d: WorkplaceForm) => api.post("/workplaces", d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workplaces"] }); setWorkplaceCreate(false); },
-    onError: (err) => setWorkplaceError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+  const createWp = useMutation({
+    mutationFn: (data: { plant_id: string; name: string; notes: string | null }) =>
+      api.post("/workplaces", data),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ["workplaces", vars.plant_id] });
+      setWpModal(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
+  });
+  const updateWp = useMutation({
+    mutationFn: ({ id, data, plantId }: { id: string; data: Partial<Workplace>; plantId: string }) =>
+      api.patch(`/workplaces/${id}`, data).then(() => plantId),
+    onSuccess: (plantId) => {
+      qc.invalidateQueries({ queryKey: ["workplaces", plantId] });
+      setWpModal(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
+  });
+  const deleteWp = useMutation({
+    mutationFn: ({ id, plantId }: { id: string; plantId: string }) =>
+      api.delete(`/workplaces/${id}`).then(() => plantId),
+    onSuccess: (plantId) => qc.invalidateQueries({ queryKey: ["workplaces", plantId] }),
   });
 
-  const updateWorkplace = useMutation({
-    mutationFn: ({ id, d }: { id: string; d: Partial<WorkplaceForm> }) => api.patch(`/workplaces/${id}`, d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workplaces"] }); setEditWorkplace(null); },
-    onError: (err) => setWorkplaceError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+  const createPos = useMutation({
+    mutationFn: (data: {
+      workplace_id: string; name: string; description: string | null;
+      work_category: string | null; medical_exam_period_months: number | null;
+    }) => api.post("/job-positions", data),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ["positions", vars.workplace_id] });
+      setPosModal(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
+  });
+  const updatePos = useMutation({
+    mutationFn: ({ id, data, workplaceId }: {
+      id: string; data: Partial<JobPosition>; workplaceId: string;
+    }) => api.patch(`/job-positions/${id}`, data).then(() => workplaceId),
+    onSuccess: (workplaceId) => {
+      qc.invalidateQueries({ queryKey: ["positions", workplaceId] });
+      setPosModal(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
+  });
+  const deletePos = useMutation({
+    mutationFn: ({ id, workplaceId }: { id: string; workplaceId: string }) =>
+      api.delete(`/job-positions/${id}`).then(() => workplaceId),
+    onSuccess: (workplaceId) => qc.invalidateQueries({ queryKey: ["positions", workplaceId] }),
   });
 
-  const deleteWorkplace = useMutation({
-    mutationFn: (id: string) => api.delete(`/workplaces/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["workplaces"] }),
-  });
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  function toggleExpanded(plantId: string) {
+    const next = new Set(expandedPlants);
+    if (next.has(plantId)) next.delete(plantId);
+    else next.add(plantId);
+    setExpandedPlants(next);
+  }
 
   return (
     <div>
-      <Header title="Provozovny a pracoviště" />
+      <Header
+        title="Provozovny, pracoviště, pozice"
+        actions={
+          <Button
+            size="sm"
+            onClick={() => { setFormError(null); setPlantModal({ mode: "create" }); }}
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Přidat provozovnu
+          </Button>
+        }
+      />
 
-      <div className="p-6 space-y-6">
-
-        {/* ── Provozovny ── */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-gray-400" />
-              <h2 className="text-sm font-semibold text-gray-700">Provozovny</h2>
-              <span className="text-xs text-gray-400">{plants.length} záznamy</span>
-            </div>
-            <Button size="sm" onClick={() => { setPlantError(null); setPlantCreate(true); }}>
-              <Plus className="h-4 w-4 mr-1.5" />
-              Přidat provozovnu
-            </Button>
-          </div>
-
+      <div className="p-6 space-y-3">
+        {isLoading ? (
+          <div className="h-20 animate-pulse bg-gray-50 rounded" />
+        ) : plants.length === 0 ? (
           <Card>
-            <CardContent className="p-0">
-              {plantsLoading ? (
-                <div className="space-y-2 p-4">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="h-10 animate-pulse bg-gray-100 rounded" />
-                  ))}
-                </div>
-              ) : plants.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-gray-400">
-                  <Building2 className="h-8 w-8 mb-2 opacity-30" />
-                  <p className="text-sm">Žádné provozovny</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
-                        <th className="text-left py-3 px-4 font-medium text-gray-500">Název</th>
-                        <th className="text-left py-3 px-4 font-medium text-gray-500">Adresa</th>
-                        <th className="text-left py-3 px-4 font-medium text-gray-500">Město</th>
-                        <th className="py-3 px-4" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {plants.map(p => (
-                        <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-4 font-medium text-gray-900">{p.name}</td>
-                          <td className="py-3 px-4 text-gray-600">{p.address ?? "—"}</td>
-                          <td className="py-3 px-4 text-gray-600">{p.city ?? "—"}</td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => { setPlantError(null); setEditPlant(p); }}
-                                className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                title="Upravit"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Smazat provozovnu: ${p.name}?`))
-                                    deletePlant.mutate(p.id);
-                                }}
-                                className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                title="Smazat"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <CardContent className="py-10 text-center text-gray-400 text-sm">
+              Žádné provozovny. Začněte přidáním první.
             </CardContent>
           </Card>
-        </section>
+        ) : (
+          plants.map((plant) => {
+            const expanded = expandedPlants.has(plant.id);
+            return (
+              <Card key={plant.id}>
+                <CardContent className="p-0">
+                  <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50/40">
+                    <button
+                      onClick={() => toggleExpanded(plant.id)}
+                      className="flex items-center gap-2 text-left flex-1"
+                    >
+                      {expanded
+                        ? <ChevronDown className="h-4 w-4 text-gray-400" />
+                        : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                      <Building2 className="h-5 w-5 text-blue-500" />
+                      <div>
+                        <div className="font-semibold text-gray-900">{plant.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {[plant.address, plant.city, plant.zip_code].filter(Boolean).join(", ") || "bez adresy"}
+                          {plant.ico && <span className="ml-2">· IČO {plant.ico}</span>}
+                        </div>
+                      </div>
+                    </button>
 
-        {/* ── Pracoviště ── */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-gray-400" />
-              <h2 className="text-sm font-semibold text-gray-700">Pracoviště</h2>
-              <span className="text-xs text-gray-400">{workplaces.length} záznamy</span>
-            </div>
-            <Button size="sm" onClick={() => { setWorkplaceError(null); setWorkplaceCreate(true); }}>
-              <Plus className="h-4 w-4 mr-1.5" />
-              Přidat pracoviště
-            </Button>
-          </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => { setFormError(null); setWpModal({ mode: "create", plantId: plant.id }); }}
+                        className="text-xs text-blue-600 hover:underline flex items-center gap-1 mr-1"
+                      >
+                        <Plus className="h-3 w-3" /> Pracoviště
+                      </button>
+                      <button
+                        onClick={() => { setFormError(null); setPlantModal({ mode: "edit", plant }); }}
+                        className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                        title="Upravit"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Archivovat provozovnu ${plant.name}?`))
+                            deletePlant.mutate(plant.id);
+                        }}
+                        className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                        title="Archivovat"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
 
-          <Card>
-            <CardContent className="p-0">
-              {workplacesLoading ? (
-                <div className="space-y-2 p-4">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="h-10 animate-pulse bg-gray-100 rounded" />
-                  ))}
-                </div>
-              ) : workplaces.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-gray-400">
-                  <MapPin className="h-8 w-8 mb-2 opacity-30" />
-                  <p className="text-sm">Žádná pracoviště</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
-                        <th className="text-left py-3 px-4 font-medium text-gray-500">Pracoviště</th>
-                        <th className="text-left py-3 px-4 font-medium text-gray-500">Provozovna</th>
-                        <th className="text-left py-3 px-4 font-medium text-gray-500">Poznámky</th>
-                        <th className="py-3 px-4" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {workplaces.map(w => (
-                        <tr key={w.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-4 font-medium text-gray-900">{w.name}</td>
-                          <td className="py-3 px-4 text-gray-600">{plantName(w.plant_id)}</td>
-                          <td className="py-3 px-4 text-gray-500 text-xs max-w-xs truncate">{w.notes ?? "—"}</td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => { setWorkplaceError(null); setEditWorkplace(w); }}
-                                className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                title="Upravit"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Smazat pracoviště: ${w.name}?`))
-                                    deleteWorkplace.mutate(w.id);
-                                }}
-                                className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                title="Smazat"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
+                  {expanded && (
+                    <div className="px-4 pb-4 border-t border-gray-100 pt-3">
+                      <WorkplacesSection
+                        plantId={plant.id}
+                        onEditWp={(wp) => {
+                          setFormError(null);
+                          setWpModal({ mode: "edit", plantId: plant.id, wp });
+                        }}
+                        onDeleteWp={(wp) => {
+                          if (confirm(`Archivovat pracoviště ${wp.name}?`))
+                            deleteWp.mutate({ id: wp.id, plantId: plant.id });
+                        }}
+                        onAddPos={(workplaceId) => {
+                          setFormError(null);
+                          setPosModal({ mode: "create", workplaceId });
+                        }}
+                        onEditPos={(jp) => {
+                          setFormError(null);
+                          setPosModal({ mode: "edit", workplaceId: jp.workplace_id, jp });
+                        }}
+                        onDeletePos={(jp) => {
+                          if (confirm(`Archivovat pozici ${jp.name}?`))
+                            deletePos.mutate({ id: jp.id, workplaceId: jp.workplace_id });
+                        }}
+                        onOpenRfa={(jp) => setRfaModal(jp)}
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
       </div>
 
-      {/* Dialogy – Provozovny */}
-      <PlantFormDialog
-        open={plantCreate}
-        onClose={() => setPlantCreate(false)}
-        onSubmit={(d) => { setPlantError(null); createPlant.mutate(d); }}
-        isSubmitting={createPlant.isPending}
-        serverError={plantError}
-      />
-      <PlantFormDialog
-        open={!!editPlant}
-        onClose={() => setEditPlant(null)}
-        defaultValues={editPlant ? {
-          name:    editPlant.name,
-          address: editPlant.address ?? undefined,
-          city:    editPlant.city ?? undefined,
-        } : undefined}
-        onSubmit={(d) => { setPlantError(null); updatePlant.mutate({ id: editPlant!.id, d }); }}
-        isSubmitting={updatePlant.isPending}
-        serverError={plantError}
-        isEdit
-      />
+      {/* Plant dialog */}
+      <Dialog
+        open={!!plantModal}
+        onClose={() => { setPlantModal(null); setFormError(null); }}
+        title={plantModal?.mode === "edit" ? `Upravit: ${plantModal.plant?.name}` : "Přidat provozovnu"}
+        size="md"
+      >
+        {plantModal && (
+          <PlantForm
+            defaultValues={plantModal.plant}
+            onSubmit={(data) => {
+              if (plantModal.mode === "edit" && plantModal.plant) {
+                updatePlant.mutate({ id: plantModal.plant.id, data });
+              } else {
+                createPlant.mutate(data);
+              }
+            }}
+            isSubmitting={createPlant.isPending || updatePlant.isPending}
+            error={formError}
+          />
+        )}
+      </Dialog>
 
-      {/* Dialogy – Pracoviště */}
-      <WorkplaceFormDialog
-        open={workplaceCreate}
-        onClose={() => setWorkplaceCreate(false)}
-        plants={plants}
-        onSubmit={(d) => { setWorkplaceError(null); createWorkplace.mutate(d); }}
-        isSubmitting={createWorkplace.isPending}
-        serverError={workplaceError}
-      />
-      <WorkplaceFormDialog
-        open={!!editWorkplace}
-        onClose={() => setEditWorkplace(null)}
-        plants={plants}
-        defaultValues={editWorkplace ? { plant_id: editWorkplace.plant_id, name: editWorkplace.name, notes: editWorkplace.notes ?? "" } : undefined}
-        onSubmit={(d) => { setWorkplaceError(null); updateWorkplace.mutate({ id: editWorkplace!.id, d }); }}
-        isSubmitting={updateWorkplace.isPending}
-        serverError={workplaceError}
-        isEdit
-      />
+      {/* Workplace dialog */}
+      <Dialog
+        open={!!wpModal}
+        onClose={() => { setWpModal(null); setFormError(null); }}
+        title={wpModal?.mode === "edit" ? "Upravit pracoviště" : "Přidat pracoviště"}
+        size="md"
+      >
+        {wpModal && (
+          <WorkplaceForm
+            plantId={wpModal.plantId}
+            defaultValues={wpModal.wp}
+            onSubmit={(data) => {
+              if (wpModal.mode === "edit" && wpModal.wp) {
+                updateWp.mutate({
+                  id: wpModal.wp.id,
+                  data: { name: data.name, notes: data.notes },
+                  plantId: wpModal.plantId,
+                });
+              } else {
+                createWp.mutate(data);
+              }
+            }}
+            isSubmitting={createWp.isPending || updateWp.isPending}
+            error={formError}
+          />
+        )}
+      </Dialog>
+
+      {/* Position dialog */}
+      <Dialog
+        open={!!posModal}
+        onClose={() => { setPosModal(null); setFormError(null); }}
+        title={posModal?.mode === "edit" ? "Upravit pozici" : "Přidat pozici"}
+        size="md"
+      >
+        {posModal && (
+          <PositionForm
+            workplaceId={posModal.workplaceId}
+            defaultValues={posModal.jp}
+            onSubmit={(data) => {
+              if (posModal.mode === "edit" && posModal.jp) {
+                updatePos.mutate({
+                  id: posModal.jp.id,
+                  data,
+                  workplaceId: posModal.workplaceId,
+                });
+              } else {
+                createPos.mutate(data);
+              }
+            }}
+            isSubmitting={createPos.isPending || updatePos.isPending}
+            error={formError}
+          />
+        )}
+      </Dialog>
+
+      {/* RFA matrix dialog */}
+      <Dialog
+        open={!!rfaModal}
+        onClose={() => setRfaModal(null)}
+        title={rfaModal ? `Hodnocení rizik: ${rfaModal.name}` : ""}
+        size="lg"
+      >
+        {rfaModal && (
+          <RfaMatrixBody
+            positionId={rfaModal.id}
+            onClose={() => setRfaModal(null)}
+          />
+        )}
+      </Dialog>
     </div>
   );
 }

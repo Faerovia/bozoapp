@@ -81,6 +81,104 @@ type FormData = z.infer<typeof schema>;
 
 const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
+// ── Position select (filtr podle workplace + inline create) ────────────────
+
+function PositionSelect({
+  value,
+  onChange,
+  selectedWorkplaceId,
+  allPositions,
+}: {
+  value: string | null;
+  onChange: (id: string | null) => void;
+  selectedWorkplaceId: string | null | undefined;
+  allPositions: JobPosition[];
+}) {
+  const qc = useQueryClient();
+  const [addingNew, setAddingNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Filtr podle vybraného pracoviště; jinak prázdný seznam
+  const filtered = selectedWorkplaceId
+    ? allPositions.filter((p) => p.workplace_id === selectedWorkplaceId)
+    : [];
+
+  const createPosition = useMutation({
+    mutationFn: (name: string) =>
+      api.post<JobPosition>("/job-positions", {
+        workplace_id: selectedWorkplaceId!,
+        name,
+      }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["job-positions"] });
+      onChange(res.id);
+      setAddingNew(false);
+      setNewName("");
+      setSaveError(null);
+    },
+    onError: (err) => setSaveError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+  });
+
+  const disabled = !selectedWorkplaceId;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-2">
+        <select
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value || null)}
+          className={SELECT_CLS}
+          disabled={disabled}
+        >
+          <option value="">— Nevybráno —</option>
+          {filtered.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}{p.effective_category ? ` (kat. ${p.effective_category})` : ""}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setAddingNew(!addingNew)}
+          disabled={disabled}
+          className="whitespace-nowrap rounded-md border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          + Nová pozice
+        </button>
+      </div>
+
+      {addingNew && !disabled && (
+        <div className="rounded-md border border-blue-100 bg-blue-50/40 p-2 space-y-2">
+          <div className="flex gap-2">
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Název nové pozice"
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={!newName.trim() || createPosition.isPending}
+              loading={createPosition.isPending}
+              onClick={() => createPosition.mutate(newName.trim())}
+            >
+              Uložit
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500">
+            Pozice se vytvoří pod vybraným pracovištěm a automaticky se přiřadí zaměstnanci.
+          </p>
+          {saveError && (
+            <p className="text-xs text-red-600">{saveError}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Formulář ─────────────────────────────────────────────────────────────────
 
 function EmployeeForm({
@@ -248,14 +346,18 @@ function EmployeeForm({
       {/* Pracovní pozice */}
       <div className="space-y-1.5">
         <Label htmlFor="job_position_id">Pracovní pozice</Label>
-        <select id="job_position_id" {...register("job_position_id")} className={SELECT_CLS}>
-          <option value="">— Nevybráno —</option>
-          {jobPositions.map(p => (
-            <option key={p.id} value={p.id}>
-              {p.name}{p.work_category ? ` (kat. ${p.work_category})` : ""}
-            </option>
-          ))}
-        </select>
+        <PositionSelect
+          value={watch("job_position_id") ?? null}
+          onChange={(id) => setValue("job_position_id", id, { shouldDirty: true })}
+          selectedWorkplaceId={selectedWorkplace}
+          allPositions={jobPositions}
+        />
+        {!selectedPlant && (
+          <p className="text-xs text-gray-400">Nejprve vyberte provozovnu</p>
+        )}
+        {selectedPlant && !selectedWorkplace && (
+          <p className="text-xs text-gray-400">Nejprve vyberte pracoviště</p>
+        )}
       </div>
 
       {/* Email + Heslo (s refresh tlačítkem) */}

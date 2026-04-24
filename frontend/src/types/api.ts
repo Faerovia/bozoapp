@@ -94,11 +94,20 @@ export interface EmployeeCreate {
 
 export interface JobPosition {
   id: string;
+  tenant_id: string;
+  workplace_id: string;
+  workplace_name: string | null;
+  plant_id: string | null;
+  plant_name: string | null;
   name: string;
   description: string | null;
   work_category: string | null;
+  effective_category: string | null;    // derived z RFA nebo override
   medical_exam_period_months: number | null;
   effective_exam_period_months: number | null;
+  notes: string | null;
+  status: "active" | "archived";
+  created_by: string;
 }
 
 // ── Workplaces ─────────────────────────────────────────────────────────────────
@@ -108,6 +117,11 @@ export interface Plant {
   name: string;
   address: string | null;
   city: string | null;
+  zip_code: string | null;
+  ico: string | null;
+  plant_number: string | null;
+  notes: string | null;
+  status: "active" | "archived";
 }
 
 export interface Workplace {
@@ -115,6 +129,105 @@ export interface Workplace {
   plant_id: string;
   name: string;
   notes: string | null;
+  status: "active" | "archived";
+}
+
+// ── Risk Factor Assessment (hodnocení rizik per pozice) ──────────────────────
+
+export type RiskFactor =
+  | "rf_prach"
+  | "rf_chem"
+  | "rf_hluk"
+  | "rf_vibrace"
+  | "rf_zareni"
+  | "rf_tlak"
+  | "rf_fyz_zatez"
+  | "rf_prac_poloha"
+  | "rf_teplo"
+  | "rf_chlad"
+  | "rf_psych"
+  | "rf_zrak"
+  | "rf_bio";
+
+export const RF_LABELS: Record<RiskFactor, string> = {
+  rf_hluk: "Hluk",
+  rf_prach: "Prach",
+  rf_vibrace: "Vibrace",
+  rf_teplo: "Zátěž teplem",
+  rf_chlad: "Zátěž chladem",
+  rf_tlak: "Práce ve zvýšeném tlaku vzduchu",
+  rf_zareni: "Neionizující záření a EM pole",
+  rf_chem: "Chemické látky",
+  rf_bio: "Biologické činitele",
+  rf_prac_poloha: "Pracovní poloha",
+  rf_fyz_zatez: "Fyzická zátěž",
+  rf_psych: "Psychická zátěž",
+  rf_zrak: "Zraková zátěž",
+};
+
+export const RF_ORDER: RiskFactor[] = [
+  "rf_hluk",
+  "rf_prach",
+  "rf_vibrace",
+  "rf_teplo",
+  "rf_chlad",
+  "rf_tlak",
+  "rf_zareni",
+  "rf_chem",
+  "rf_bio",
+  "rf_prac_poloha",
+  "rf_fyz_zatez",
+  "rf_psych",
+  "rf_zrak",
+];
+
+export type RiskRating = "1" | "2" | "2R" | "3" | "4";
+export const RISK_RATINGS: RiskRating[] = ["1", "2", "2R", "3", "4"];
+
+export interface RiskFactorAssessment {
+  id: string;
+  tenant_id: string;
+  workplace_id: string | null;
+  job_position_id: string;
+  profese: string;
+  operator_names: string | null;
+  worker_count: number;
+  women_count: number;
+
+  rf_prach:       RiskRating | null;
+  rf_chem:        RiskRating | null;
+  rf_hluk:        RiskRating | null;
+  rf_vibrace:     RiskRating | null;
+  rf_zareni:      RiskRating | null;
+  rf_tlak:        RiskRating | null;
+  rf_fyz_zatez:   RiskRating | null;
+  rf_prac_poloha: RiskRating | null;
+  rf_teplo:       RiskRating | null;
+  rf_chlad:       RiskRating | null;
+  rf_psych:       RiskRating | null;
+  rf_zrak:        RiskRating | null;
+  rf_bio:         RiskRating | null;
+
+  rf_prach_pdf_path:       string | null;
+  rf_chem_pdf_path:        string | null;
+  rf_hluk_pdf_path:        string | null;
+  rf_vibrace_pdf_path:     string | null;
+  rf_zareni_pdf_path:      string | null;
+  rf_tlak_pdf_path:        string | null;
+  rf_fyz_zatez_pdf_path:   string | null;
+  rf_prac_poloha_pdf_path: string | null;
+  rf_teplo_pdf_path:       string | null;
+  rf_chlad_pdf_path:       string | null;
+  rf_psych_pdf_path:       string | null;
+  rf_zrak_pdf_path:        string | null;
+  rf_bio_pdf_path:         string | null;
+
+  category_proposed: string;
+  category_override: string | null;
+  sort_order: number;
+  notes: string | null;
+  status: "active" | "archived";
+  created_by: string;
 }
 
 // ── Trainings (commit 11a+): šablona + přiřazení + pokusy ────────────────────

@@ -12,7 +12,6 @@ import {
   HardHat,
   Building2,
   Stethoscope,
-  Briefcase,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -84,7 +83,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/workplaces",
-    label: "Pracoviště",
+    label: "Provozovny, pracoviště, pozice",
     icon: Building2,
     roles: MANAGERS,
   },
@@ -93,12 +92,6 @@ const NAV_ITEMS: NavItem[] = [
     label: "Lékařské prohlídky",
     icon: Stethoscope,
     roles: ALL_TENANT,
-  },
-  {
-    href: "/job-positions",
-    label: "Pracovní pozice",
-    icon: Briefcase,
-    roles: MANAGERS,
   },
 ];
 
