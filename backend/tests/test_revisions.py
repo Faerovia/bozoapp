@@ -10,12 +10,11 @@ BOZP invarianty:
 - QR token je unikátní a endpoint /qr.png vrací PNG
 - employee_plant_responsibilities (M:N) řídí kdo smí přes /records zaznamenat
 """
-from __future__ import annotations
-
 from datetime import date, timedelta
 
 import pytest
 from httpx import AsyncClient
+
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
