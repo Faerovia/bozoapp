@@ -28,9 +28,26 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # Redis pro slowapi rate limiter a progressive-delay counter. V default
+      # testech je ENVIRONMENT=test → rate limit disabled (jinak by prorazil
+      # limit 5/h registrací). Redis service je tu pro specifické integration
+      # testy, které limiter explicitně re-enable.
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
 
     env:
-      DATABASE_URL: postgresql+asyncpg://bozoapp:bozoapp_secret@localhost:5432/bozoapp_test
+      # Runtime: bozoapp_app (least-privilege). Role vzniká při migraci 015.
+      DATABASE_URL: postgresql+asyncpg://bozoapp_app:bozoapp_app_dev_secret@localhost:5432/bozoapp_test
+      # Alembic (DDL): bozoapp (owner).
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://bozoapp:bozoapp_secret@localhost:5432/bozoapp_test
+      REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-not-used-in-production
       ENVIRONMENT: test
 

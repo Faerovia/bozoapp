@@ -12,9 +12,11 @@ from app.core.database import Base  # noqa: F401
 
 config = context.config
 
-# Override sqlalchemy.url from environment variable if set
-if os.environ.get("DATABASE_URL"):
-    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+# Alembic připojení — preferuj MIGRATION_DATABASE_URL (owner role s DDL právy),
+# fallback na DATABASE_URL (legacy / setupy kde ještě neexistuje app role).
+_migration_url = os.environ.get("MIGRATION_DATABASE_URL") or os.environ.get("DATABASE_URL")
+if _migration_url:
+    config.set_main_option("sqlalchemy.url", _migration_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

@@ -12,8 +12,11 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = False
 
-    # Database
+    # Database — runtime (app connects as bozoapp_app, least-privilege)
     database_url: str
+    # Database — migrations (alembic connects as owner `bozoapp` aby mohl DDL).
+    # Pokud není nastaveno, fallback na database_url (pre-migration-015 chování).
+    migration_database_url: str | None = None
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

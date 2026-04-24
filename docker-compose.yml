@@ -36,7 +36,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://bozoapp:bozoapp_secret@db:5432/bozoapp_dev
+      # Runtime: app se připojuje jako bozoapp_app (least-privilege, subject to RLS).
+      # Role se vytvoří migrací 015 při prvním `alembic upgrade head`.
+      DATABASE_URL: postgresql+asyncpg://bozoapp_app:bozoapp_app_dev_secret@db:5432/bozoapp_dev
+      # Alembic (DDL): jako owner bozoapp. Fallback na DATABASE_URL když není set.
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://bozoapp:bozoapp_secret@db:5432/bozoapp_dev
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db:

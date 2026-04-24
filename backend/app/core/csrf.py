@@ -35,11 +35,15 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 # - /auth/refresh: chráněný path-bound httpOnly cookie + rotation
 # - /auth/logout: state-changing, ale klient může cookie smazat jen svoji session
 #   takže bez CSRF je OK (logout attack = no-op DOS)
+# - /auth/forgot-password, /auth/reset-password: nepřihlášený uživatel nemá
+#   CSRF cookie. Rate-limit + token entropie poskytují ekvivalentní ochranu.
 CSRF_EXEMPT_PATHS = frozenset({
     "/api/v1/auth/login",
     "/api/v1/auth/register",
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
+    "/api/v1/auth/forgot-password",
+    "/api/v1/auth/reset-password",
 })
 
 
