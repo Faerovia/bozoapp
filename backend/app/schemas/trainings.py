@@ -1,7 +1,7 @@
 """Training šablony, přiřazení, pokusy, submit."""
 import uuid
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 

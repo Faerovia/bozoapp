@@ -31,7 +31,6 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.employee import Employee
 from app.models.job_position import JobPosition
 from app.models.workplace import Plant, Workplace
 from app.schemas.employees import EmployeeCreateRequest
@@ -161,7 +160,7 @@ async def _resolve_workplace_id(
         query = query.where(Workplace.plant_id == plant_id)
     row = (await db.execute(query)).scalar_one_or_none()
     if row is None:
-        where = f" v provozovně" if plant_id else ""
+        where = " v provozovně" if plant_id else ""
         raise ValueError(f"workplace_name: pracoviště '{name}'{where} neexistuje")
     return row.id
 

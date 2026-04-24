@@ -54,10 +54,10 @@ def _sanitize(text: str) -> str:
 
 def generate_certificate_pdf(
     *,
-    tenant: "Tenant",
-    training: "Training",
-    assignment: "TrainingAssignment",
-    employee: "Employee",
+    tenant: Tenant,
+    training: Training,
+    assignment: TrainingAssignment,
+    employee: Employee,
     issuer_name: str | None = None,
 ) -> bytes:
     """Vrací PDF bytes. issuer_name = jméno osoby která školení vystavila (OZO user)."""
@@ -117,9 +117,17 @@ def generate_certificate_pdf(
     pdf.set_font("Helvetica", "", 11)
     type_labels = {"bozp": "BOZP", "po": "Požární ochrana", "other": "Ostatní"}
     detail = [
-        ("Typ školení:", type_labels.get(training.training_type, training.training_type)),
+        (
+            "Typ školení:",
+            type_labels.get(training.training_type, training.training_type),
+        ),
         ("Platnost:", f"{training.valid_months} měsíců"),
-        ("Platí do:", assignment.valid_until.strftime('%d. %m. %Y') if assignment.valid_until else "—"),
+        (
+            "Platí do:",
+            assignment.valid_until.strftime("%d. %m. %Y")
+            if assignment.valid_until
+            else "—",
+        ),
         ("Školitel:", TRAINER_LABEL.get(training.trainer_kind, training.trainer_kind)),
     ]
     if issuer_name:
@@ -139,7 +147,11 @@ def generate_certificate_pdf(
     # ── Podpisová oblast ────────────────────────────────────────────────────
     pdf.set_font("Helvetica", "", 10)
     pdf.set_y(-35)
-    pdf.cell(0, 5, _sanitize(f"Vystaveno v {tenant.name}"), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(
+        0, 5,
+        _sanitize(f"Vystaveno v {tenant.name}"),
+        align="C", new_x="LMARGIN", new_y="NEXT",
+    )
     pdf.cell(
         0, 5,
         _sanitize(f"Datum vydání: {datetime.now(UTC).date().strftime('%d. %m. %Y')}"),

@@ -160,7 +160,10 @@ async def import_employees(
         except UnicodeDecodeError as e:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Nepodařilo se dekódovat soubor ({e.__class__.__name__}). Uložte jako UTF-8.",
+                detail=(
+                    f"Nepodařilo se dekódovat soubor ({e.__class__.__name__}). "
+                    "Uložte jako UTF-8."
+                ),
             ) from None
 
     result = await import_from_csv(db, content, current_user.tenant_id, current_user.id)
