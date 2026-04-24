@@ -17,6 +17,16 @@ const config: Config = {
           600: "#3451c7",
           700: "#2c44b0",
         },
+        // CSS variable mappings pro shadcn-style komponenty
+        border:     "hsl(var(--border))",
+        input:      "hsl(var(--input))",
+        ring:       "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        muted: {
+          DEFAULT:    "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
       },
     },
   },

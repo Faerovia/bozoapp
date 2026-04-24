@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -51,7 +51,7 @@ class Revision(Base, TimestampMixin):
         """
         if self.next_revision_at is None:
             return "no_schedule"
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         delta = (self.next_revision_at - today).days
         if delta < 0:
             return "overdue"

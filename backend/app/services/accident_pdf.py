@@ -101,7 +101,7 @@ class _ReportPDF(FPDF):
         self.ln(4)
 
 
-def generate_accident_report_pdf(report: "AccidentReport", tenant_name: str) -> bytes:
+def generate_accident_report_pdf(report: AccidentReport, tenant_name: str) -> bytes:
     """
     Vygeneruje PDF záznamu o pracovním úrazu.
 

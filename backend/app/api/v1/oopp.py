@@ -81,7 +81,9 @@ async def export_oopp_pdf(
     Exportuje evidenci OOPP jako PDF.
     Filtry: ?oopp_type=, ?oopp_status=, ?validity_status=
     """
-    tenant = (await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    ).scalar_one_or_none()
     tenant_name = tenant.name if tenant else str(current_user.tenant_id)
 
     records = await get_oopp_assignments(

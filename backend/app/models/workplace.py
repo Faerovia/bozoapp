@@ -7,7 +7,7 @@ Rizikové faktory jsou na RiskFactorAssessment (viz risk_factor_assessment.py).
 
 import uuid
 
-from sqlalchemy import ForeignKey, SmallInteger, String, Text
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base

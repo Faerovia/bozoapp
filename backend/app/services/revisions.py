@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +97,7 @@ async def update_revision(
 # ── Agregovaný kalendář ───────────────────────────────────────────────────────
 
 def _compute_due_status(due_date: date) -> str:
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     delta = (due_date - today).days
     if delta < 0:
         return "overdue"
@@ -121,8 +121,7 @@ async def get_calendar_items(
     Položky bez due_date (no_schedule) jsou vynechány.
     Archivované záznamy jsou vynechány.
     """
-    today = datetime.now(timezone.utc).date()
-    cutoff = date(today.year, today.month, today.day)
+    today = datetime.now(UTC).date()
     from datetime import timedelta
     horizon = today + timedelta(days=days_ahead)
 

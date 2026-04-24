@@ -91,7 +91,6 @@ async def test_create_exam_with_valid_months(client: AsyncClient) -> None:
     )
     assert exam["valid_until"] is not None
     # valid_until = today + 24 měsíce
-    expected_year = today.year + 2 if today.month <= 12 else today.year + 3
     parsed = date.fromisoformat(exam["valid_until"])
     assert parsed > today
     assert exam["validity_status"] in ("valid", "expiring_soon")

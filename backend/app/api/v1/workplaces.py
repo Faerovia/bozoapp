@@ -206,7 +206,11 @@ async def export_risk_factors_pdf(
     )
 
 
-@router.post("/risk-factors", response_model=RiskFactorAssessmentResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/risk-factors",
+    response_model=RiskFactorAssessmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)  # noqa: E501
 async def create_rfa_endpoint(
     data: RiskFactorAssessmentCreateRequest,
     current_user: User = Depends(require_role("ozo", "manager")),

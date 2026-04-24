@@ -12,14 +12,16 @@ Všechny používají stejnou infrastrukturu: fpdf2 + DejaVu fonty (češtiny).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
 from fpdf import FPDF
 
 if TYPE_CHECKING:
     from app.models.accident_report import AccidentReport
+    from app.models.medical_exam import MedicalExam
     from app.models.oopp import OOPPAssignment
     from app.models.revision import Revision
     from app.models.risk import Risk
@@ -103,7 +105,7 @@ class _ExportPDF(FPDF):
         else:
             self.set_fill_color(255, 255, 255)
         for text, w in values:
-            self.cell(w, 6, str(text)[:60] if text else "—", border=1, fill=True, new_x="RIGHT", new_y="TOP")
+            self.cell(w, 6, str(text)[:60] if text else "—", border=1, fill=True, new_x="RIGHT", new_y="TOP")  # noqa: E501
         self.ln()
 
     def section_note(self, text: str) -> None:
@@ -118,7 +120,7 @@ class _ExportPDF(FPDF):
 
 RISK_LEVEL_CS = {"low": "Nízké", "medium": "Střední", "high": "Vysoké"}
 
-def generate_risks_pdf(risks: Sequence["Risk"], tenant_name: str) -> bytes:
+def generate_risks_pdf(risks: Sequence[Risk], tenant_name: str) -> bytes:
     pdf = _ExportPDF("REGISTR RIZIK", tenant_name)
 
     cols = [
@@ -139,7 +141,11 @@ def generate_risks_pdf(risks: Sequence["Risk"], tenant_name: str) -> bytes:
 
     for i, r in enumerate(risks):
         res_score = str(r.residual_risk_score) if r.residual_risk_score else "—"
-        res_level = RISK_LEVEL_CS.get(r.residual_risk_level or "", "—") if r.residual_risk_level else "—"
+        res_level = (  # noqa: E501
+            RISK_LEVEL_CS.get(r.residual_risk_level or "", "—")
+            if r.residual_risk_level
+            else "—"
+        )
         pdf.table_row([
             (r.title, 60),
             (r.hazard_type, 28),
@@ -177,7 +183,7 @@ TRAINING_TYPE_CS = {
     "other": "Ostatní",
 }
 
-def generate_trainings_pdf(trainings: Sequence["Training"], tenant_name: str) -> bytes:
+def generate_trainings_pdf(trainings: Sequence[Training], tenant_name: str) -> bytes:
     pdf = _ExportPDF("PŘEHLED ŠKOLENÍ BOZP/PO", tenant_name)
 
     cols = [
@@ -229,7 +235,7 @@ REVISION_TYPE_CS = {
     "other": "Ostatní",
 }
 
-def generate_revisions_pdf(revisions: Sequence["Revision"], tenant_name: str) -> bytes:
+def generate_revisions_pdf(revisions: Sequence[Revision], tenant_name: str) -> bytes:
     pdf = _ExportPDF("HARMONOGRAM REVIZÍ ZAŘÍZENÍ", tenant_name)
 
     cols = [
@@ -268,7 +274,7 @@ def generate_revisions_pdf(revisions: Sequence["Revision"], tenant_name: str) ->
 
 # ── 4. Kniha úrazů ────────────────────────────────────────────────────────────
 
-def generate_accident_log_pdf(reports: Sequence["AccidentReport"], tenant_name: str) -> bytes:
+def generate_accident_log_pdf(reports: Sequence[AccidentReport], tenant_name: str) -> bytes:
     pdf = _ExportPDF("KNIHA ÚRAZŮ", tenant_name)
 
     cols = [
@@ -289,6 +295,11 @@ def generate_accident_log_pdf(reports: Sequence["AccidentReport"], tenant_name: 
         risk_review = "Dokončena" if r.risk_review_completed_at else (
             "Čeká" if r.risk_review_required else "—"
         )
+        status_map = {
+            "draft": "Rozpracovaný",
+            "final": "Finální",
+            "archived": "Archivovaný",
+        }  # noqa: E501
         pdf.table_row([
             (_fmt_date(r.accident_date), 24),
             (r.accident_time.strftime("%H:%M") if r.accident_time else "—", 14),
@@ -298,12 +309,15 @@ def generate_accident_log_pdf(reports: Sequence["AccidentReport"], tenant_name: 
             (r.injured_body_part, 35),
             (str(r.injured_count), 20),
             (_fmt_bool(r.is_fatal), 16),
-            ({"draft": "Rozpracovaný", "final": "Finální", "archived": "Archivovaný"}.get(r.status, r.status), 24),
+            (status_map.get(r.status, r.status), 24),
             (risk_review, 19),
         ], shade=i % 2 == 1)
 
     fatal_count = sum(1 for r in reports if r.is_fatal)
-    pending_review = sum(1 for r in reports if r.risk_review_required and not r.risk_review_completed_at)
+    pending_review = sum(
+        1 for r in reports
+        if r.risk_review_required and not r.risk_review_completed_at
+    )  # noqa: E501
     pdf.section_note(
         f"Celkem úrazů: {len(reports)}   |   "
         f"Smrtelných: {fatal_count}   |   "
@@ -329,15 +343,15 @@ OOPP_TYPE_CS = {
 }
 
 
-def generate_medical_exams_pdf(exams: Sequence["MedicalExam"], tenant_name: str) -> bytes:
+def generate_medical_exams_pdf(exams: Sequence[MedicalExam], tenant_name: str) -> bytes:
     """Přehled lékařských prohlídek pro tisk a archivaci."""
-    EXAM_TYPE_CS = {
+    EXAM_TYPE_CS = {  # noqa: N806
         "vstupni": "Vstupní",
         "periodicka": "Periodická",
         "vystupni": "Výstupní",
         "mimoradna": "Mimořádná",
     }
-    RESULT_CS = {
+    RESULT_CS = {  # noqa: N806
         "zpusobilyý": "Způsobilý",
         "zpusobilyý_omezeni": "Způsobilý s omez.",
         "nezpusobilyý": "Nezpůsobilý",
@@ -386,7 +400,7 @@ def generate_medical_exams_pdf(exams: Sequence["MedicalExam"], tenant_name: str)
 
 
 def generate_risk_factor_list_pdf(
-    grouped: list[tuple["Plant", list[tuple["Workplace", list["RiskFactorAssessment"]]]]],
+    grouped: list[tuple[Plant, list[tuple[Workplace, list[RiskFactorAssessment]]]]],
     tenant_name: str,
 ) -> bytes:
     """
@@ -398,7 +412,7 @@ def generate_risk_factor_list_pdf(
     from app.models.risk_factor_assessment import RF_FIELDS, RF_LABELS
 
     # Zkratky pro záhlaví tabulky (sloupce 7mm – musí být velmi krátké)
-    RF_SHORT = {
+    RF_SHORT = {  # noqa: N806
         "rf_prach":       "Prach",
         "rf_chem":        "Chem.",
         "rf_hluk":        "Hluk",
@@ -415,12 +429,12 @@ def generate_risk_factor_list_pdf(
     }
 
     # Šířky sloupců (mm), součet musí být ≤ PAGE_W (277)
-    W_WORKPLACE = 40
-    W_PROFESE = 52
-    W_WORKERS = 11
-    W_WOMEN = 11
-    W_RF = 8          # 13 × 8 = 104
-    W_CAT = 14
+    W_WORKPLACE = 40  # noqa: N806
+    W_PROFESE = 52  # noqa: N806
+    W_WORKERS = 11  # noqa: N806
+    W_WOMEN = 11  # noqa: N806
+    W_RF = 8  # noqa: N806  # 13 × 8 = 104
+    W_CAT = 14  # noqa: N806
     # Součet: 40+52+11+11+104+14 = 232 mm (bezpečná rezerva)
 
     pdf = _ExportPDF("SEZNAM RIZIKOVÝCH FAKTORŮ PRACOVNÍHO PROSTŘEDÍ", tenant_name)
@@ -429,22 +443,22 @@ def generate_risk_factor_list_pdf(
         pdf.set_font(FONT, style="B", size=6)
         pdf.set_fill_color(210, 225, 240)
         pdf.cell(W_WORKPLACE, 8, "Pracoviště", border=1, fill=True, new_x="RIGHT", new_y="TOP")
-        pdf.cell(W_PROFESE, 8, "Profese / Pracovní zařazení", border=1, fill=True, new_x="RIGHT", new_y="TOP")
+        pdf.cell(W_PROFESE, 8, "Profese / Pracovní zařazení", border=1, fill=True, new_x="RIGHT", new_y="TOP")  # noqa: E501
         pdf.cell(W_WORKERS, 8, "Poč.", border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")
         pdf.cell(W_WOMEN, 8, "Ženy", border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")
         for f in RF_FIELDS:
-            pdf.cell(W_RF, 8, RF_SHORT[f], border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")
+            pdf.cell(W_RF, 8, RF_SHORT[f], border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")  # noqa: E501
         pdf.cell(W_CAT, 8, "Kat.", border=1, fill=True, new_x="LMARGIN", new_y="NEXT", align="C")
 
-    def _rfa_row(workplace_name: str, rfa: "RiskFactorAssessment", shade: bool) -> None:
+    def _rfa_row(workplace_name: str, rfa: RiskFactorAssessment, shade: bool) -> None:
         pdf.set_font(FONT, style="", size=7)
         fill_color = (245, 248, 252) if shade else (255, 255, 255)
         pdf.set_fill_color(*fill_color)
 
-        pdf.cell(W_WORKPLACE, 6, workplace_name[:35], border=1, fill=True, new_x="RIGHT", new_y="TOP")
+        pdf.cell(W_WORKPLACE, 6, workplace_name[:35], border=1, fill=True, new_x="RIGHT", new_y="TOP")  # noqa: E501
         pdf.cell(W_PROFESE, 6, rfa.profese[:45], border=1, fill=True, new_x="RIGHT", new_y="TOP")
-        pdf.cell(W_WORKERS, 6, str(rfa.worker_count), border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")
-        pdf.cell(W_WOMEN, 6, str(rfa.women_count), border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")
+        pdf.cell(W_WORKERS, 6, str(rfa.worker_count), border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")  # noqa: E501
+        pdf.cell(W_WOMEN, 6, str(rfa.women_count), border=1, fill=True, new_x="RIGHT", new_y="TOP", align="C")  # noqa: E501
 
         for f in RF_FIELDS:
             val = getattr(rfa, f) or ""
@@ -520,7 +534,7 @@ def generate_risk_factor_list_pdf(
     return bytes(pdf.output())
 
 
-def generate_oopp_pdf(assignments: Sequence["OOPPAssignment"], tenant_name: str) -> bytes:
+def generate_oopp_pdf(assignments: Sequence[OOPPAssignment], tenant_name: str) -> bytes:
     pdf = _ExportPDF("EVIDENCE OSOBNÍCH OCHRANNÝCH PRACOVNÍCH PROSTŘEDKŮ", tenant_name)
 
     cols = [

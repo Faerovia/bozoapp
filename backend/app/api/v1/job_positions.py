@@ -33,7 +33,11 @@ async def list_job_positions(
     )
 
 
-@router.post("/job-positions", response_model=JobPositionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/job-positions",
+    response_model=JobPositionResponse,
+    status_code=status.HTTP_201_CREATED,
+)  # noqa: E501
 async def create_job_position_endpoint(
     data: JobPositionCreateRequest,
     current_user: User = Depends(require_role("ozo", "manager")),

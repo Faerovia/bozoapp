@@ -86,10 +86,14 @@ async def export_revisions_pdf(
     Exportuje harmonogram revizí jako PDF.
     Filtry: ?revision_type=, ?due_status=
     """
-    tenant = (await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    ).scalar_one_or_none()
     tenant_name = tenant.name if tenant else str(current_user.tenant_id)
 
-    records = await get_revisions(db, current_user.tenant_id, revision_type=revision_type, due_status=due_status)
+    records = await get_revisions(
+        db, current_user.tenant_id, revision_type=revision_type, due_status=due_status
+    )
     pdf_bytes = generate_revisions_pdf(records, tenant_name)
 
     disposition = "attachment" if download else "inline"

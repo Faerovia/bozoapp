@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ from app.services.revisions import get_calendar_items
 
 
 async def get_dashboard(db: AsyncSession, tenant_id: uuid.UUID) -> DashboardResponse:
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
 
     # 1. Úrazy čekající na revizi rizik
     #    status='final' AND risk_review_required=True AND risk_review_completed_at IS NULL

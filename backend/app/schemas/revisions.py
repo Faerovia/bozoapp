@@ -37,7 +37,11 @@ class RevisionCreateRequest(BaseModel):
         Pokud next_revision_at není zadán, vypočítá se z last_revised_at + valid_months.
         Explicitní next_revision_at má přednost.
         """
-        if self.next_revision_at is None and self.last_revised_at is not None and self.valid_months is not None:
+        if (
+            self.next_revision_at is None
+            and self.last_revised_at is not None
+            and self.valid_months is not None
+        ):
             import calendar
             month = self.last_revised_at.month + self.valid_months
             year = self.last_revised_at.year + (month - 1) // 12

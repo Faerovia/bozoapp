@@ -55,7 +55,9 @@ async def export_risks_pdf(
     ?risk_status=active|archived  – filtr (výchozí: vše)
     ?download=true                – stažení místo zobrazení v prohlížeči
     """
-    tenant = (await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    ).scalar_one_or_none()
     tenant_name = tenant.name if tenant else str(current_user.tenant_id)
 
     risks = await get_risks(db, current_user.tenant_id, status=risk_status)

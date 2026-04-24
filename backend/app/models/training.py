@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -58,7 +58,7 @@ class Training(Base, TimestampMixin):
         """
         if self.valid_until is None:
             return "no_expiry"
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         delta = (self.valid_until - today).days
         if delta < 0:
             return "expired"

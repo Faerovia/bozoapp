@@ -14,7 +14,6 @@ from app.schemas.workplaces import (
     WorkplaceUpdateRequest,
 )
 
-
 # ── Plants ────────────────────────────────────────────────────────────────────
 
 async def get_plants(

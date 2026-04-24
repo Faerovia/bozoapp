@@ -83,7 +83,9 @@ async def export_trainings_pdf(
     Exportuje přehled školení jako PDF.
     Filtry: ?training_type=, ?training_status=, ?validity_status=
     """
-    tenant = (await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    ).scalar_one_or_none()
     tenant_name = tenant.name if tenant else str(current_user.tenant_id)
 
     records = await get_trainings(

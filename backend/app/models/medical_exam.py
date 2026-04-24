@@ -32,7 +32,7 @@ class MedicalExam(Base, TimestampMixin):
             name="ck_me_exam_type",
         ),
         CheckConstraint(
-            "result IN ('zpusobilyý','zpusobilyý_omezeni','nezpusobilyý','pozbyl_zpusobilosti') OR result IS NULL",
+            "result IN ('zpusobilyý','zpusobilyý_omezeni','nezpusobilyý','pozbyl_zpusobilosti') OR result IS NULL",  # noqa: E501
             name="ck_me_result",
         ),
     )

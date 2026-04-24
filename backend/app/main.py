@@ -2,7 +2,22 @@ import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import accident_reports, auth, dashboard, employees, health, job_positions, medical_exams, oopp, revisions, risks, tenant, trainings, users, workplaces
+from app.api.v1 import (
+    accident_reports,
+    auth,
+    dashboard,
+    employees,
+    health,
+    job_positions,
+    medical_exams,
+    oopp,
+    revisions,
+    risks,
+    tenant,
+    trainings,
+    users,
+    workplaces,
+)
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -24,7 +39,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"] if not settings.is_production else [],
+    allow_origins=(
+        ["http://localhost:3000", "http://localhost:3001"]
+        if not settings.is_production
+        else []
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -145,6 +145,6 @@ async def complete_risk_review(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Revize rizik nebyla vyžadována",
         )
-    report.risk_review_completed_at = datetime.now(timezone.utc)
+    report.risk_review_completed_at = datetime.now(UTC)
     await db.flush()
     return report

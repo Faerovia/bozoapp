@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,8 +16,8 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def _extract_token(
-    credentials: Optional[HTTPAuthorizationCredentials],
-    access_token_cookie: Optional[str],
+    credentials: HTTPAuthorizationCredentials | None,
+    access_token_cookie: str | None,
 ) -> str:
     """
     Vrátí JWT token z dostupného zdroje:
@@ -43,8 +42,8 @@ def _extract_token(
 
 async def get_current_user(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    access_token: Optional[str] = Cookie(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    access_token: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """

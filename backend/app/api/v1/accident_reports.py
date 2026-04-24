@@ -41,7 +41,9 @@ async def export_accident_log_pdf_endpoint(
     Exportuje knihu úrazů jako PDF (chronologický přehled).
     ?report_status=draft|final|archived  – filtr (výchozí: vše)
     """
-    tenant = (await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    ).scalar_one_or_none()
     tenant_name = tenant.name if tenant else str(current_user.tenant_id)
 
     reports = await get_accident_reports(db, current_user.tenant_id, report_status=report_status)
@@ -162,7 +164,10 @@ async def complete_risk_review_endpoint(
 @router.get("/accident-reports/{report_id}/pdf")
 async def get_accident_report_pdf(
     report_id: uuid.UUID,
-    download: bool = Query(False, description="True = attachment (stáhnout), False = inline (zobrazit v prohlížeči)"),
+    download: bool = Query(
+        False,
+        description="True = attachment (stáhnout), False = inline (zobrazit v prohlížeči)",  # noqa: E501
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -178,8 +183,6 @@ async def get_accident_report_pdf(
 
     # Název tenanta pro hlavičku PDF
     # Načteme tenant přes relaci nebo přímý dotaz – zatím použijeme tenant_id jako fallback
-    from sqlalchemy import select
-    from app.models.tenant import Tenant
     tenant_result = await db.execute(
         select(Tenant).where(Tenant.id == current_user.tenant_id)
     )

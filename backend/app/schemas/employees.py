@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 EmploymentType = Literal["hpp", "dpp", "dpc", "externista", "brigádník"]
 EmployeeStatus = Literal["active", "terminated", "on_leave"]
