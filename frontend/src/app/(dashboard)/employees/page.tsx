@@ -72,6 +72,9 @@ const schema = z.object({
   notes:            z.string().optional(),
 
   is_equipment_responsible: z.boolean().default(false),
+  // Provozovny, za které je zaměstnanec zodpovědný (pro revize). M:N mapping.
+  // Při create/update se posílá do backendu spolu s is_equipment_responsible.
+  responsible_plant_ids: z.array(z.string().uuid()).default([]),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -109,6 +112,7 @@ function EmployeeForm({
       defaultValues: defaultValues ?? {
         employment_type: "hpp",
         is_equipment_responsible: false,
+        responsible_plant_ids: [],
       },
     });
 
@@ -166,6 +170,44 @@ function EmployeeForm({
           </span>
         </label>
       </div>
+
+      {/* Multi-select provozoven pro zodpovědnost — když je zaškrtnuto */}
+      {watch("is_equipment_responsible") && (
+        <div className="space-y-1.5 rounded-md border border-blue-100 bg-blue-50/30 p-3">
+          <Label>Zodpovědné provozovny</Label>
+          <p className="text-xs text-gray-500 -mt-1 mb-2">
+            Vyber provozovny, za které bude zaměstnanec zodpovědný.
+            Notifikace o blížících se revizích dostane e-mailem.
+          </p>
+          {plants.length === 0 ? (
+            <p className="text-xs text-gray-400">Nejprve vytvořte provozovnu</p>
+          ) : (
+            <div className="space-y-1.5 max-h-40 overflow-auto">
+              {plants.map(p => {
+                const selected = (watch("responsible_plant_ids") ?? []).includes(p.id);
+                return (
+                  <label key={p.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={(e) => {
+                        const curr = watch("responsible_plant_ids") ?? [];
+                        const next = e.target.checked
+                          ? [...curr, p.id]
+                          : curr.filter((id: string) => id !== p.id);
+                        setValue("responsible_plant_ids", next, { shouldDirty: true });
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>{p.name}</span>
+                    {p.city && <span className="text-xs text-gray-400">{p.city}</span>}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Provozovna (plant) → Pracoviště (workplace) — cascading */}
       <div className="grid grid-cols-2 gap-3">
@@ -886,38 +928,18 @@ export default function EmployeesPage() {
         size="lg"
       >
         {editEmployee && (
-          <EmployeeForm
-            isEdit
-            editUserId={editEmployee.user_id}
-            onRegeneratePassword={(uid) => regenerateMutation.mutate(uid)}
-            defaultValues={{
-              first_name:      editEmployee.first_name,
-              last_name:       editEmployee.last_name,
-              employment_type: editEmployee.employment_type,
-              email:           editEmployee.email ?? "",
-              phone:           editEmployee.phone ?? "",
-              hired_at:        editEmployee.hired_at ?? "",
-              birth_date:      editEmployee.birth_date ?? "",
-              personal_id:     editEmployee.personal_id ?? "",
-              personal_number: editEmployee.personal_number ?? "",
-              address_street:  editEmployee.address_street ?? "",
-              address_city:    editEmployee.address_city ?? "",
-              address_zip:     editEmployee.address_zip ?? "",
-              notes:           editEmployee.notes ?? "",
-              plant_id:        editEmployee.plant_id ?? null,
-              workplace_id:    editEmployee.workplace_id ?? null,
-              job_position_id: editEmployee.job_position_id ?? null,
-              is_equipment_responsible: false, // neznáme z API; zatím false
-            }}
+          <EditEmployeeBody
+            employee={editEmployee}
+            plants={plants}
+            workplaces={workplaces}
+            jobPositions={jobPositions}
             onSubmit={(data) => {
               setServerError(null);
               updateMutation.mutate({ id: editEmployee.id, data });
             }}
             isSubmitting={updateMutation.isPending}
             serverError={serverError}
-            jobPositions={jobPositions}
-            plants={plants}
-            workplaces={workplaces}
+            onRegeneratePassword={(uid) => regenerateMutation.mutate(uid)}
           />
         )}
       </Dialog>
@@ -939,3 +961,73 @@ export default function EmployeesPage() {
     </div>
   );
 }
+
+// ── EditEmployeeBody ───────────────────────────────────────────────────────
+// Samostatná komponenta pro edit dialog — zaručuje, že se nejprve načtou
+// stávající responsibilities a teprve pak se vyrenderuje formulář s
+// předvyplněnými hodnotami. Bez toho by form dostal default `[]` a omylem
+// by responsibilities smazal.
+
+function EditEmployeeBody({
+  employee,
+  plants,
+  workplaces,
+  jobPositions,
+  onSubmit,
+  isSubmitting,
+  serverError,
+  onRegeneratePassword,
+}: {
+  employee: Employee;
+  plants: Plant[];
+  workplaces: Workplace[];
+  jobPositions: JobPosition[];
+  onSubmit: (data: FormData) => void;
+  isSubmitting: boolean;
+  serverError: string | null;
+  onRegeneratePassword: (uid: string) => void;
+}) {
+  const { data: resp, isLoading } = useQuery<{ employee_id: string; plant_ids: string[] }>({
+    queryKey: ["employee-responsibilities", employee.id],
+    queryFn: () => api.get(`/employees/${employee.id}/responsibilities`),
+  });
+
+  if (isLoading || !resp) {
+    return <div className="h-40 animate-pulse bg-gray-50 rounded" />;
+  }
+
+  return (
+    <EmployeeForm
+      isEdit
+      editUserId={employee.user_id}
+      onRegeneratePassword={onRegeneratePassword}
+      defaultValues={{
+        first_name:      employee.first_name,
+        last_name:       employee.last_name,
+        employment_type: employee.employment_type as EmploymentType,
+        email:           employee.email ?? "",
+        phone:           employee.phone ?? "",
+        hired_at:        employee.hired_at ?? "",
+        birth_date:      employee.birth_date ?? "",
+        personal_id:     employee.personal_id ?? "",
+        personal_number: employee.personal_number ?? "",
+        address_street:  employee.address_street ?? "",
+        address_city:    employee.address_city ?? "",
+        address_zip:     employee.address_zip ?? "",
+        notes:           employee.notes ?? "",
+        plant_id:        employee.plant_id ?? null,
+        workplace_id:    employee.workplace_id ?? null,
+        job_position_id: employee.job_position_id ?? null,
+        is_equipment_responsible: resp.plant_ids.length > 0,
+        responsible_plant_ids: resp.plant_ids,
+      }}
+      onSubmit={onSubmit}
+      isSubmitting={isSubmitting}
+      serverError={serverError}
+      jobPositions={jobPositions}
+      plants={plants}
+      workplaces={workplaces}
+    />
+  );
+}
+

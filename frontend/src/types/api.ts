@@ -183,23 +183,68 @@ export interface AssignmentCreateResponse {
   errors: string[];
 }
 
-// ── Revisions ─────────────────────────────────────────────────────────────────
+// ── Revisions (zařízení + timeline) ──────────────────────────────────────────
 
-export type DueStatus = "upcoming" | "overdue" | "no_schedule";
+export type DueStatus = "no_schedule" | "ok" | "due_soon" | "overdue" | "upcoming";
+
+export type DeviceType =
+  | "elektro"
+  | "hromosvody"
+  | "plyn"
+  | "kotle"
+  | "tlakove_nadoby"
+  | "vytahy"
+  | "spalinove_cesty";
+
+export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
+  elektro: "Elektrická zařízení",
+  hromosvody: "Hromosvody",
+  plyn: "Plynová zařízení",
+  kotle: "Kotle",
+  tlakove_nadoby: "Tlakové nádoby",
+  vytahy: "Výtahy",
+  spalinove_cesty: "Spalinové cesty",
+};
 
 export interface Revision {
   id: string;
+  tenant_id: string;
   title: string;
-  revision_type: string;
-  description: string | null;
+  plant_id: string | null;
+  plant_name: string | null;
+  device_code: string | null;
+  device_type: DeviceType | null;
+  location: string | null;
   last_revised_at: string | null;
   valid_months: number | null;
   next_revision_at: string | null;
   due_status: DueStatus;
-  location: string | null;
+  technician_name: string | null;
+  technician_email: string | null;
+  technician_phone: string | null;
+  contractor: string | null;
   responsible_user_id: string | null;
+  qr_token: string;
   notes: string | null;
   status: "active" | "archived";
+  created_by: string;
+  revision_type: string;
+}
+
+export interface RevisionRecord {
+  id: string;
+  revision_id: string;
+  performed_at: string;
+  pdf_path: string | null;
+  image_path: string | null;
+  technician_name: string | null;
+  notes: string | null;
+  created_by: string;
+}
+
+export interface EmployeeResponsibilities {
+  employee_id: string;
+  plant_ids: string[];
 }
 
 // ── Medical Exams ─────────────────────────────────────────────────────────────
