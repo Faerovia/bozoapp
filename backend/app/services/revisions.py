@@ -192,13 +192,15 @@ async def get_calendar_items(
         )
     )
     for ta, training in ta_result.all():
-        if ta.valid_until <= horizon:  # type: ignore[operator]
+        if ta.valid_until is None:  # filter already guards, ale guard pro mypy
+            continue
+        if ta.valid_until <= horizon:
             items.append(CalendarItem(
                 source="training",
                 source_id=ta.id,
                 title=training.title,
                 due_date=ta.valid_until,
-                due_status=_compute_due_status(ta.valid_until),  # type: ignore[arg-type]
+                due_status=_compute_due_status(ta.valid_until),
                 responsible_user_id=None,
                 detail_url=f"/api/v1/trainings/assignments/{ta.id}",
             ))

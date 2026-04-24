@@ -195,7 +195,7 @@ async def _row_to_create_request(
     return EmployeeCreateRequest(
         first_name=(row.get("first_name") or "").strip(),
         last_name=(row.get("last_name") or "").strip(),
-        employment_type=(row.get("employment_type") or "hpp").strip() or "hpp",  # type: ignore[arg-type]
+        employment_type=(row.get("employment_type") or "hpp").strip() or "hpp",
         email=(row.get("email") or "").strip() or None,
         phone=(row.get("phone") or "").strip() or None,
         personal_id=(row.get("personal_id") or "").strip() or None,
@@ -218,15 +218,13 @@ def _strip_bom(content: str) -> str:
     return content.lstrip("\ufeff")
 
 
-def _sniff_dialect(content_sample: str) -> csv.Dialect:
-    """Detekce delimiteru (, nebo ;)."""
+def _sniff_dialect(content_sample: str) -> type[csv.Dialect]:
+    """Detekce delimiteru (, nebo ;). Vrací class (ne instanci) —
+    csv.reader(dialect=...) obojí akceptuje."""
     try:
         return csv.Sniffer().sniff(content_sample, delimiters=",;")
     except csv.Error:
-        # Fallback na comma
-        class _Default(csv.excel):
-            pass
-        return _Default()
+        return csv.excel
 
 
 async def import_from_csv(

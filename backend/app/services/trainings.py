@@ -143,6 +143,9 @@ async def _recompute_valid_until_for_training(
         )
     )
     for ta in result.scalars():
+        # Filter above ensures last_completed_at is not None; guard for mypy
+        if ta.last_completed_at is None:
+            continue
         ta.valid_until = _add_months(ta.last_completed_at.date(), training.valid_months)
 
 
@@ -185,13 +188,13 @@ def parse_test_csv(content: bytes) -> list[TestQuestion]:
     except UnicodeDecodeError:
         text = content.decode("cp1250")
 
-    # Auto-detect delimiter
+    # Auto-detect delimiter. csv.Sniffer.sniff() vrací `type[csv.Dialect]`
+    # (třídu, ne instanci); csv.reader(dialect=...) akceptuje obojí.
+    dialect: type[csv.Dialect]
     try:
         dialect = csv.Sniffer().sniff(text[:1024], delimiters=",;")
     except csv.Error:
-        class _D(csv.excel):
-            pass
-        dialect = _D()
+        dialect = csv.excel
 
     reader = csv.reader(io.StringIO(text), dialect=dialect)
 
