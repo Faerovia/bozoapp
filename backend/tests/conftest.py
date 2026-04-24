@@ -10,11 +10,17 @@ se session-scoped event loop v pytest-asyncio 0.24+.
 """
 
 import os
+import tempfile
 
 # Vynucení test environmentu PŘED importem app — rate limit a další
 # infra se rozhoduje podle ENVIRONMENT v module-load time (lru_cache).
 # Bez tohoto v lokálním docker-compose testy narážejí na 5 registrací/hod.
 os.environ["ENVIRONMENT"] = "test"
+
+# Upload dir — default `/app/uploads` funguje jen v dev Dockeru. V CI
+# (bez Dockeru) i na hostovi to selže na permissions. Přesměrujeme na tmp.
+_test_upload_dir = tempfile.mkdtemp(prefix="bozoapp_test_uploads_")
+os.environ["UPLOAD_DIR"] = _test_upload_dir
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
