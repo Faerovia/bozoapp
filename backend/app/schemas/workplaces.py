@@ -80,8 +80,11 @@ class WorkplaceResponse(BaseModel):
 # ── RiskFactorAssessment ──────────────────────────────────────────────────────
 
 class RiskFactorAssessmentCreateRequest(BaseModel):
-    workplace_id: uuid.UUID
-    profese: str = Field(..., min_length=1, max_length=255)
+    # V novém modelu: RFA je 1:1 s JobPosition. workplace_id + profese jsou
+    # legacy a dopočítají se ze job_position.
+    job_position_id: uuid.UUID | None = None
+    workplace_id: uuid.UUID | None = None
+    profese: str | None = Field(None, min_length=1, max_length=255)
     operator_names: str | None = None
     worker_count: int = Field(0, ge=0)
     women_count: int = Field(0, ge=0)
@@ -135,7 +138,8 @@ class RiskFactorAssessmentUpdateRequest(BaseModel):
 class RiskFactorAssessmentResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    workplace_id: uuid.UUID
+    workplace_id: uuid.UUID | None
+    job_position_id: uuid.UUID
     profese: str
     operator_names: str | None
     worker_count: int
@@ -154,6 +158,22 @@ class RiskFactorAssessmentResponse(BaseModel):
     rf_psych:       str | None
     rf_zrak:        str | None
     rf_bio:         str | None
+
+    # PDF path per faktor — frontend přes tyto cesty kontroluje,
+    # zda je PDF uploadované; stažení jde přes /rfa/{id}/pdf/{factor}
+    rf_prach_pdf_path:       str | None
+    rf_chem_pdf_path:        str | None
+    rf_hluk_pdf_path:        str | None
+    rf_vibrace_pdf_path:     str | None
+    rf_zareni_pdf_path:      str | None
+    rf_tlak_pdf_path:        str | None
+    rf_fyz_zatez_pdf_path:   str | None
+    rf_prac_poloha_pdf_path: str | None
+    rf_teplo_pdf_path:       str | None
+    rf_chlad_pdf_path:       str | None
+    rf_psych_pdf_path:       str | None
+    rf_zrak_pdf_path:        str | None
+    rf_bio_pdf_path:         str | None
 
     category_proposed: str   # computed property z modelu
     category_override: str | None

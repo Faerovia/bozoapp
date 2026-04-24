@@ -52,13 +52,24 @@ async def _create_workplace(
     return resp.json()
 
 
+_rfa_counter = 0
+
+
 async def _create_rfa(
     client: AsyncClient,
     headers: dict,
     workplace_id: str,
-    profese: str = "Dělník",
+    profese: str | None = None,
     **rf_overrides,
 ) -> dict:
+    """Po refaktoru 024 je RFA 1:1 s JobPosition. Aby více RFA v jednom testu
+    pro stejné workplace nekolidovalo přes UNIQUE(workplace, name), generujeme
+    unikátní profese, pokud volající nezadá vlastní.
+    """
+    global _rfa_counter
+    _rfa_counter += 1
+    if profese is None:
+        profese = f"Dělník-{_rfa_counter}"
     payload = {
         "workplace_id": workplace_id,
         "profese": profese,

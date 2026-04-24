@@ -1,11 +1,14 @@
 """
 Model pro pracovní pozice (kategorizace prací dle NV 361/2007 Sb.).
 
-Každý záznam = typ pracovního zařazení v rámci tenantu.
-Slouží jako reference pro:
-  - Lékařské prohlídky (periodicita dle kategorie práce)
-  - Zaměstnanci (employee.job_position_id)
-  - BOZP dokumentace
+Každá pozice je vázaná na konkrétní pracoviště (Workplace). Stejný
+název pozice může existovat na více pracovištích — každá instance má
+vlastní hodnocení rizikových faktorů (1:1 s RiskFactorAssessment).
+
+Kategorie práce (1/2/2R/3/4) se odvozuje z RFA.category_proposed;
+ruční override zůstává v `work_category` (zachován pro zpětnou kompat
+s existujícími daty a pro případ, že OZO chce klasifikovat pozici
+odlišně od měření).
 
 Výchozí lhůty periodické prohlídky (vyhláška 79/2013 Sb. §11):
   Kategorie 1:  72 měsíců (věk < 50), 48 měsíců (věk ≥ 50)
@@ -17,7 +20,7 @@ Výchozí lhůty periodické prohlídky (vyhláška 79/2013 Sb. §11):
 
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, SmallInteger, String, Text
+from sqlalchemy import ForeignKey, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -36,26 +39,27 @@ CATEGORY_DEFAULT_EXAM_MONTHS: dict[str, int] = {
 
 class JobPosition(Base, TimestampMixin):
     __tablename__ = "job_positions"
-    __table_args__ = (
-        CheckConstraint(
-            "work_category IN ('1','2','2R','3','4') OR work_category IS NULL",
-            name="ck_jp_category",
-        ),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
 
+    # Pracoviště, kam pozice patří. Každá pozice je per-workplace — stejný
+    # název na 2 pracovištích = 2 různé záznamy s vlastními RFA.
+    workplace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workplaces.id", ondelete="RESTRICT"), nullable=False
+    )
+
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
 
-    # Kategorie práce dle NV 361/2007 Sb.
+    # Legacy: manuální kategorie (1/2/2R/3/4). Nový model derivuje z RFA,
+    # ale sloupec zachováváme pro zpětnou kompat + manuální override.
     work_category: Mapped[str | None] = mapped_column(String(3))
 
     # Přepsatelná lhůta periodické prohlídky
-    # NULL → použij CATEGORY_DEFAULT_EXAM_MONTHS[work_category]
+    # NULL → použij CATEGORY_DEFAULT_EXAM_MONTHS[effective_category]
     medical_exam_period_months: Mapped[int | None] = mapped_column(SmallInteger)
 
     notes: Mapped[str | None] = mapped_column(Text)
@@ -66,12 +70,16 @@ class JobPosition(Base, TimestampMixin):
     )
 
     # ── Computed properties ───────────────────────────────────────────────────
+    # Pozn.: RFA je nachystaná 1:1 přes job_position_id, ale relationship
+    # tady záměrně NEDEFINUJEME (lazy-load v async kontextu by ho nutil být
+    # selectin-loadovaný při každém selectu). Derived hodnoty dopočítáváme
+    # ve service/API vrstvě, která má k dispozici async session.
 
     @property
     def effective_exam_period_months(self) -> int | None:
         """
         Efektivní lhůta periodické prohlídky.
-        Priorita: ruční override > výchozí z kategorie > None (není určeno).
+        Priorita: ruční override > výchozí z kategorie (pokud zadaná) > None.
         """
         if self.medical_exam_period_months is not None:
             return self.medical_exam_period_months

@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,17 +22,27 @@ from app.schemas.workplaces import (
     WorkplaceUpdateRequest,
 )
 from app.services.export_pdf import generate_risk_factor_list_pdf
+from app.core.storage import (
+    MAX_TRAINING_PDF_BYTES,
+    delete_file,
+    read_file,
+    save_rfa_factor_pdf,
+)
+from app.models.risk_factor_assessment import RF_FIELDS
 from app.services.workplaces import (
+    clear_rfa_factor_pdf,
     create_plant,
     create_rfa,
     create_workplace,
     get_plant_by_id,
     get_plants,
     get_rfa_by_id,
+    get_rfa_by_job_position,
     get_rfa_grouped_for_export,
     get_risk_factor_assessments,
     get_workplace_by_id,
     get_workplaces,
+    set_rfa_factor_pdf,
     update_plant,
     update_rfa,
     update_workplace,
@@ -260,3 +270,122 @@ async def archive_rfa(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hodnocení nenalezeno")
     rfa.status = "archived"
     await db.flush()
+
+
+# ── Lookup RFA podle pozice (1:1) ────────────────────────────────────────────
+
+@router.get(
+    "/job-positions/{position_id}/risk-assessment",
+    response_model=RiskFactorAssessmentResponse,
+)
+async def get_rfa_by_position_endpoint(
+    position_id: uuid.UUID,
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    rfa = await get_rfa_by_job_position(db, position_id, current_user.tenant_id)
+    if rfa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hodnocení rizik pro tuto pozici neexistuje",
+        )
+    return rfa
+
+
+# ── PDF per faktor (upload / download / delete) ──────────────────────────────
+
+def _validate_factor(factor: str) -> None:
+    if factor not in RF_FIELDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Neplatný rizikový faktor: {factor}",
+        )
+
+
+@router.post(
+    "/risk-factors/{rfa_id}/pdf/{factor}",
+    response_model=RiskFactorAssessmentResponse,
+)
+async def upload_rfa_factor_pdf(
+    rfa_id: uuid.UUID,
+    factor: str,
+    file: UploadFile,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Upload PDF měření hygieny pro daný faktor (rf_hluk, rf_prach, …)."""
+    _validate_factor(factor)
+    rfa = await get_rfa_by_id(db, rfa_id, current_user.tenant_id)
+    if rfa is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hodnocení nenalezeno")
+
+    content = await file.read()
+    if len(content) > MAX_TRAINING_PDF_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"PDF větší než {MAX_TRAINING_PDF_BYTES // 1024 // 1024} MB",
+        )
+
+    try:
+        pdf_path = save_rfa_factor_pdf(
+            current_user.tenant_id, rfa.id, factor, content
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    # Pokud byl předchozí PDF, smaž ho ze storage
+    old_path = getattr(rfa, f"{factor}_pdf_path", None)
+    if old_path and old_path != pdf_path:
+        delete_file(old_path)
+
+    return await set_rfa_factor_pdf(db, rfa, factor, pdf_path)
+
+
+@router.get("/risk-factors/{rfa_id}/pdf/{factor}")
+async def download_rfa_factor_pdf(
+    rfa_id: uuid.UUID,
+    factor: str,
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    _validate_factor(factor)
+    rfa = await get_rfa_by_id(db, rfa_id, current_user.tenant_id)
+    if rfa is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hodnocení nenalezeno")
+
+    path = getattr(rfa, f"{factor}_pdf_path", None)
+    if not path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PDF nenahrán")
+
+    try:
+        content = read_file(path)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Soubor nenalezen"
+        ) from e
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{factor}.pdf"'},
+    )
+
+
+@router.delete(
+    "/risk-factors/{rfa_id}/pdf/{factor}",
+    response_model=RiskFactorAssessmentResponse,
+)
+async def delete_rfa_factor_pdf(
+    rfa_id: uuid.UUID,
+    factor: str,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    _validate_factor(factor)
+    rfa = await get_rfa_by_id(db, rfa_id, current_user.tenant_id)
+    if rfa is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hodnocení nenalezeno")
+
+    old_path = getattr(rfa, f"{factor}_pdf_path", None)
+    if old_path:
+        delete_file(old_path)
+    return await clear_rfa_factor_pdf(db, rfa, factor)

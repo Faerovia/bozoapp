@@ -25,10 +25,31 @@ async def _ozo_headers(client: AsyncClient, suffix: str) -> dict:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
+async def _create_plant_workplace(client: AsyncClient, headers: dict) -> str:
+    """Vytvoří plant + workplace a vrátí workplace_id.
+
+    V novém modelu má JobPosition povinný workplace_id — všechny testy potřebují
+    nejprve vytvořit plant+workplace.
+    """
+    plant = await client.post(
+        "/api/v1/plants", json={"name": "Provozovna Test"}, headers=headers
+    )
+    plant_id = plant.json()["id"]
+    wp = await client.post(
+        "/api/v1/workplaces",
+        json={"plant_id": plant_id, "name": "Pracoviště Test"},
+        headers=headers,
+    )
+    return wp.json()["id"]
+
+
 async def _create_jp(
-    client: AsyncClient, headers: dict, name: str = "Soustružník", **kwargs
+    client: AsyncClient, headers: dict, name: str = "Soustružník",
+    workplace_id: str | None = None, **kwargs
 ) -> dict:
-    payload = {"name": name, **kwargs}
+    if workplace_id is None:
+        workplace_id = await _create_plant_workplace(client, headers)
+    payload = {"name": name, "workplace_id": workplace_id, **kwargs}
     resp = await client.post("/api/v1/job-positions", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -129,12 +150,17 @@ async def test_effective_exam_period_override(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_effective_exam_period_no_category(client: AsyncClient) -> None:
-    """Pozice bez kategorie → effective_exam_period_months je None."""
+async def test_effective_exam_period_derives_from_rfa_default(client: AsyncClient) -> None:
+    """
+    Pozice bez work_category: v novém modelu se při create auto-vytvoří RFA stub,
+    jehož category_proposed defaultuje na '1' (pokud žádný faktor není zadán).
+    Takže effective kategorie = '1' → period 72 měsíců dle vyhl. 79/2013.
+    """
     headers = await _ozo_headers(client, "j8")
     jp = await _create_jp(client, headers, "THP bez kategorie")
     assert jp["work_category"] is None
-    assert jp["effective_exam_period_months"] is None
+    assert jp["effective_category"] == "1"
+    assert jp["effective_exam_period_months"] == 72
 
 
 # ── Filtrování ─────────────────────────────────────────────────────────────────

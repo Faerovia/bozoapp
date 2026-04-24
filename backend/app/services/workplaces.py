@@ -164,21 +164,64 @@ async def get_rfa_by_id(
     return result.scalar_one_or_none()
 
 
+async def get_rfa_by_job_position(
+    db: AsyncSession, job_position_id: uuid.UUID, tenant_id: uuid.UUID
+) -> RiskFactorAssessment | None:
+    """RFA je 1:1 s JobPosition — vrátí jediný záznam (pokud existuje)."""
+    result = await db.execute(
+        select(RiskFactorAssessment).where(
+            RiskFactorAssessment.job_position_id == job_position_id,
+            RiskFactorAssessment.tenant_id == tenant_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_rfa(
     db: AsyncSession,
     data: RiskFactorAssessmentCreateRequest,
     tenant_id: uuid.UUID,
     created_by: uuid.UUID,
 ) -> RiskFactorAssessment:
-    # Ověří, že workplace_id patří tomuto tenantovi
-    workplace = await get_workplace_by_id(db, data.workplace_id, tenant_id)
-    if workplace is None:
-        raise ValueError(f"Pracoviště {data.workplace_id} nenalezeno")
+    """
+    Vytvoří RFA. V novém modelu se volá primárně přes job_position_id;
+    workplace_id + profese jsou legacy a dopočítají se ze JobPosition.
+    """
+    from app.services.job_positions import get_job_position_by_id
 
+    if data.job_position_id is not None:
+        jp = await get_job_position_by_id(db, data.job_position_id, tenant_id)
+        if jp is None:
+            raise ValueError(f"Pozice {data.job_position_id} nenalezena")
+        workplace_id = jp.workplace_id
+        profese = data.profese or jp.name
+    else:
+        if data.workplace_id is None or data.profese is None:
+            raise ValueError("job_position_id NEBO (workplace_id + profese) musí být zadáno")
+        workplace = await get_workplace_by_id(db, data.workplace_id, tenant_id)
+        if workplace is None:
+            raise ValueError(f"Pracoviště {data.workplace_id} nenalezeno")
+        workplace_id = data.workplace_id
+        profese = data.profese
+        # Legacy cesta: auto-vytvoříme JobPosition, aby FK bylo splněné
+        from app.models.job_position import JobPosition
+        jp = JobPosition(
+            tenant_id=tenant_id,
+            workplace_id=workplace_id,
+            name=profese,
+            created_by=created_by,
+        )
+        db.add(jp)
+        await db.flush()
+
+    payload = data.model_dump(exclude={"job_position_id", "workplace_id", "profese"})
     rfa = RiskFactorAssessment(
         tenant_id=tenant_id,
         created_by=created_by,
-        **data.model_dump(),
+        workplace_id=workplace_id,
+        job_position_id=jp.id,
+        profese=profese,
+        **payload,
     )
     db.add(rfa)
     await db.flush()
@@ -190,6 +233,34 @@ async def update_rfa(
 ) -> RiskFactorAssessment:
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(rfa, field, value)
+    await db.flush()
+    return rfa
+
+
+# ── PDF per faktor ────────────────────────────────────────────────────────────
+
+async def set_rfa_factor_pdf(
+    db: AsyncSession,
+    rfa: RiskFactorAssessment,
+    factor_key: str,
+    pdf_path: str,
+) -> RiskFactorAssessment:
+    """Zapíše pdf_path do sloupce rf_<factor>_pdf_path."""
+    from app.models.risk_factor_assessment import RF_FIELDS
+    if factor_key not in RF_FIELDS:
+        raise ValueError(f"Neplatný factor_key: {factor_key}")
+    setattr(rfa, f"{factor_key}_pdf_path", pdf_path)
+    await db.flush()
+    return rfa
+
+
+async def clear_rfa_factor_pdf(
+    db: AsyncSession, rfa: RiskFactorAssessment, factor_key: str
+) -> RiskFactorAssessment:
+    from app.models.risk_factor_assessment import RF_FIELDS
+    if factor_key not in RF_FIELDS:
+        raise ValueError(f"Neplatný factor_key: {factor_key}")
+    setattr(rfa, f"{factor_key}_pdf_path", None)
     await db.flush()
     return rfa
 

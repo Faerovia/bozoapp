@@ -83,6 +83,34 @@ def save_tenant_logo(
     return rel_path
 
 
+def save_rfa_factor_pdf(
+    tenant_id: uuid.UUID,
+    rfa_id: uuid.UUID,
+    factor_key: str,
+    content: bytes,
+) -> str:
+    """
+    Uloží PDF příloh k rizikovému faktoru (měření hygieny / protokol).
+    factor_key je jeden z RF_FIELDS (rf_prach, rf_chem, …).
+    """
+    if len(content) > MAX_TRAINING_PDF_BYTES:  # stejný 3 MB limit jako u tréninku
+        raise ValueError(
+            f"PDF je příliš velké (max {MAX_TRAINING_PDF_BYTES // 1024 // 1024} MB)"
+        )
+    if not content.startswith(b"%PDF"):
+        raise ValueError("Soubor není platné PDF")
+
+    # Validace factor_key proti whitelistu — ochrana proti injection do cesty
+    if not factor_key.startswith("rf_") or not factor_key.replace("_", "").isalnum():
+        raise ValueError(f"Neplatný factor_key: {factor_key}")
+
+    rel_path = f"rfa/{tenant_id}/{rfa_id}/{factor_key}.pdf"
+    full = _safe_join(rel_path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_bytes(content)
+    return rel_path
+
+
 def save_revision_record_file(
     tenant_id: uuid.UUID,
     revision_id: uuid.UUID,

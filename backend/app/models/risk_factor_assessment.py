@@ -51,6 +51,9 @@ RF_LABELS = {
 
 VALID_RATINGS = frozenset({"1", "2", "2R", "3", "4"})
 
+# Mapování factor_key → sloupec s cestou k PDF (měření hygieny)
+RF_PDF_PATH_FIELDS = {f: f"{f}_pdf_path" for f in RF_FIELDS}
+
 
 def _rating_numeric(val: str | None) -> float:
     """Pro porovnání: 2R = 2.5, ostatní jsou celá čísla."""
@@ -77,8 +80,14 @@ class RiskFactorAssessment(Base, TimestampMixin):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    workplace_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("workplaces.id", ondelete="CASCADE"), nullable=False
+    # Legacy: workplace_id — RFA byla původně per-workplace. Nový model
+    # vázán per-JobPosition. Sloupec NULLABLE kvůli zpětné kompat.
+    workplace_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("workplaces.id", ondelete="CASCADE"), nullable=True
+    )
+    # Nová vazba: 1:1 na JobPosition. UNIQUE constraint v migraci.
+    job_position_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("job_positions.id", ondelete="CASCADE"), nullable=False
     )
 
     profese: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -87,7 +96,7 @@ class RiskFactorAssessment(Base, TimestampMixin):
     worker_count: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
     women_count: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
 
-    # 13 rizikových faktorů
+    # 13 rizikových faktorů (hodnocení 1/2/2R/3/4 nebo NULL)
     rf_prach:       Mapped[str | None] = mapped_column(String(3))
     rf_chem:        Mapped[str | None] = mapped_column(String(3))
     rf_hluk:        Mapped[str | None] = mapped_column(String(3))
@@ -101,6 +110,21 @@ class RiskFactorAssessment(Base, TimestampMixin):
     rf_psych:       Mapped[str | None] = mapped_column(String(3))
     rf_zrak:        Mapped[str | None] = mapped_column(String(3))
     rf_bio:         Mapped[str | None] = mapped_column(String(3))
+
+    # PDF příloha (měření hygieny / protokol) per faktor — volitelná
+    rf_prach_pdf_path:       Mapped[str | None] = mapped_column(String(500))
+    rf_chem_pdf_path:        Mapped[str | None] = mapped_column(String(500))
+    rf_hluk_pdf_path:        Mapped[str | None] = mapped_column(String(500))
+    rf_vibrace_pdf_path:     Mapped[str | None] = mapped_column(String(500))
+    rf_zareni_pdf_path:      Mapped[str | None] = mapped_column(String(500))
+    rf_tlak_pdf_path:        Mapped[str | None] = mapped_column(String(500))
+    rf_fyz_zatez_pdf_path:   Mapped[str | None] = mapped_column(String(500))
+    rf_prac_poloha_pdf_path: Mapped[str | None] = mapped_column(String(500))
+    rf_teplo_pdf_path:       Mapped[str | None] = mapped_column(String(500))
+    rf_chlad_pdf_path:       Mapped[str | None] = mapped_column(String(500))
+    rf_psych_pdf_path:       Mapped[str | None] = mapped_column(String(500))
+    rf_zrak_pdf_path:        Mapped[str | None] = mapped_column(String(500))
+    rf_bio_pdf_path:         Mapped[str | None] = mapped_column(String(500))
 
     category_override: Mapped[str | None] = mapped_column(String(3))
     sort_order: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
