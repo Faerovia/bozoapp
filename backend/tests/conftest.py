@@ -9,13 +9,20 @@ Každý test dostane vlastní engine/connection/session → žádné problémy
 se session-scoped event loop v pytest-asyncio 0.24+.
 """
 
-import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+import os
 
-from app.core.config import get_settings
-from app.core.database import get_db
-from app.main import app
+# Vynucení test environmentu PŘED importem app — rate limit a další
+# infra se rozhoduje podle ENVIRONMENT v module-load time (lru_cache).
+# Bez tohoto v lokálním docker-compose testy narážejí na 5 registrací/hod.
+os.environ["ENVIRONMENT"] = "test"
+
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
+
+from app.core.config import get_settings  # noqa: E402
+from app.core.database import get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 settings = get_settings()
 

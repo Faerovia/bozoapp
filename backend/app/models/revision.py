@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, SmallInteger, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -131,7 +131,9 @@ class RevisionRecord(Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
     )
 
 
@@ -156,5 +158,7 @@ class EmployeePlantResponsibility(Base):
         ForeignKey("plants.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
     )
