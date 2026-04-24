@@ -202,7 +202,7 @@ export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
   plyn: "Plynová zařízení",
   kotle: "Kotle",
   tlakove_nadoby: "Tlakové nádoby",
-  vytahy: "Výtahy",
+  vytahy: "Zdvihací zařízení",
   spalinove_cesty: "Spalinové cesty",
 };
 

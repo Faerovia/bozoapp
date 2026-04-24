@@ -16,7 +16,7 @@ DEVICE_TYPES = (
     "plyn",             # plynová zařízení (vyhl. 21/1979)
     "kotle",            # kotle a topné zdroje
     "tlakove_nadoby",   # tlakové nádoby (NV 26/2003)
-    "vytahy",           # výtahy (NV 378/2001)
+    "vytahy",           # zdvihací zařízení — výtahy, jeřáby, zdvihadla (NV 378/2001)
     "spalinove_cesty",  # spalinové cesty (vyhl. 34/2016)
 )
 
