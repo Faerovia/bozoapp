@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -33,7 +34,7 @@ async def list_oopp(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[OOPPResponse]:
+) -> list[Any]:
     """
     Vrátí evidenci OOPP.
     Employee vidí pouze vlastní záznamy.

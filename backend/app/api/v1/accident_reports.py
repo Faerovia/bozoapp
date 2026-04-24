@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -64,7 +65,7 @@ async def list_accident_reports(
     risk_review_pending: bool | None = Query(None),
     current_user: User = Depends(require_role("ozo", "manager")),
     db: AsyncSession = Depends(get_db),
-) -> list[AccidentReportResponse]:
+) -> list[Any]:
     """
     Vrátí záznamy o pracovních úrazech.
     Filtry: ?report_status=draft|final|archived, ?risk_review_pending=true

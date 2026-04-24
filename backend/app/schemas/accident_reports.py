@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime, time
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -134,7 +134,7 @@ class AccidentReportResponse(BaseModel):
     drug_test_result: str | None
 
     injured_signed_at: date | None
-    witnesses: list[dict]  # [{name, signed_at}]
+    witnesses: list[dict[str, Any]]  # [{name, signed_at}]
     supervisor_name: str | None
     supervisor_signed_at: date | None
 

@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -37,7 +38,7 @@ async def list_trainings(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[TrainingResponse]:
+) -> list[Any]:
     """
     Vrátí záznamy o školeních.
     Employee vidí pouze vlastní záznamy (server-side enforce přes employees.user_id).

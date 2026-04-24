@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -47,7 +48,7 @@ async def list_plants(
     plant_status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(require_role("ozo", "manager", "employee")),
     db: AsyncSession = Depends(get_db),
-) -> list[PlantResponse]:
+) -> list[Any]:
     return await get_plants(db, current_user.tenant_id, status=plant_status)
 
 
@@ -106,7 +107,7 @@ async def list_workplaces(
     workplace_status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(require_role("ozo", "manager", "employee")),
     db: AsyncSession = Depends(get_db),
-) -> list[WorkplaceResponse]:
+) -> list[Any]:
     return await get_workplaces(
         db, current_user.tenant_id, plant_id=plant_id, status=workplace_status
     )
@@ -170,7 +171,7 @@ async def list_risk_factors(
     rfa_status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(require_role("ozo", "manager", "employee")),
     db: AsyncSession = Depends(get_db),
-) -> list[RiskFactorAssessmentResponse]:
+) -> list[Any]:
     return await get_risk_factor_assessments(
         db, current_user.tenant_id, workplace_id=workplace_id, status=rfa_status
     )

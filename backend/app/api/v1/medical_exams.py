@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -39,7 +40,7 @@ async def list_medical_exams(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[MedicalExamResponse]:
+) -> list[Any]:
     """
     Vrátí evidenci lékařských prohlídek.
     Employee vidí pouze vlastní záznamy.

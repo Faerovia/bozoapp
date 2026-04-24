@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -22,7 +23,7 @@ async def list_risks(
     status: str | None = Query(None, pattern="^(active|archived)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[RiskResponse]:
+) -> list[Any]:
     """
     Vrátí registr rizik tenantu.
     Volitelný filtr: ?status=active nebo ?status=archived

@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +25,7 @@ async def list_employees(
     employment_type: str | None = Query(None),
     current_user: User = Depends(require_role("ozo", "manager")),
     db: AsyncSession = Depends(get_db),
-) -> list[EmployeeResponse]:
+) -> list[Any]:
     """
     Vrátí seznam zaměstnanců tenantu.
     Filtry: ?emp_status=active|terminated|on_leave, ?employment_type=hpp|dpp|...

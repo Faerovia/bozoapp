@@ -31,7 +31,7 @@ def create_access_token(user_id: uuid.UUID, tenant_id: uuid.UUID, role: str) -> 
         "type": "access",
         "exp": expire,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)  # type: ignore[return-value]
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)  # type: ignore[no-any-return]
 
 
 def create_refresh_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
@@ -44,9 +44,9 @@ def create_refresh_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
         "type": "refresh",
         "exp": expire,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)  # type: ignore[return-value]
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)  # type: ignore[no-any-return]
 
 
 def decode_token(token: str) -> dict[str, Any]:
     """Raises jose.JWTError if token is invalid or expired."""
-    return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])  # type: ignore[return-value]
+    return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])  # type: ignore[no-any-return]
