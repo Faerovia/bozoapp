@@ -329,6 +329,62 @@ OOPP_TYPE_CS = {
 }
 
 
+def generate_medical_exams_pdf(exams: Sequence["MedicalExam"], tenant_name: str) -> bytes:
+    """Přehled lékařských prohlídek pro tisk a archivaci."""
+    EXAM_TYPE_CS = {
+        "vstupni": "Vstupní",
+        "periodicka": "Periodická",
+        "vystupni": "Výstupní",
+        "mimoradna": "Mimořádná",
+    }
+    RESULT_CS = {
+        "zpusobilyý": "Způsobilý",
+        "zpusobilyý_omezeni": "Způsobilý s omez.",
+        "nezpusobilyý": "Nezpůsobilý",
+        "pozbyl_zpusobilosti": "Pozbyl způsob.",
+    }
+
+    pdf = _ExportPDF("PŘEHLED LÉKAŘSKÝCH PROHLÍDEK", tenant_name)
+
+    cols = [
+        ("Zaměstnanec (ID)", 40),
+        ("Druh prohlídky", 28),
+        ("Datum", 24),
+        ("Výsledek", 34),
+        ("Lékař", 44),
+        ("Platnost do", 24),
+        ("Stav platnosti", 30),
+        ("Zbývá dní", 18),
+        ("Status", 15),
+        ("Poznámky", 20),
+    ]
+    pdf.table_header(cols)
+
+    for i, e in enumerate(exams):
+        days = e.days_until_expiry
+        days_str = str(days) if days is not None else "—"
+        pdf.table_row([
+            (str(e.employee_id)[:8] + "…", 40),
+            (EXAM_TYPE_CS.get(e.exam_type, e.exam_type), 28),
+            (_fmt_date(e.exam_date), 24),
+            (RESULT_CS.get(e.result or "", "—") if e.result else "—", 34),
+            (e.physician_name or "—", 44),
+            (_fmt_date(e.valid_until), 24),
+            (VALIDITY_CS.get(e.validity_status, e.validity_status), 30),
+            (days_str, 18),
+            ("Akt." if e.status == "active" else "Arch.", 15),
+            (e.notes or "—", 20),
+        ], shade=i % 2 == 1)
+
+    expired_count = sum(1 for e in exams if e.validity_status == "expired")
+    expiring_count = sum(1 for e in exams if e.validity_status == "expiring_soon")
+    pdf.section_note(
+        f"Celkem záznamů: {len(exams)}   |   "
+        f"Prošlé: {expired_count}   |   Brzy vyprší: {expiring_count}"
+    )
+    return bytes(pdf.output())
+
+
 def generate_risk_factor_list_pdf(
     grouped: list[tuple["Plant", list[tuple["Workplace", list["RiskFactorAssessment"]]]]],
     tenant_name: str,

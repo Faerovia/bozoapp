@@ -17,6 +17,9 @@ class DashboardResponse(BaseModel):
     draft_accident_reports: int
     """Záznamy o úrazech ve stavu draft (nezafinalizované)."""
 
+    expiring_medical_exams: int
+    """Aktivní lékařské prohlídky, které expirují do 60 dní nebo jsou prošlé."""
+
     # ── Nadcházející termíny ──────────────────────────────────────────────────
     upcoming_calendar: list[CalendarItem]
     """Top 10 nejnaléhavějších položek (overdue první, pak nejbližší)."""

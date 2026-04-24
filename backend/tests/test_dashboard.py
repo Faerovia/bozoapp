@@ -73,6 +73,7 @@ async def test_dashboard_empty_tenant(client: AsyncClient) -> None:
     assert data["expiring_trainings"] == 0
     assert data["overdue_revisions"] == 0
     assert data["draft_accident_reports"] == 0
+    assert data["expiring_medical_exams"] == 0
     assert data["upcoming_calendar"] == []
 
 
@@ -215,6 +216,48 @@ async def test_dashboard_upcoming_calendar_items(client: AsyncClient) -> None:
     assert len(data["upcoming_calendar"]) == 1
     assert data["upcoming_calendar"][0]["title"] == "Blízká revize"
     assert data["upcoming_calendar"][0]["source"] == "revision"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_expiring_medical_exams(client: AsyncClient) -> None:
+    """Lékařské prohlídky expirující do 60 dní se projeví v počtu."""
+    headers, _ = await _ozo_headers(client, "d7")
+
+    emp_resp = await client.post(
+        "/api/v1/employees",
+        json={"first_name": "Test", "last_name": "D7", "employment_type": "hpp"},
+        headers=headers,
+    )
+    eid = emp_resp.json()["id"]
+
+    # Prohlídka expirující za 30 dní – má být v počtu
+    soon = (date.today() + timedelta(days=30)).isoformat()
+    await client.post(
+        "/api/v1/medical-exams",
+        json={
+            "employee_id": eid,
+            "exam_type": "periodicka",
+            "exam_date": "2024-01-01",
+            "valid_until": soon,
+        },
+        headers=headers,
+    )
+
+    # Prohlídka platná ještě 200 dní – NESMÍ být v počtu
+    far = (date.today() + timedelta(days=200)).isoformat()
+    await client.post(
+        "/api/v1/medical-exams",
+        json={
+            "employee_id": eid,
+            "exam_type": "periodicka",
+            "exam_date": "2024-06-01",
+            "valid_until": far,
+        },
+        headers=headers,
+    )
+
+    resp = await client.get("/api/v1/dashboard", headers=headers)
+    assert resp.json()["expiring_medical_exams"] == 1
 
 
 @pytest.mark.asyncio

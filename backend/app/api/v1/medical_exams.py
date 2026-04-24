@@ -1,11 +1,14 @@
 import uuid
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.permissions import require_role
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.medical_exams import (
     MedicalExamCreateRequest,
@@ -13,6 +16,7 @@ from app.schemas.medical_exams import (
     MedicalExamUpdateRequest,
 )
 from app.services.employees import get_employee_by_user_id
+from app.services.export_pdf import generate_medical_exams_pdf
 from app.services.medical_exams import (
     create_medical_exam,
     get_medical_exam_by_id,
@@ -54,6 +58,43 @@ async def list_medical_exams(
         exam_type=exam_type,
         status=me_status,
         validity_status=validity_status,
+    )
+
+
+# DŮLEŽITÉ: /medical-exams/export/pdf musí být před /medical-exams/{exam_id}
+@router.get("/medical-exams/export/pdf")
+async def export_medical_exams_pdf(
+    employee_id: uuid.UUID | None = Query(None),
+    exam_type: str | None = Query(
+        None, pattern="^(vstupni|periodicka|vystupni|mimoradna)$"
+    ),
+    validity_status: str | None = Query(
+        None, pattern="^(no_expiry|valid|expiring_soon|expired)$"
+    ),
+    download: bool = Query(False),
+    current_user: User = Depends(require_role("ozo", "manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Exportuje přehled lékařských prohlídek jako PDF."""
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    ).scalar_one_or_none()
+    tenant_name = tenant.name if tenant else str(current_user.tenant_id)
+
+    exams = await get_medical_exams(
+        db, current_user.tenant_id,
+        employee_id=employee_id,
+        exam_type=exam_type,
+        validity_status=validity_status,
+    )
+    pdf_bytes = generate_medical_exams_pdf(exams, tenant_name)
+
+    disposition = "attachment" if download else "inline"
+    filename = f"prehled_lekarskych_prohlidek_{date.today()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
     )
 
 

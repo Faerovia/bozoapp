@@ -5,6 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.accident_report import AccidentReport
+from app.models.medical_exam import EXPIRING_SOON_DAYS as ME_EXPIRING_SOON_DAYS
+from app.models.medical_exam import MedicalExam
 from app.models.revision import Revision
 from app.models.training import EXPIRING_SOON_DAYS, Training
 from app.schemas.dashboard import DashboardResponse
@@ -63,7 +65,21 @@ async def get_dashboard(db: AsyncSession, tenant_id: uuid.UUID) -> DashboardResp
         )
     ).scalar_one()
 
-    # 5. Nadcházející kalendář – top 10 (30 dní + overdue)
+    # 5. Expirující nebo prošlé aktivní lékařské prohlídky
+    #    valid_until IS NOT NULL AND valid_until <= today + ME_EXPIRING_SOON_DAYS
+    me_horizon = today + timedelta(days=ME_EXPIRING_SOON_DAYS)
+    expiring_medical_exams: int = (
+        await db.execute(
+            select(func.count()).where(
+                MedicalExam.tenant_id == tenant_id,
+                MedicalExam.status == "active",
+                MedicalExam.valid_until.is_not(None),
+                MedicalExam.valid_until <= me_horizon,
+            )
+        )
+    ).scalar_one()
+
+    # 6. Nadcházející kalendář – top 10 (30 dní + overdue)
     all_items = await get_calendar_items(db, tenant_id, days_ahead=30)
     upcoming_calendar = all_items[:10]
 
@@ -72,5 +88,6 @@ async def get_dashboard(db: AsyncSession, tenant_id: uuid.UUID) -> DashboardResp
         expiring_trainings=expiring_trainings,
         overdue_revisions=overdue_revisions,
         draft_accident_reports=draft_accident_reports,
+        expiring_medical_exams=expiring_medical_exams,
         upcoming_calendar=upcoming_calendar,
     )

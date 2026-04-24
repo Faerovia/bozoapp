@@ -1,16 +1,18 @@
 import type { NextConfig } from "next";
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 const nextConfig: NextConfig = {
-  // Přísný mode pro lepší React error detection v dev
   reactStrictMode: true,
 
-  // API proxy: v produkci Caddy routuje /api → backend,
-  // v local devu přesměrujeme přes Next.js rewrites
+  // Proxy /api/* → FastAPI backend.
+  // V local devu frontend:3000 → backend:8000 (same-origin cookies, žádné CORS problémy).
+  // V produkci Caddy routuje /api → backend kontejner přímo.
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`,
+        destination: `${BACKEND_URL}/api/:path*`,
       },
     ];
   },

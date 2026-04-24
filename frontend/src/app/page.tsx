@@ -1,8 +1,6 @@
+import { redirect } from "next/navigation";
+
+// Root → dashboard (middleware ochraňuje /dashboard, redirect na /login pokud není token)
 export default function Home() {
-  return (
-    <main>
-      <h1>BOZOapp</h1>
-      <p>BOZP a PO management platforma – v přípravě.</p>
-    </main>
-  );
+  redirect("/dashboard");
 }
