@@ -23,7 +23,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
-from app.services.auth import _TotpRequired, login_user, register_user
+from app.services.auth import _TotpRequiredError, login_user, register_user
 from app.services.password_reset import (
     request_reset as svc_request_reset,
 )
@@ -100,7 +100,7 @@ async def login(
         result = await login_user(
             db, data.email, data.password, totp_code=data.totp_code
         )
-    except _TotpRequired:
+    except _TotpRequiredError:
         # Password OK, 2FA zapnuté, ale kód nepřišel. Klient pošle znovu s totp_code.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

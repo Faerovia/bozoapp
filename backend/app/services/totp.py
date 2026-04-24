@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets as pysecrets
+import uuid
 
 import pyotp
 from sqlalchemy import select, update
@@ -180,11 +181,9 @@ async def count_unused_recovery_codes(db: AsyncSession, user: User) -> int:
 
 
 async def admin_disable_for_user(
-    db: AsyncSession, target_user_id: "uuid.UUID"  # noqa: F821
+    db: AsyncSession, target_user_id: uuid.UUID
 ) -> bool:
     """OZO disable 2FA pro jiného usera (ztráta telefonu atd.). Volá tenantový endpoint."""
-    import uuid as _uuid
-    assert isinstance(target_user_id, _uuid.UUID)
     await db.execute(
         update(User)
         .where(User.id == target_user_id)

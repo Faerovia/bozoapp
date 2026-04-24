@@ -46,7 +46,8 @@ class Settings(BaseSettings):
     smtp_tls: bool = True  # STARTTLS (True) / implicit TLS (False) / plaintext
 
     # Fernet key pro encryption-at-rest citlivých polí (personal_id atd.).
-    # Generuj: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Generuj:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Prázdné = encryption disabled (dev/test), ale v produkci povinné.
     fernet_key: str = ""
 

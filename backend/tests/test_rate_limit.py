@@ -18,16 +18,16 @@ import asyncio
 import uuid
 
 import pytest
+import redis.asyncio as redis_async
 from httpx import AsyncClient
 
 from app.core import rate_limit as rl_module
+from app.core.config import get_settings
 
 
 async def _redis_available() -> bool:
     """Ping Redis; True = můžeme testovat real rate limiting."""
     try:
-        import redis.asyncio as redis_async
-        from app.core.config import get_settings
         client = redis_async.from_url(
             get_settings().redis_url, socket_connect_timeout=0.5, socket_timeout=0.5,
         )
@@ -46,11 +46,12 @@ async def enabled_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     if not await _redis_available():
         pytest.skip("Redis not available — skipping real rate-limit test")
 
-    # Znovu-init limiter s Redis backendem (testy jinak mají memory:// storage)
+    # Znovu-init limiter s Redis backendem (testy jinak mají memory:// storage).
+    # Lokální import slowapi + app je tu záměrně — fixture se v rate-limit
+    # disabled testech ani nevolá, takže ušetří import cost.
     from slowapi import Limiter
     from slowapi.util import get_remote_address
 
-    from app.core.config import get_settings
     from app.main import app
 
     settings = get_settings()
@@ -68,7 +69,6 @@ async def enabled_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app.state, "limiter", new_limiter)
 
     # Vyčisti Redis klíče před testem
-    import redis.asyncio as redis_async
     client = redis_async.from_url(settings.redis_url, decode_responses=True)
     try:
         # slowapi ukládá klíče s prefixem "LIMITS:"
@@ -106,9 +106,6 @@ async def test_register_rate_limit_kicks_in(
 
     async def _hit() -> int:
         # Přes slowapi internal API by bylo komplexní; simulujeme manuální counter.
-        import redis.asyncio as redis_async
-        from app.core.config import get_settings
-
         r = redis_async.from_url(get_settings().redis_url, decode_responses=True)
         try:
             n = await r.incr(f"LIMITS:smoke:{limit_key}")

@@ -100,15 +100,15 @@ async def run(email: str, password: str, full_name: str | None) -> None:
     # SECURITY → bootstrap ze začátku je jednodušší.
     url = settings.migration_database_url or settings.database_url
     engine = create_async_engine(url, pool_pre_ping=True)
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with Session() as db:
+        async with session_maker() as db:
             tenant = await _ensure_service_tenant(db)
             user = await _upsert_admin(
                 db, tenant, email=email, password=password, full_name=full_name
             )
             await db.commit()
-            print(f"OK: platform admin created/updated")
+            print("OK: platform admin created/updated")
             print(f"   tenant_id:     {tenant.id}")
             print(f"   user_id:       {user.id}")
             print(f"   email:         {user.email}")
@@ -130,7 +130,10 @@ def main() -> None:
         password = os.environ.get("ADMIN_PASSWORD")
         full_name = args.full_name or os.environ.get("ADMIN_FULL_NAME")
         if not email or not password:
-            print("ERROR: --email a ADMIN_PASSWORD env jsou povinné v non-interactive", file=sys.stderr)
+            print(
+                "ERROR: --email a ADMIN_PASSWORD env jsou povinné v non-interactive",
+                file=sys.stderr,
+            )
             sys.exit(1)
     else:
         email = input("Admin email: ").strip()

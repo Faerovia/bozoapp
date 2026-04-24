@@ -63,7 +63,7 @@ async def test_platform_admin_can_list_tenants(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     # Vytvoř normálního OZO a povýš ho na admin
-    access = await _register_regular_ozo(client, "ad2")
+    await _register_regular_ozo(client, "ad2")
     await _promote_to_platform_admin(db_session, "regularad2@me.cz")
 
     # Re-login — JWT musí odrážet novou roli (i když role v JWT se pro admin
@@ -88,7 +88,7 @@ async def test_platform_admin_can_list_tenants(
 async def test_platform_admin_creates_tenant_with_ozo(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    access = await _register_regular_ozo(client, "ad3")
+    await _register_regular_ozo(client, "ad3")
     await _promote_to_platform_admin(db_session, "regularad3@me.cz")
 
     login = await client.post(
@@ -131,7 +131,7 @@ async def test_platform_admin_creates_tenant_with_ozo(
 async def test_platform_admin_rejects_duplicate_email(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    access = await _register_regular_ozo(client, "ad4")
+    await _register_regular_ozo(client, "ad4")
     await _promote_to_platform_admin(db_session, "regularad4@me.cz")
 
     login = await client.post(
@@ -161,7 +161,7 @@ async def test_platform_admin_rejects_duplicate_email(
 async def test_platform_admin_suspend_tenant(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    access = await _register_regular_ozo(client, "ad5")
+    await _register_regular_ozo(client, "ad5")
     await _promote_to_platform_admin(db_session, "regularad5@me.cz")
 
     login = await client.post(

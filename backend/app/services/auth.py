@@ -124,7 +124,7 @@ async def login_user(
         if totp_code is None:
             # Signál: heslo OK, ale chybí kód. Endpoint rozliší přes
             # HTTPException s detail="TOTP_REQUIRED".
-            raise _TotpRequired()
+            raise _TotpRequiredError()
         if not await totp_svc.verify(db, user, totp_code):
             await record_login_failure(email)
             return None
@@ -137,6 +137,6 @@ async def login_user(
     return user, access_token, refresh_token
 
 
-class _TotpRequired(Exception):
+class _TotpRequiredError(Exception):
     """Interní signál: password OK, ale potřebujeme TOTP kód."""
     pass
