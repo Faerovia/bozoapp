@@ -73,7 +73,7 @@ async def export_medical_exams_pdf(
         None, pattern="^(no_expiry|valid|expiring_soon|expired)$"
     ),
     download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Exportuje přehled lékařských prohlídek jako PDF."""
@@ -106,7 +106,7 @@ async def export_medical_exams_pdf(
 )
 async def create_medical_exam_endpoint(
     data: MedicalExamCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Zaznamená lékařskou prohlídku. Přístup: ozo, manager."""
@@ -140,7 +140,7 @@ async def get_medical_exam(
 async def update_medical_exam_endpoint(
     exam_id: uuid.UUID,
     data: MedicalExamUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     exam = await get_medical_exam_by_id(db, exam_id, current_user.tenant_id)
@@ -152,7 +152,7 @@ async def update_medical_exam_endpoint(
 @router.delete("/medical-exams/{exam_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_medical_exam(
     exam_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Archivuje záznam prohlídky. Fyzické smazání zakázáno – BOZP dokumentace."""

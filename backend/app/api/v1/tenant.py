@@ -1,6 +1,7 @@
 import re
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +11,11 @@ from app.core.permissions import require_role
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.tenant import TenantResponse, TenantUpdateRequest
+from app.services.gdpr import (
+    export_tenant_data,
+    export_to_json_bytes,
+    soft_delete_tenant,
+)
 
 router = APIRouter()
 
@@ -53,3 +59,36 @@ async def update_tenant(
 
     await db.flush()
     return tenant
+
+
+# ── GDPR utilities ────────────────────────────────────────────────────────────
+
+@router.get("/tenant/export")
+async def export_tenant(
+    current_user: User = Depends(require_role("ozo")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """
+    GDPR čl. 20 (portabilita): JSON dump všech dat tenantu. Přístup: jen ozo.
+    Velikost: může být 100+ MB u velkých tenantů → zvážit streaming later.
+    """
+    data = await export_tenant_data(db, current_user.tenant_id)
+    body = export_to_json_bytes(data)
+    filename = f"bozoapp_export_{current_user.tenant_id}_{date.today()}.json"
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/tenant", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_tenant(
+    current_user: User = Depends(require_role("ozo")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    GDPR čl. 17 (výmaz): soft-delete tenantu. Data zůstanou v DB 90 dní
+    pro případ recovery / audit dotazu, pak je cron fyzicky smaže.
+    """
+    await soft_delete_tenant(db, current_user.tenant_id)

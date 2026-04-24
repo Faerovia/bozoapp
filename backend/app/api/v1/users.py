@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[User]:
     """Vrátí všechny uživatele tenantu. Přístup: ozo, manager."""

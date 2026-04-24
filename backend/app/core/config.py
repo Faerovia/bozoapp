@@ -31,6 +31,25 @@ class Settings(BaseSettings):
     # Příklad: "https://app.bozoapp.cz,https://admin.bozoapp.cz"
     cors_origins: str = ""
 
+    # Self-signup: povoluje POST /auth/register anonymním uživatelům. V produkci
+    # BOZOapp je workflow: admin vytvoří tenant přes POST /admin/tenants.
+    # Dev/test env potřebuje self-signup zapnutý pro pytest fixture.
+    allow_self_signup: bool = True
+
+    # Email (SMTP) — pokud SMTP_HOST prázdný, get_email_sender() vrátí
+    # Console/Null sender (dev/test). V produkci vyžadováno.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@bozoapp.cz"
+    smtp_tls: bool = True  # STARTTLS (True) / implicit TLS (False) / plaintext
+
+    # Fernet key pro encryption-at-rest citlivých polí (personal_id atd.).
+    # Generuj: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Prázdné = encryption disabled (dev/test), ale v produkci povinné.
+    fernet_key: str = ""
+
     # Observability
     sentry_dsn: str = ""
 

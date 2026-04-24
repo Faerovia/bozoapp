@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard_endpoint(
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> DashboardResponse:
     """

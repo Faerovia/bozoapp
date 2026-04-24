@@ -27,6 +27,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # Pokud má user zapnuté 2FA, musí přiložit TOTP kód nebo recovery code.
+    # Klient neví dopředu, jestli user má 2FA — pošle nejdřív login bez kódu,
+    # při 403 TOTP_REQUIRED pošle znovu s kódem.
+    totp_code: str | None = None
 
 
 class TokenResponse(BaseModel):

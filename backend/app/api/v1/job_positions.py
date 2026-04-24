@@ -26,7 +26,7 @@ router = APIRouter()
 async def list_job_positions(
     jp_status: str | None = Query(None, pattern="^(active|archived)$"),
     work_category: str | None = Query(None, pattern="^(1|2|2R|3|4)$"),
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     return await get_job_positions(
@@ -41,7 +41,7 @@ async def list_job_positions(
 )  # noqa: E501
 async def create_job_position_endpoint(
     data: JobPositionCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     return await create_job_position(db, data, current_user.tenant_id, current_user.id)
@@ -50,7 +50,7 @@ async def create_job_position_endpoint(
 @router.get("/job-positions/{jp_id}", response_model=JobPositionResponse)
 async def get_job_position(
     jp_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     jp = await get_job_position_by_id(db, jp_id, current_user.tenant_id)
@@ -63,7 +63,7 @@ async def get_job_position(
 async def update_job_position_endpoint(
     jp_id: uuid.UUID,
     data: JobPositionUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     jp = await get_job_position_by_id(db, jp_id, current_user.tenant_id)
@@ -75,7 +75,7 @@ async def update_job_position_endpoint(
 @router.delete("/job-positions/{jp_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_job_position(
     jp_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """

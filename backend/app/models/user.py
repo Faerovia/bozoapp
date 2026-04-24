@@ -19,6 +19,19 @@ class User(Base, TimestampMixin):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(50), default="employee", nullable=False)
-    # role: 'ozo' | 'manager' | 'employee'
+    # role: 'admin' | 'ozo' | 'hr_manager' | 'equipment_responsible' | 'employee'
+    # admin = platform-level (SaaS operator); kombinace s is_platform_admin=True
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Platform admin flag — cross-tenant access pro SaaS operátora.
+    # Pouze users s tímto flagem mohou používat /api/v1/admin/* endpointy.
+    # RLS policy `platform_admin_bypass` na tenantovaných tabulkách checkuje
+    # `app.is_platform_admin='true'` z DB settings, které app nastaví
+    # v dependencies.get_current_user pokud user má tenhle flag.
+    is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # 2FA (TOTP) — viz migrace 016
+    # totp_secret je Fernet-encrypted base32 string (při čtení jde přes decrypt).
+    totp_secret: Mapped[str | None] = mapped_column(String(256))
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

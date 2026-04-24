@@ -35,7 +35,7 @@ router = APIRouter()
 async def export_accident_log_pdf_endpoint(
     report_status: str | None = Query(None, pattern="^(draft|final|archived)$"),
     download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """
@@ -63,7 +63,7 @@ async def export_accident_log_pdf_endpoint(
 async def list_accident_reports(
     report_status: str | None = Query(None, pattern="^(draft|final|archived)$"),
     risk_review_pending: bool | None = Query(None),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     """
@@ -86,7 +86,7 @@ async def list_accident_reports(
 )
 async def create_accident_report_endpoint(
     data: AccidentReportCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Vytvoří nový záznam o úrazu (status=draft). Přístup: ozo, manager."""
@@ -110,7 +110,7 @@ async def get_accident_report(
 async def update_accident_report_endpoint(
     report_id: uuid.UUID,
     data: AccidentReportUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """
@@ -127,7 +127,7 @@ async def update_accident_report_endpoint(
 @router.post("/accident-reports/{report_id}/finalize", response_model=AccidentReportResponse)
 async def finalize_accident_report_endpoint(
     report_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """
@@ -205,7 +205,7 @@ async def get_accident_report_pdf(
 @router.delete("/accident-reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_accident_report(
     report_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """

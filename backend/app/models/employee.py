@@ -5,6 +5,7 @@ from sqlalchemy import Date, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.encryption import EncryptedString
 from app.models.base import TimestampMixin
 
 EmploymentType = str  # alias pro čitelnost
@@ -26,7 +27,9 @@ class Employee(Base, TimestampMixin):
     # Identifikace
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    personal_id: Mapped[str | None] = mapped_column(String(20))
+    # Rodné číslo — GDPR Čl. 9 zvláštní kategorie. Fernet-encrypted at rest.
+    # V DB je to ciphertext (~150 chars), aplikace vidí plaintext transparentně.
+    personal_id: Mapped[str | None] = mapped_column(EncryptedString(256))
     birth_date: Mapped[date | None] = mapped_column(Date)
 
     # Kontakt

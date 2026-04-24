@@ -59,7 +59,7 @@ async def list_oopp(
 @router.post("/oopp", response_model=OOPPResponse, status_code=status.HTTP_201_CREATED)
 async def create_oopp_endpoint(
     data: OOPPCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Zaznamená výdej OOPP zaměstnanci. Přístup: ozo, manager."""
@@ -75,7 +75,7 @@ async def export_oopp_pdf(
         None, pattern="^(no_expiry|valid|expiring_soon|expired)$"
     ),
     download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """
@@ -128,7 +128,7 @@ async def get_oopp(
 async def update_oopp_endpoint(
     assignment_id: uuid.UUID,
     data: OOPPUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Aktualizuje záznam OOPP. Přístup: ozo, manager."""
@@ -141,7 +141,7 @@ async def update_oopp_endpoint(
 @router.delete("/oopp/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_oopp(
     assignment_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """

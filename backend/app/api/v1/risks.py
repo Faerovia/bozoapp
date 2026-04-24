@@ -35,7 +35,7 @@ async def list_risks(
 @router.post("/risks", response_model=RiskResponse, status_code=status.HTTP_201_CREATED)
 async def create_risk_endpoint(
     data: RiskCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Vytvoří nový záznam rizika. Přístup: ozo, manager."""
@@ -48,7 +48,7 @@ async def create_risk_endpoint(
 async def export_risks_pdf(
     risk_status: str | None = Query(None, pattern="^(active|archived)$"),
     download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """
@@ -90,7 +90,7 @@ async def get_risk(
 async def update_risk_endpoint(
     risk_id: uuid.UUID,
     data: RiskUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Aktualizuje riziko. Přístup: ozo, manager."""
@@ -103,7 +103,7 @@ async def update_risk_endpoint(
 @router.delete("/risks/{risk_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_risk(
     risk_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """

@@ -3,7 +3,13 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, field_validator
 
-RoleType = Literal["ozo", "manager", "employee"]
+RoleType = Literal[
+    "admin",                  # platform-level (SaaS operator, is_platform_admin=True)
+    "ozo",                    # tenant-level full rights
+    "hr_manager",             # tenant-level full rights (budoucí split od ozo)
+    "equipment_responsible",  # employee + správa revizí/zařízení (scope TBD)
+    "employee",               # self-access only
+]
 
 
 class UserCreateRequest(BaseModel):

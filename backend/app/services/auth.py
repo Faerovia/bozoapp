@@ -69,7 +69,11 @@ async def register_user(
 
 
 async def login_user(
-    db: AsyncSession, email: str, password: str
+    db: AsyncSession,
+    email: str,
+    password: str,
+    *,
+    totp_code: str | None = None,
 ) -> tuple[User, str, str] | None:
     """
     Ověří přihlašovací údaje.
@@ -114,9 +118,25 @@ async def login_user(
         await record_login_failure(email)
         return None
 
+    # 2FA gate — pokud je zapnuté, musí přijít platný TOTP nebo recovery code
+    if user.totp_enabled:
+        from app.services import totp as totp_svc
+        if totp_code is None:
+            # Signál: heslo OK, ale chybí kód. Endpoint rozliší přes
+            # HTTPException s detail="TOTP_REQUIRED".
+            raise _TotpRequired()
+        if not await totp_svc.verify(db, user, totp_code):
+            await record_login_failure(email)
+            return None
+
     await record_login_success(email)
 
     access_token = create_access_token(user.id, user.tenant_id, user.role)
     refresh_token = create_refresh_token(user.id, user.tenant_id)
 
     return user, access_token, refresh_token
+
+
+class _TotpRequired(Exception):
+    """Interní signál: password OK, ale potřebujeme TOTP kód."""
+    pass

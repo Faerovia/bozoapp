@@ -85,4 +85,12 @@ async def get_current_user(
     if user is None:
         raise exc
 
+    # Platform admin → aktivuj cross-tenant bypass pro zbytek requestu.
+    # RLS policy `platform_admin_bypass` na všech tabulkách (viz migrace 019)
+    # propustí SELECT/INSERT/UPDATE/DELETE napříč tenanty.
+    if user.is_platform_admin:
+        await db.execute(
+            text("SELECT set_config('app.is_platform_admin', 'true', true)")
+        )
+
     return user

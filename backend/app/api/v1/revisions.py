@@ -34,7 +34,7 @@ router = APIRouter()
 @router.get("/calendar", response_model=list[CalendarItem])
 async def get_calendar(
     days_ahead: int = Query(90, ge=1, le=365),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[CalendarItem]:
     """
@@ -67,7 +67,7 @@ async def list_revisions(
 @router.post("/revisions", response_model=RevisionResponse, status_code=status.HTTP_201_CREATED)
 async def create_revision_endpoint(
     data: RevisionCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Vytvoří záznam o revizi. Přístup: ozo, manager."""
@@ -80,7 +80,7 @@ async def export_revisions_pdf(
     revision_type: str | None = Query(None),
     due_status: str | None = Query(None, pattern="^(no_schedule|ok|due_soon|overdue)$"),
     download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """
@@ -123,7 +123,7 @@ async def get_revision(
 async def update_revision_endpoint(
     revision_id: uuid.UUID,
     data: RevisionUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Aktualizuje záznam o revizi. Přístup: ozo, manager."""
@@ -136,7 +136,7 @@ async def update_revision_endpoint(
 @router.delete("/revisions/{revision_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_revision(
     revision_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Archivuje záznam o revizi. Fyzické smazání není povoleno."""

@@ -11,6 +11,7 @@ from starlette.responses import Response
 
 from app.api.v1 import (
     accident_reports,
+    admin,
     auth,
     dashboard,
     employees,
@@ -21,6 +22,7 @@ from app.api.v1 import (
     revisions,
     risks,
     tenant,
+    totp,
     trainings,
     users,
     workplaces,
@@ -33,16 +35,29 @@ from app.core.audit import (
 )
 from app.core.config import get_settings
 from app.core.csrf import CSRFMiddleware
+from app.core.observability import (
+    configure_logging,
+    new_request_id,
+    set_request_id,
+    set_sentry_context,
+)
 from app.core.rate_limit import limiter
 from app.core.security import JWTError, decode_token
 
 settings = get_settings()
+
+# Structured logging — JSON v produkci (strojově čitelné), pretty v dev/test.
+configure_logging(json_output=settings.is_production)
 
 if settings.sentry_dsn:
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.environment,
         traces_sample_rate=0.1,
+        # send_default_pii: POZOR, nechávám False — máme zdravotní data,
+        # nechceme je posílat do Sentry. Request ID + user_id/tenant_id si
+        # do scope dáváme ručně v middlewaru (observability.set_sentry_context).
+        send_default_pii=False,
     )
 
 app = FastAPI(
@@ -75,12 +90,15 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 install_audit_listeners()
 
 
-class AuditContextMiddleware(BaseHTTPMiddleware):
+class RequestContextMiddleware(BaseHTTPMiddleware):
     """
-    Extrahuje user/tenant identitu z JWT + client IP + user_agent a uloží
-    do ContextVar pro audit listener. JWT se decoduje best-effort — pokud
-    není přítomný nebo invalid, context je nastaven bez user info (např.
-    /auth/login requesty).
+    Kombinovaný middleware: Request ID + audit context + Sentry scope.
+
+    1. Request ID: reuse X-Request-ID pokud přišel od LB/proxy, jinak vygeneruj.
+       Nastaví ContextVar (pro logger) a response header.
+    2. Audit context: user_id, tenant_id, IP, user_agent z JWT. Jde do
+       ContextVar pro SQLAlchemy before_flush listener.
+    3. Sentry: set_user / set_tag pro current scope.
     """
 
     async def dispatch(
@@ -88,11 +106,15 @@ class AuditContextMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
+        # 1. Request ID
+        rid = new_request_id(request.headers.get("x-request-id"))
+        set_request_id(rid)
+
+        # 2. Audit context (JWT best-effort)
         ctx = RequestContext(
             ip_address=self._client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
-
         token = self._extract_token(request)
         if token:
             try:
@@ -101,13 +123,20 @@ class AuditContextMiddleware(BaseHTTPMiddleware):
                     ctx.user_id = uuid.UUID(payload["sub"])
                     ctx.tenant_id = uuid.UUID(payload["tenant_id"])
             except (JWTError, KeyError, ValueError):
-                # Invalid/expired token — audit bez user info (zápis o
-                # pokusu bude mít IP ale ne user_id; to je OK)
+                # Invalid/expired token — audit bez user info
                 pass
 
         set_request_context(ctx)
+
+        # 3. Sentry scope (no-op pokud Sentry není init)
+        set_sentry_context(
+            request_id=rid, user_id=ctx.user_id, tenant_id=ctx.tenant_id
+        )
+
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            response.headers["x-request-id"] = rid
+            return response
         finally:
             clear_request_context()
 
@@ -129,7 +158,7 @@ class AuditContextMiddleware(BaseHTTPMiddleware):
         return request.cookies.get("access_token")
 
 
-app.add_middleware(AuditContextMiddleware)
+app.add_middleware(RequestContextMiddleware)
 
 # CSRF middleware. POZOR: middlewares se spouští v opačném pořadí deklarace,
 # tedy zde CSRF poběží PŘED AuditContextMiddleware (early rejection = neaudituj
@@ -151,6 +180,8 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
+app.include_router(totp.router, prefix="/api/v1", tags=["auth", "2fa"])
+app.include_router(admin.router, prefix="/api/v1", tags=["admin"])
 app.include_router(users.router, prefix="/api/v1", tags=["users"])
 app.include_router(tenant.router, prefix="/api/v1", tags=["tenant"])
 app.include_router(employees.router, prefix="/api/v1", tags=["employees"])

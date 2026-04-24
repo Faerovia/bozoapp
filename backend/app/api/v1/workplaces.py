@@ -46,7 +46,7 @@ router = APIRouter()
 @router.get("/plants", response_model=list[PlantResponse])
 async def list_plants(
     plant_status: str | None = Query(None, pattern="^(active|archived)$"),
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     return await get_plants(db, current_user.tenant_id, status=plant_status)
@@ -55,7 +55,7 @@ async def list_plants(
 @router.post("/plants", response_model=PlantResponse, status_code=status.HTTP_201_CREATED)
 async def create_plant_endpoint(
     data: PlantCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     return await create_plant(db, data, current_user.tenant_id, current_user.id)
@@ -64,7 +64,7 @@ async def create_plant_endpoint(
 @router.get("/plants/{plant_id}", response_model=PlantResponse)
 async def get_plant(
     plant_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     plant = await get_plant_by_id(db, plant_id, current_user.tenant_id)
@@ -77,7 +77,7 @@ async def get_plant(
 async def update_plant_endpoint(
     plant_id: uuid.UUID,
     data: PlantUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     plant = await get_plant_by_id(db, plant_id, current_user.tenant_id)
@@ -89,7 +89,7 @@ async def update_plant_endpoint(
 @router.delete("/plants/{plant_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_plant(
     plant_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     plant = await get_plant_by_id(db, plant_id, current_user.tenant_id)
@@ -105,7 +105,7 @@ async def archive_plant(
 async def list_workplaces(
     plant_id: uuid.UUID | None = Query(None),
     workplace_status: str | None = Query(None, pattern="^(active|archived)$"),
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     return await get_workplaces(
@@ -116,7 +116,7 @@ async def list_workplaces(
 @router.post("/workplaces", response_model=WorkplaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workplace_endpoint(
     data: WorkplaceCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     try:
@@ -128,7 +128,7 @@ async def create_workplace_endpoint(
 @router.get("/workplaces/{workplace_id}", response_model=WorkplaceResponse)
 async def get_workplace(
     workplace_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     workplace = await get_workplace_by_id(db, workplace_id, current_user.tenant_id)
@@ -141,7 +141,7 @@ async def get_workplace(
 async def update_workplace_endpoint(
     workplace_id: uuid.UUID,
     data: WorkplaceUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     workplace = await get_workplace_by_id(db, workplace_id, current_user.tenant_id)
@@ -153,7 +153,7 @@ async def update_workplace_endpoint(
 @router.delete("/workplaces/{workplace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_workplace(
     workplace_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     workplace = await get_workplace_by_id(db, workplace_id, current_user.tenant_id)
@@ -169,7 +169,7 @@ async def archive_workplace(
 async def list_risk_factors(
     workplace_id: uuid.UUID | None = Query(None),
     rfa_status: str | None = Query(None, pattern="^(active|archived)$"),
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     return await get_risk_factor_assessments(
@@ -182,7 +182,7 @@ async def list_risk_factors(
 async def export_risk_factors_pdf(
     plant_id: uuid.UUID | None = Query(None),
     download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """
@@ -214,7 +214,7 @@ async def export_risk_factors_pdf(
 )  # noqa: E501
 async def create_rfa_endpoint(
     data: RiskFactorAssessmentCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     try:
@@ -226,7 +226,7 @@ async def create_rfa_endpoint(
 @router.get("/risk-factors/{rfa_id}", response_model=RiskFactorAssessmentResponse)
 async def get_rfa_endpoint(
     rfa_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager", "employee")),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     rfa = await get_rfa_by_id(db, rfa_id, current_user.tenant_id)
@@ -239,7 +239,7 @@ async def get_rfa_endpoint(
 async def update_rfa_endpoint(
     rfa_id: uuid.UUID,
     data: RiskFactorAssessmentUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     rfa = await get_rfa_by_id(db, rfa_id, current_user.tenant_id)
@@ -251,7 +251,7 @@ async def update_rfa_endpoint(
 @router.delete("/risk-factors/{rfa_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_rfa(
     rfa_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Archivuje hodnocení. Fyzické smazání není povoleno – BOZP dokumentace."""

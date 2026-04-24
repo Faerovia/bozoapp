@@ -63,7 +63,7 @@ async def list_trainings(
 @router.post("/trainings", response_model=TrainingResponse, status_code=status.HTTP_201_CREATED)
 async def create_training_endpoint(
     data: TrainingCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Zaznamená absolvování školení zaměstnancem. Přístup: ozo, manager."""
@@ -77,7 +77,7 @@ async def export_trainings_pdf(
     training_status: str | None = Query(None, pattern="^(active|archived)$"),
     validity_status: str | None = Query(None, pattern="^(no_expiry|valid|expiring_soon|expired)$"),
     download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """
@@ -130,7 +130,7 @@ async def get_training(
 async def update_training_endpoint(
     training_id: uuid.UUID,
     data: TrainingUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Aktualizuje záznam o školení. Přístup: ozo, manager."""
@@ -143,7 +143,7 @@ async def update_training_endpoint(
 @router.delete("/trainings/{training_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_training(
     training_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Archivuje záznam o školení. Fyzické smazání není povoleno."""

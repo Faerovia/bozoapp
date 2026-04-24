@@ -23,7 +23,7 @@ router = APIRouter()
 async def list_employees(
     emp_status: str | None = Query(None, pattern="^(active|terminated|on_leave)$"),
     employment_type: str | None = Query(None),
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     """
@@ -41,7 +41,7 @@ async def list_employees(
 @router.post("/employees", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
 async def create_employee_endpoint(
     data: EmployeeCreateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """
@@ -78,7 +78,7 @@ async def get_employee(
 async def update_employee_endpoint(
     employee_id: uuid.UUID,
     data: EmployeeUpdateRequest,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Aktualizuje zaměstnance. Přístup: ozo, manager."""
@@ -91,7 +91,7 @@ async def update_employee_endpoint(
 @router.delete("/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def terminate_employee(
     employee_id: uuid.UUID,
-    current_user: User = Depends(require_role("ozo", "manager")),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """

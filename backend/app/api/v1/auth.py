@@ -23,7 +23,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
-from app.services.auth import login_user, register_user
+from app.services.auth import _TotpRequired, login_user, register_user
 from app.services.password_reset import (
     request_reset as svc_request_reset,
 )
@@ -74,6 +74,13 @@ async def register(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
+    # Self-signup je v produkci typicky zakázán — tenanty vytváří platform admin
+    # přes POST /admin/tenants. Nastav ALLOW_SELF_SIGNUP=false v prod .env.
+    if not settings.allow_self_signup:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Self-signup je zakázán. Kontaktujte správce pro vytvoření účtu.",
+        )
     user, access_token, _legacy_refresh = await register_user(db, data)
     # Vydej první token v nové family (rotation-aware)
     refresh_token = await issue_family(db, user.id, user.tenant_id)
@@ -89,7 +96,17 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    result = await login_user(db, data.email, data.password)
+    try:
+        result = await login_user(
+            db, data.email, data.password, totp_code=data.totp_code
+        )
+    except _TotpRequired:
+        # Password OK, 2FA zapnuté, ale kód nepřišel. Klient pošle znovu s totp_code.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="TOTP_REQUIRED",
+        ) from None
+
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

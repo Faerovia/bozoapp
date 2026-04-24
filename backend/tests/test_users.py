@@ -133,11 +133,11 @@ async def test_ozo_can_change_user_role(client: AsyncClient) -> None:
 
     resp = await client.patch(
         f"/api/v1/users/{user_id}",
-        json={"role": "manager"},
+        json={"role": "hr_manager"},
         headers=headers,
     )
     assert resp.status_code == 200
-    assert resp.json()["role"] == "manager"
+    assert resp.json()["role"] == "hr_manager"
 
 
 @pytest.mark.asyncio
