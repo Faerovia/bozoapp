@@ -53,6 +53,8 @@ select = ["E", "F", "I", "N", "W", "UP"]
 "migrations/**" = ["E501"]
 "tests/**" = ["E501"]
 "app/tasks/seed_demo.py" = ["E501"]
+# AI prompt strings + Markdown templates obsahuji delsi radky
+"app/services/documents.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.validation import assert_in_tenant
-from app.models.employee import Employee
 from app.models.generated_document import GeneratedDocument
 from app.models.job_position import JobPosition
 from app.models.oopp import RISK_COLUMNS as OOPP_RISK_COLS
@@ -202,12 +201,12 @@ async def _gen_revision_schedule(
     title = f"Harmonogram revizí — {tenant.name}"
 
     md = [
-        f"# Harmonogram revizí zařízení",
+        "# Harmonogram revizí zařízení",
         f"**{tenant.name}**",
-        f"",
+        "",
         f"Vystaveno: {today}",
-        f"",
-        f"---",
+        "",
+        "---",
         "",
     ]
 
@@ -243,7 +242,7 @@ async def _gen_revision_schedule(
 
     overdue_count = sum(1 for r in revisions if r["due_status"] == "overdue")
     due_soon_count = sum(1 for r in revisions if r["due_status"] == "due_soon")
-    md.append(f"---")
+    md.append("---")
     md.append(
         f"**Celkem zařízení:** {len(revisions)}   |   "
         f"**Po termínu:** {overdue_count}   |   "
@@ -264,7 +263,7 @@ async def _gen_risk_categorization(
     title = f"Kategorizace prací — {tenant.name}"
 
     md = [
-        f"# Kategorizace prací dle NV 361/2007 Sb.",
+        "# Kategorizace prací dle NV 361/2007 Sb.",
         f"**{tenant.name}**",
         "",
         f"Vystaveno: {today}",
@@ -357,13 +356,7 @@ async def _gen_bozp_directive(
     tenant = await _get_tenant(db, tenant_id)
     tree = await _get_workplace_tree(db, tenant_id)
 
-    # OZO jméno
-    ozo_res = await db.execute(
-        select(Employee).where(
-            Employee.tenant_id == tenant_id,
-            Employee.status == "active",
-        ).limit(50)
-    )
+    # OZO jméno (z params, jinak placeholder)
     ozo_name = params.get("ozo_name") or "[DOPLŇTE: jméno OZO]"
 
     today = datetime.now(UTC).date().isoformat()
