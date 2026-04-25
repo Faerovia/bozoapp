@@ -1,6 +1,7 @@
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -23,3 +24,10 @@ class Tenant(Base, TimestampMixin):
     external_login_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+    # Billing — eviduje a edituje pouze platform admin. Migrace 035.
+    billing_type: Mapped[str | None] = mapped_column(String(20))
+    billing_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    billing_currency: Mapped[str] = mapped_column(
+        String(3), default="CZK", nullable=False,
+    )
+    billing_note: Mapped[str | None] = mapped_column(Text)

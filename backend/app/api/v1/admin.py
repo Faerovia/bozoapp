@@ -28,12 +28,20 @@ from app.models.tenant import Tenant
 from app.models.training import TrainingAssignment
 from app.models.user import User
 from app.models.workplace import Workplace
+from app.schemas.platform_settings import (
+    PlatformSettingResponse,
+    PlatformSettingUpdateRequest,
+)
 from app.schemas.tenant import TenantResponse
 from app.services.admin import (
     create_tenant_with_ozo,
     get_tenant_by_id,
     list_tenants,
     set_tenant_active,
+)
+from app.services.platform_settings import (
+    list_settings,
+    set_setting,
 )
 
 router = APIRouter()
@@ -56,6 +64,12 @@ class CreateTenantResponse(BaseModel):
 
 class TenantPatchRequest(BaseModel):
     is_active: bool | None = None
+    billing_type: str | None = Field(
+        None, pattern="^(monthly|yearly|per_employee|custom|free)$",
+    )
+    billing_amount: float | None = Field(None, ge=0)
+    billing_currency: str | None = Field(None, min_length=3, max_length=3)
+    billing_note: str | None = None
 
 
 @router.post(
@@ -120,6 +134,14 @@ async def admin_update_tenant(
         tenant = await get_tenant_by_id(db, tenant_id)
     if tenant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant nenalezen")
+
+    # Billing fields — patch jen těch, které byly poslány
+    update_fields = data.model_dump(exclude_unset=True, exclude={"is_active"})
+    if update_fields:
+        await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))
+        for k, v in update_fields.items():
+            setattr(tenant, k, v)
+        await db.flush()
     return TenantResponse.model_validate(tenant)
 
 
@@ -135,6 +157,11 @@ class TenantOverviewItem(BaseModel):
     user_count: int              # aktivní auth uživatelé
     workplace_count: int         # aktivní pracoviště
     training_assignment_count: int  # přiřazená školení (aktivita)
+    # Billing
+    billing_type: str | None = None
+    billing_amount: float | None = None
+    billing_currency: str = "CZK"
+    billing_note: str | None = None
 
 
 class TenantOverviewResponse(BaseModel):
@@ -200,6 +227,13 @@ async def admin_tenant_overview(
             user_count=user_counts.get(t.id, 0),
             workplace_count=workplace_counts.get(t.id, 0),
             training_assignment_count=assignment_counts.get(t.id, 0),
+            billing_type=getattr(t, "billing_type", None),
+            billing_amount=(
+                float(t.billing_amount)  # type: ignore[arg-type]
+                if getattr(t, "billing_amount", None) is not None else None
+            ),
+            billing_currency=getattr(t, "billing_currency", "CZK") or "CZK",
+            billing_note=getattr(t, "billing_note", None),
         )
         for t in tenants
     ]
@@ -248,3 +282,26 @@ async def admin_impersonate_tenant(
         tenant_id=tenant.id,
         tenant_name=tenant.name,
     )
+
+
+# ── Globální platform settings ──────────────────────────────────────────────
+
+
+@router.get("/admin/settings", response_model=list[PlatformSettingResponse])
+async def admin_list_settings(
+    _admin: User = Depends(require_platform_admin()),
+    db: AsyncSession = Depends(get_db),
+) -> list[Any]:
+    """Vrátí všechna globální nastavení s metadaty."""
+    return await list_settings(db)
+
+
+@router.patch("/admin/settings/{key}", response_model=PlatformSettingResponse)
+async def admin_update_setting(
+    key: str,
+    data: PlatformSettingUpdateRequest,
+    admin: User = Depends(require_platform_admin()),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Aktualizuje globální setting. Cache se invaliduje, příští čtení reloadne."""
+    return await set_setting(db, key, data.value, updated_by=admin.id)

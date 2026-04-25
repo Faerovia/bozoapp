@@ -161,6 +161,8 @@ RISK_FACTOR_TO_SPECIALTIES: dict[str, list[str]] = {
 
 def get_required_specialties_for_factors(
     factor_ratings: dict[str, str | None],
+    *,
+    mapping: dict[str, list[str]] | None = None,
 ) -> list[tuple[str, str, str]]:
     """
     Pro daný RFA matrix (faktor → rating) vrátí seznam doporučených odborných
@@ -170,7 +172,13 @@ def get_required_specialties_for_factors(
 
     Specialty se nezduplikuje — pokud několik faktorů vede ke stejnému typu
     vyšetření, použije se ten s nejvyšším ratingem.
+
+    Args:
+        factor_ratings: dict {rf_hluk: "3", ...}
+        mapping: volitelný custom override z platform_settings.
+                 Fallback na hardcoded RISK_FACTOR_TO_SPECIALTIES.
     """
+    active_mapping = mapping if isinstance(mapping, dict) else RISK_FACTOR_TO_SPECIALTIES
     rating_order = ["1", "2", "2R", "3", "4"]
     # specialty → (factor, rating, rating_idx)
     best: dict[str, tuple[str, str, int]] = {}
@@ -181,7 +189,10 @@ def get_required_specialties_for_factors(
         idx = rating_order.index(rating) if rating in rating_order else -1
         if idx < 0:
             continue
-        for spec in RISK_FACTOR_TO_SPECIALTIES.get(factor, []):
+        specs = active_mapping.get(factor, [])
+        if not isinstance(specs, list):
+            continue
+        for spec in specs:
             existing = best.get(spec)
             if existing is None or existing[2] < idx:
                 best[spec] = (factor, rating, idx)

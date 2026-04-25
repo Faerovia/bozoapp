@@ -17,6 +17,7 @@ from app.api.v1 import (
     document_folders,
     documents,
     employees,
+    global_trainings,
     health,
     job_positions,
     medical_exams,
@@ -204,3 +205,4 @@ app.include_router(medical_exams.router, prefix="/api/v1", tags=["medical-exams"
 app.include_router(ozo_overview.router, prefix="/api/v1", tags=["ozo-overview"])
 app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
 app.include_router(document_folders.router, prefix="/api/v1", tags=["document-folders"])
+app.include_router(global_trainings.router, prefix="/api/v1", tags=["global-trainings"])

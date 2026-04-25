@@ -19,8 +19,25 @@ from app.services.medical_specialty_catalog import (
     get_periodicity_for_category,
     get_required_specialties_for_factors,
 )
+from app.services.platform_settings import get_setting
 
-AUTO_CHECK_THROTTLE_MINUTES = 30
+DEFAULT_AUTO_CHECK_THROTTLE_MINUTES = 30
+
+
+async def _throttle_minutes(db: AsyncSession) -> int:
+    """Načte hodnotu throttlu z platform_settings (s fallback na default)."""
+    val = await get_setting(
+        db, "medical_exam.auto_check_throttle_minutes",
+        DEFAULT_AUTO_CHECK_THROTTLE_MINUTES,
+    )
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return DEFAULT_AUTO_CHECK_THROTTLE_MINUTES
+
+
+# Backward compat — pro testy a callsites mimo tento modul
+AUTO_CHECK_THROTTLE_MINUTES = DEFAULT_AUTO_CHECK_THROTTLE_MINUTES
 
 
 def _age_at(reference: date, birth_date: date | None) -> int | None:
@@ -44,7 +61,8 @@ async def _resolve_periodic_months(
 ) -> int | None:
     """
     Auto-výpočet lhůty periodické prohlídky podle (kategorie z RFA, věk).
-    Použije se v create/update pokud OZO nezadal valid_months ručně.
+    Pravidla čte z platform_settings.medical_exam.periodicity_months
+    s fallback na hardcoded vyhlášku 79/2013 Sb.
     """
     # Věk zaměstnance
     emp = (await db.execute(
@@ -72,6 +90,23 @@ async def _resolve_periodic_months(
         if rfa is not None and rfa.category_proposed:
             category = rfa.category_proposed
 
+    # Načti pravidla z platform_settings
+    rules = await get_setting(db, "medical_exam.periodicity_months", None)
+    if rules and category and isinstance(rules, dict):
+        cat_rule = rules.get(category)
+        if isinstance(cat_rule, dict):
+            key = "over_50" if (age is not None and age >= 50) else "under_50"
+            months = cat_rule.get(key)
+            if months is not None:
+                try:
+                    return int(months)
+                except (TypeError, ValueError):
+                    pass
+            # Pokud má pravidlo „null" → dobrovolná prohlídka
+            if key in cat_rule and cat_rule[key] is None:
+                return None
+
+    # Fallback: hardcoded hodnoty z modelu (vyhláška 79/2013 Sb.)
     return compute_periodic_exam_months(category, age)
 
 
@@ -336,17 +371,39 @@ async def generate_initial_exam_requests(
     else:
         skipped.append("vstupni")
 
-    # 2) Odborné prohlídky podle JEDNOTLIVÝCH rizikových faktorů
+    # 2) Odborné prohlídky podle JEDNOTLIVÝCH rizikových faktorů.
+    #    Mapování faktor → specialties čteme z platform_settings (admin může
+    #    upravit přes UI). Fallback na hardcoded mapu z medical_specialty_catalog.
     triggered: list[tuple[str, str, str]] = []  # (specialty, factor, rating)
     if factor_ratings:
-        triggered = get_required_specialties_for_factors(factor_ratings)
+        custom_mapping = await get_setting(
+            db, "medical_exam.factor_to_specialties", None,
+        )
+        triggered = get_required_specialties_for_factors(
+            factor_ratings, mapping=custom_mapping,
+        )
 
+    # Periodicity overrides z settings (per-specialty per-rating)
+    custom_periodicity = await get_setting(
+        db, "medical_exam.specialty_periodicity_months", None,
+    )
     for specialty, source_factor, factor_rating in triggered:
         if specialty in existing_specialties:
             skipped.append(specialty)
             continue
-        # Periodicita: měsíce podle ratingu daného faktoru
-        valid_months = get_periodicity_for_category(specialty, factor_rating)
+        # Preferuj setting, fallback na hardcoded katalog
+        valid_months: int | None = None
+        if isinstance(custom_periodicity, dict):
+            spec_rules = custom_periodicity.get(specialty)
+            if isinstance(spec_rules, dict):
+                m = spec_rules.get(factor_rating)
+                if m is not None:
+                    try:
+                        valid_months = int(m)
+                    except (TypeError, ValueError):
+                        valid_months = None
+        if valid_months is None:
+            valid_months = get_periodicity_for_category(specialty, factor_rating)
         exam = MedicalExam(
             tenant_id=tenant_id,
             created_by=created_by,
@@ -444,7 +501,8 @@ async def generate_exams_for_all_employees(
     Vrací souhrn: kolik bylo zpracováno, kolik přeskočeno (throttle),
     kolik nových prohlídek celkem vzniklo.
     """
-    cutoff = datetime.now(UTC) - timedelta(minutes=AUTO_CHECK_THROTTLE_MINUTES)
+    throttle_minutes = await _throttle_minutes(db)
+    cutoff = datetime.now(UTC) - timedelta(minutes=throttle_minutes)
 
     employees = (await db.execute(
         select(Employee).where(
@@ -484,5 +542,5 @@ async def generate_exams_for_all_employees(
         "skipped_throttle":     skipped_throttle,
         "skipped_failed":       skipped_failed,
         "total_exams_created":  total_created,
-        "throttle_minutes":     AUTO_CHECK_THROTTLE_MINUTES,
+        "throttle_minutes":     throttle_minutes,
     }

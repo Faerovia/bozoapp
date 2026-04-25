@@ -328,7 +328,6 @@ function WysiwygPanel({
     if (currentMd !== initialMd.trim()) {
       editor.commands.setContent(mdToHtml(initialMd));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMd, editor]);
 
   if (!editor) {

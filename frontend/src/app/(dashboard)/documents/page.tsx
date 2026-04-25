@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Plus, FileText, Sparkles, Loader2, Upload,
 } from "lucide-react";
@@ -20,7 +20,6 @@ import type {
 import { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPE_DESC } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";

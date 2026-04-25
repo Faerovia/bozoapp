@@ -167,6 +167,11 @@ async def attach_pdf_content(
     if training.content_pdf_path:
         delete_file(training.content_pdf_path)
 
+    if training.tenant_id is None:
+        # Globální šablona — uložíme do speciálního "global" prefixu
+        # přes platform-tenant pseudo-UUID. Pokud bychom chtěli oddělit,
+        # přidáme samostatnou save funkci. Zatím: nepřidávat PDF na global.
+        raise ValueError("PDF lze uploadnout jen u tenant-vázaných školení")
     rel_path = save_training_pdf(training.tenant_id, training.id, content)
     training.content_pdf_path = rel_path
     await db.flush()

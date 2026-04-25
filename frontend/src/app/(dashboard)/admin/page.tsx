@@ -1,23 +1,25 @@
 "use client";
 
 /**
- * Platform admin dashboard — přehled všech tenantů, počet zákazníků (employees)
- * pro billing, tlačítko impersonate pro přepnutí do tenantu.
- *
- * Přístup: jen pro uživatele s is_platform_admin=True.
+ * Platform admin — přehled zákazníků (tenantů) + správa fakturace.
+ * Klik na řádek = expand s formulářem pro typ platby a fakturovanou částku.
  */
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Building2, Users, Briefcase, GraduationCap, ExternalLink, AlertTriangle, Loader2,
+  Users, Briefcase, GraduationCap, ExternalLink, AlertTriangle,
+  Loader2, ChevronDown, ChevronRight, Save, CreditCard,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 interface TenantOverviewItem {
   id: string;
@@ -28,6 +30,10 @@ interface TenantOverviewItem {
   user_count: number;
   workplace_count: number;
   training_assignment_count: number;
+  billing_type: string | null;
+  billing_amount: number | null;
+  billing_currency: string;
+  billing_note: string | null;
 }
 
 interface TenantOverviewResponse {
@@ -42,9 +48,157 @@ interface ImpersonateResponse {
   tenant_name: string;
 }
 
+const BILLING_TYPE_LABELS: Record<string, string> = {
+  monthly:      "Měsíční paušál",
+  yearly:       "Roční paušál",
+  per_employee: "Za zaměstnance / měsíc",
+  custom:       "Vlastní (viz poznámka)",
+  free:         "Zdarma",
+};
+
+const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+// ── Billing editor uvnitř expanded row ───────────────────────────────────────
+
+function BillingEditor({
+  tenant,
+}: {
+  tenant: TenantOverviewItem;
+}) {
+  const qc = useQueryClient();
+  const [billingType, setBillingType] = useState<string>(tenant.billing_type ?? "");
+  const [billingAmount, setBillingAmount] = useState<string>(
+    tenant.billing_amount !== null ? String(tenant.billing_amount) : "",
+  );
+  const [billingCurrency, setBillingCurrency] = useState<string>(tenant.billing_currency || "CZK");
+  const [billingNote, setBillingNote] = useState<string>(tenant.billing_note ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => api.patch(`/admin/tenants/${tenant.id}`, {
+      billing_type:     billingType || null,
+      billing_amount:   billingAmount === "" ? null : parseFloat(billingAmount),
+      billing_currency: billingCurrency.toUpperCase().slice(0, 3),
+      billing_note:     billingNote || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-tenant-overview"] });
+      setSavedAt(new Date().toLocaleTimeString("cs-CZ"));
+      setError(null);
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+  });
+
+  // Spočti odhad měsíčního příjmu pro tooltip
+  const estimate = (() => {
+    if (billingType === "per_employee" && billingAmount) {
+      const amt = parseFloat(billingAmount);
+      return isNaN(amt) ? null : amt * tenant.employee_count;
+    }
+    if (billingType === "monthly" && billingAmount) {
+      return parseFloat(billingAmount) || null;
+    }
+    if (billingType === "yearly" && billingAmount) {
+      return (parseFloat(billingAmount) || 0) / 12;
+    }
+    return null;
+  })();
+
+  return (
+    <div className="bg-gray-50 border-t border-gray-200 px-6 py-5 space-y-4">
+      <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <CreditCard className="h-4 w-4 text-blue-600" /> Fakturace
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor={`billing-type-${tenant.id}`}>Typ platby</Label>
+          <select
+            id={`billing-type-${tenant.id}`}
+            value={billingType}
+            onChange={(e) => setBillingType(e.target.value)}
+            className={SELECT_CLS}
+          >
+            <option value="">— Nenastaveno —</option>
+            {Object.entries(BILLING_TYPE_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="col-span-2 space-y-1.5">
+            <Label htmlFor={`billing-amount-${tenant.id}`}>Částka</Label>
+            <Input
+              id={`billing-amount-${tenant.id}`}
+              type="number"
+              step="0.01"
+              min="0"
+              value={billingAmount}
+              onChange={(e) => setBillingAmount(e.target.value)}
+              placeholder="např. 5000"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`billing-currency-${tenant.id}`}>Měna</Label>
+            <Input
+              id={`billing-currency-${tenant.id}`}
+              value={billingCurrency}
+              onChange={(e) => setBillingCurrency(e.target.value.toUpperCase())}
+              maxLength={3}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor={`billing-note-${tenant.id}`}>Poznámka k fakturaci</Label>
+        <textarea
+          id={`billing-note-${tenant.id}`}
+          value={billingNote}
+          onChange={(e) => setBillingNote(e.target.value)}
+          rows={2}
+          placeholder="Volitelná poznámka — splatnost, kontaktní osoba, smlouva, …"
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        />
+      </div>
+
+      {estimate !== null && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+          <strong>Odhad měsíčního příjmu:</strong>
+          {" "}{estimate.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} {billingCurrency}
+          {billingType === "per_employee" && (
+            <span className="ml-1 text-blue-600">
+              ({billingAmount} × {tenant.employee_count} zaměstnanců)
+            </span>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-500">
+          {savedAt && `Uloženo v ${savedAt}`}
+        </span>
+        <Button size="sm" onClick={() => mutation.mutate()} loading={mutation.isPending}>
+          <Save className="h-3.5 w-3.5 mr-1" /> Uložit fakturaci
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Stránka ──────────────────────────────────────────────────────────────────
+
 export default function AdminPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [expandedTenantId, setExpandedTenantId] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery<TenantOverviewResponse>({
     queryKey: ["admin-tenant-overview"],
@@ -57,10 +211,6 @@ export default function AdminPage() {
       "/admin/impersonate-tenant", { tenant_id: tenantId },
     ),
     onSuccess: (data) => {
-      // Uloží access token a presměruje na dashboard tenantu.
-      // Token je v cookie (httpOnly) — backend ho nastavil přes Set-Cookie?
-      // Endpoint vrací jen access_token v body. Ukládáme do localStorage
-      // pro Bearer header.
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("impersonating_tenant", data.tenant_name);
       router.push("/dashboard");
@@ -72,14 +222,23 @@ export default function AdminPage() {
     return new Date(iso).toLocaleDateString("cs-CZ");
   }
 
+  // Spočti celkový měsíční odhad příjmu
+  const monthlyEstimate = (data?.tenants ?? []).reduce((sum, t) => {
+    if (!t.billing_amount || !t.billing_type) return sum;
+    if (t.billing_type === "monthly") return sum + t.billing_amount;
+    if (t.billing_type === "yearly") return sum + t.billing_amount / 12;
+    if (t.billing_type === "per_employee") return sum + t.billing_amount * t.employee_count;
+    return sum;
+  }, 0);
+
   if (isError) {
     return (
       <div>
-        <Header title="Platform admin" />
+        <Header title="Zákazníci" />
         <div className="p-6">
           <div className="rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-700">
             <AlertTriangle className="h-4 w-4 inline mr-2" />
-            Nemáte oprávnění platform admin (is_platform_admin=true).
+            Nemáte oprávnění platform admin.
           </div>
         </div>
       </div>
@@ -88,14 +247,14 @@ export default function AdminPage() {
 
   return (
     <div>
-      <Header title="Platform admin — přehled tenantů" />
+      <Header title="Zákazníci" />
 
       <div className="p-6 space-y-4">
         {/* Souhrn */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <Card>
             <CardContent className="p-5">
-              <p className="text-xs text-gray-500 uppercase tracking-wide">Celkem tenantů</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Celkem zákazníků</p>
               <p className="text-3xl font-bold text-gray-900 mt-1">
                 {data?.total_tenants ?? "—"}
               </p>
@@ -103,11 +262,20 @@ export default function AdminPage() {
           </Card>
           <Card>
             <CardContent className="p-5">
-              <p className="text-xs text-gray-500 uppercase tracking-wide">
-                Celkem zaměstnanců (zákazníků)
-              </p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Celkem zaměstnanců</p>
               <p className="text-3xl font-bold text-blue-700 mt-1">
                 {data?.total_employees ?? "—"}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">
+                Odhad měsíčního příjmu
+              </p>
+              <p className="text-3xl font-bold text-emerald-700 mt-1">
+                {monthlyEstimate.toLocaleString("cs-CZ", { maximumFractionDigits: 0 })}
+                <span className="text-base font-medium text-emerald-600 ml-1">CZK</span>
               </p>
             </CardContent>
           </Card>
@@ -119,7 +287,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Tabulka tenantů */}
+        {/* Tabulka zákazníků */}
         <Card>
           <CardContent className="p-0">
             {isLoading ? (
@@ -128,21 +296,19 @@ export default function AdminPage() {
               </div>
             ) : !data || data.tenants.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                <Building2 className="h-10 w-10 mb-3 opacity-30" />
-                <p className="text-sm">Žádní tenanti</p>
+                <Users className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm">Žádní zákazníci</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Tenant</th>
+                      <th className="w-8 py-3" />
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Zákazník</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-700">Vytvořeno</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-700">
                         <Users className="h-3.5 w-3.5 inline mr-1" /> Zaměstnanci
-                      </th>
-                      <th className="text-right py-3 px-4 font-semibold text-gray-700">
-                        Uživatelé
                       </th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-700">
                         <Briefcase className="h-3.5 w-3.5 inline mr-1" /> Pracoviště
@@ -150,44 +316,75 @@ export default function AdminPage() {
                       <th className="text-right py-3 px-4 font-semibold text-gray-700">
                         <GraduationCap className="h-3.5 w-3.5 inline mr-1" /> Školení
                       </th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Stav</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Fakturace</th>
                       <th className="py-3 px-4" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {data.tenants.map(t => (
-                      <tr key={t.id} className="hover:bg-gray-50">
-                        <td className="py-3 px-4 font-medium text-gray-900">{t.name}</td>
-                        <td className="py-3 px-4 text-xs text-gray-600">{formatDate(t.created_at)}</td>
-                        <td className="py-3 px-4 text-right font-bold text-blue-700">{t.employee_count}</td>
-                        <td className="py-3 px-4 text-right text-gray-600">{t.user_count}</td>
-                        <td className="py-3 px-4 text-right text-gray-600">{t.workplace_count}</td>
-                        <td className="py-3 px-4 text-right text-gray-600">{t.training_assignment_count}</td>
-                        <td className="py-3 px-4">
-                          {t.is_active ? (
-                            <span className="rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-[11px] font-medium">
-                              Aktivní
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-gray-100 text-gray-500 px-2 py-0.5 text-[11px] font-medium">
-                              Pozastaven
-                            </span>
+                    {data.tenants.map(t => {
+                      const expanded = expandedTenantId === t.id;
+                      return (
+                        <>
+                          <tr
+                            key={t.id}
+                            className={cn(
+                              "hover:bg-gray-50 cursor-pointer",
+                              expanded && "bg-blue-50/40",
+                            )}
+                            onClick={() => setExpandedTenantId(expanded ? null : t.id)}
+                          >
+                            <td className="py-3 px-2 text-gray-400">
+                              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </td>
+                            <td className="py-3 px-4 font-medium text-gray-900">
+                              {t.name}
+                              {!t.is_active && (
+                                <span className="ml-2 inline-flex rounded-full bg-gray-100 text-gray-500 px-1.5 py-0.5 text-[10px] font-medium">
+                                  pozastaven
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-gray-600">{formatDate(t.created_at)}</td>
+                            <td className="py-3 px-4 text-right font-bold text-blue-700">{t.employee_count}</td>
+                            <td className="py-3 px-4 text-right text-gray-600">{t.workplace_count}</td>
+                            <td className="py-3 px-4 text-right text-gray-600">{t.training_assignment_count}</td>
+                            <td className="py-3 px-4">
+                              {t.billing_type ? (
+                                <span className="text-xs text-gray-700">
+                                  {BILLING_TYPE_LABELS[t.billing_type]}
+                                  {t.billing_amount !== null && (
+                                    <strong className="ml-1">
+                                      {t.billing_amount.toLocaleString("cs-CZ")} {t.billing_currency}
+                                    </strong>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400 italic">— Nenastaveno —</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                              <Tooltip label="Přepnout do tenantu (impersonate)">
+                                <button
+                                  onClick={() => impersonateMutation.mutate(t.id)}
+                                  className="rounded p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                                  aria-label="Impersonate"
+                                  disabled={impersonateMutation.isPending}
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </button>
+                              </Tooltip>
+                            </td>
+                          </tr>
+                          {expanded && (
+                            <tr key={`${t.id}-expand`}>
+                              <td colSpan={8} className="p-0">
+                                <BillingEditor tenant={t} />
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <Tooltip label="Přepnout do tenantu (impersonate)">
-                            <button
-                              onClick={() => impersonateMutation.mutate(t.id)}
-                              className="rounded p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
-                              aria-label="Impersonate"
-                              disabled={impersonateMutation.isPending}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </button>
-                          </Tooltip>
-                        </td>
-                      </tr>
-                    ))}
+                        </>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -196,36 +393,8 @@ export default function AdminPage() {
         </Card>
 
         <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
-          <strong>Pricing tip:</strong> sloupec &bdquo;Zaměstnanci&ldquo; ukazuje
-          počet aktivních zaměstnanců tenanta — slouží jako základ pro výpočet
-          předplatného. Klik na ikonu &bdquo;externí odkaz&ldquo; přepne do tenantu
-          (impersonate) — uvidíte data z pohledu OZO té firmy.
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-            Další admin funkce (připravujeme)
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-md border border-gray-200 bg-white p-4">
-              <p className="text-sm font-medium text-gray-900">Globální nastavení</p>
-              <p className="text-xs text-gray-500 mt-1">
-                Nastavení pravidel pro lhůty prohlídek, šablony dokumentů, atd.
-              </p>
-              <Button size="sm" variant="outline" disabled className="mt-2">
-                Brzy
-              </Button>
-            </div>
-            <div className="rounded-md border border-gray-200 bg-white p-4">
-              <p className="text-sm font-medium text-gray-900">Globální školení</p>
-              <p className="text-xs text-gray-500 mt-1">
-                Vytvářet školení dostupná všem tenantům na &bdquo;marketplace&ldquo;.
-              </p>
-              <Button size="sm" variant="outline" disabled className="mt-2">
-                Brzy
-              </Button>
-            </div>
-          </div>
+          <strong>Tip:</strong> klikni na řádek zákazníka pro nastavení typu platby a měsíční částky.
+          Při typu &bdquo;Za zaměstnance&ldquo; se odhad spočítá automaticky podle aktuálního počtu zaměstnanců.
         </div>
       </div>
     </div>

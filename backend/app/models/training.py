@@ -29,8 +29,19 @@ class Training(Base, TimestampMixin):
     __tablename__ = "trainings"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    # tenant_id je NULL pro globální (marketplace) školení, jinak povinný.
+    # Konzistence vynucená CHECK constraint v migraci 036.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+    )
+    # Globální šablona vytvořená platform adminem (zobrazí se na marketplace).
+    is_global: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )
+    # Pokud je tato šablona kopií globální (po aktivaci tenantem), odkazuje
+    # na původní zdroj. Slouží pro audit a budoucí auto-update obsahu.
+    global_source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("trainings.id", ondelete="SET NULL"),
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     # training_type: bozp | po | other

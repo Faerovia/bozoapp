@@ -8,9 +8,10 @@ export function middleware(request: NextRequest) {
 
   // Nechráněné cesty (login)
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    // Přihlášený uživatel na /login → dashboard
+    // Přihlášený uživatel na /login → root (root pak rozhodne mezi
+    // /admin pro platform admina a /dashboard pro běžné uživatele).
     if (hasToken) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+      return NextResponse.redirect(new URL("/", request.url));
     }
     return NextResponse.next();
   }
