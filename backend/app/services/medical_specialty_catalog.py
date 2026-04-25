@@ -125,8 +125,64 @@ def get_periodicity_for_category(specialty: str, category: str) -> int | None:
 
 
 def get_required_specialties_for_category(category: str) -> list[str]:
-    """Vrátí seznam doporučených odborných vyšetření pro danou kategorii práce."""
+    """Vrátí seznam doporučených odborných vyšetření pro danou kategorii práce.
+
+    DEPRECATED — tato funkce vrací VŠECHNY odborné prohlídky bez ohledu
+    na konkrétní rizikové faktory. Použít pouze jako fallback, když pozice
+    nemá vyplněnou RFA. Preferuj `get_required_specialties_for_factors`.
+    """
     return [
         spec for spec, mapping in SPECIALTY_PERIODICITY.items()
         if category in mapping
     ]
+
+
+# ── Mapování RIZIKOVÝ FAKTOR → ODBORNÉ PROHLÍDKY ─────────────────────────────
+#
+# Klíčový princip nové legislativní revize: odborné prohlídky se přidělují
+# JEN podle konkrétního rizikového faktoru, ne podle souhrnné kategorie pozice.
+#
+# Příklad: pozice má rf_hluk=4 a rf_prach=1 — přiřadí se POUZE audiometrie
+# s periodicitou pro kat. 4 (1× za rok), žádná spirometrie ani RTG plic.
+
+RISK_FACTOR_TO_SPECIALTIES: dict[str, list[str]] = {
+    "rf_hluk":       ["audiometrie"],
+    "rf_prach":      ["spirometrie", "rtg_plic"],
+    "rf_chem":       ["spirometrie"],
+    "rf_vibrace":    ["prstova_plethysmografie"],
+    "rf_psych":      ["ekg_klidove"],
+    "rf_fyz_zatez":  ["ekg_klidove"],
+    "rf_zrak":       ["ocni_vysetreni"],
+    # rf_zareni, rf_tlak, rf_prac_poloha, rf_teplo, rf_chlad, rf_bio:
+    # nemají v této tabulce přímo přiřazené odborné vyšetření.
+    # OZO může přidat manuálně (např. RTG při ionizujícím záření).
+}
+
+
+def get_required_specialties_for_factors(
+    factor_ratings: dict[str, str | None],
+) -> list[tuple[str, str, str]]:
+    """
+    Pro daný RFA matrix (faktor → rating) vrátí seznam doporučených odborných
+    vyšetření spolu s odvozeným ratingem.
+
+    Returns list of tuples: (specialty_key, source_factor, factor_rating)
+
+    Specialty se nezduplikuje — pokud několik faktorů vede ke stejnému typu
+    vyšetření, použije se ten s nejvyšším ratingem.
+    """
+    rating_order = ["1", "2", "2R", "3", "4"]
+    # specialty → (factor, rating, rating_idx)
+    best: dict[str, tuple[str, str, int]] = {}
+    for factor, rating in factor_ratings.items():
+        if not rating or rating == "1":
+            # kategorie 1 = bez rizika, neodůvodňuje odbornou prohlídku
+            continue
+        idx = rating_order.index(rating) if rating in rating_order else -1
+        if idx < 0:
+            continue
+        for spec in RISK_FACTOR_TO_SPECIALTIES.get(factor, []):
+            existing = best.get(spec)
+            if existing is None or existing[2] < idx:
+                best[spec] = (factor, rating, idx)
+    return [(spec, factor, rating) for spec, (factor, rating, _) in best.items()]

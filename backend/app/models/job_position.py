@@ -26,8 +26,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 from app.models.base import TimestampMixin
 
-# Výchozí lhůty periodické prohlídky v měsících dle kategorie (věk < 50)
-# OZO může přepsat na konkrétní pozici přes medical_exam_period_months
+# Výchozí lhůty periodické prohlídky v měsících dle kategorie (věk < 50).
+# Tato mapa je zachována pro zpětnou kompat. Pro výpočet závislý na věku
+# použij `compute_periodic_exam_months(category, age)`.
 CATEGORY_DEFAULT_EXAM_MONTHS: dict[str, int] = {
     "1": 72,
     "2": 48,
@@ -35,6 +36,35 @@ CATEGORY_DEFAULT_EXAM_MONTHS: dict[str, int] = {
     "3": 24,
     "4": 12,
 }
+
+
+def compute_periodic_exam_months(category: str | None, age: int | None) -> int | None:
+    """
+    Výpočet lhůty periodické prohlídky podle vyhlášky 79/2013 Sb.
+    a interní tabulky „Pravidla periodických lékařských prohlídek".
+
+      Kat. 1:  dobrovolná → None (lhůta není povinně stanovena)
+      Kat. 2:  věk < 50 → 48 měsíců, věk ≥ 50 → 24 měsíců
+      Kat. 2R: 24 měsíců (bez rozdílu věku)
+      Kat. 3:  24 měsíců (bez rozdílu věku)
+      Kat. 4:  12 měsíců (bez rozdílu věku)
+
+    Vrací None, pokud kategorie není rozpoznána nebo je 1 (dobrovolná).
+    """
+    if category is None:
+        return None
+    cat = category.strip().upper() if isinstance(category, str) else category
+    if cat == "1":
+        return None
+    if cat == "2":
+        return 24 if (age is not None and age >= 50) else 48
+    if cat == "2R":
+        return 24
+    if cat == "3":
+        return 24
+    if cat == "4":
+        return 12
+    return None
 
 
 class JobPosition(Base, TimestampMixin):

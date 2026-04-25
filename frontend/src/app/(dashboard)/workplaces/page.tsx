@@ -204,10 +204,6 @@ function PositionForm({
 }) {
   const [name, setName] = useState(defaultValues?.name ?? "");
   const [description, setDescription] = useState(defaultValues?.description ?? "");
-  const [workCategory, setWorkCategory] = useState(defaultValues?.work_category ?? "");
-  const [examPeriod, setExamPeriod] = useState(
-    defaultValues?.medical_exam_period_months?.toString() ?? ""
-  );
 
   return (
     <form
@@ -217,8 +213,11 @@ function PositionForm({
           workplace_id: workplaceId,
           name,
           description: description || null,
-          work_category: workCategory || null,
-          medical_exam_period_months: examPeriod ? parseInt(examPeriod, 10) : null,
+          // Kategorie práce a lhůta LP se nyní derivuje automaticky:
+          //   - kategorie z RFA (category_proposed)
+          //   - lhůta LP z (kategorie + věk zaměstnance) podle vyhlášky 79/2013 Sb.
+          work_category: null,
+          medical_exam_period_months: null,
         });
       }}
       className="space-y-3"
@@ -242,35 +241,11 @@ function PositionForm({
           className={cn(INPUT_CLS, "resize-none")}
         />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="pos_cat">Kategorie práce (override)</Label>
-          <select
-            id="pos_cat"
-            value={workCategory}
-            onChange={(e) => setWorkCategory(e.target.value)}
-            className={INPUT_CLS}
-          >
-            <option value="">— dle RFA —</option>
-            {RISK_RATINGS.map((r) => (
-              <option key={r} value={r}>Kategorie {r}</option>
-            ))}
-          </select>
-          <p className="text-xs text-gray-400">
-            Prázdné = derivuje z hodnocení rizik
-          </p>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="pos_period">Lhůta LP (měsíce)</Label>
-          <Input
-            id="pos_period"
-            type="number"
-            min="1"
-            value={examPeriod}
-            onChange={(e) => setExamPeriod(e.target.value)}
-            placeholder="dle kategorie"
-          />
-        </div>
+      <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+        Kategorie práce se odvozuje z hodnocení rizik (RFA) — vyplníte ji
+        v modulu &bdquo;Úroveň rizik na pracovištích&ldquo;. Lhůta lékařské
+        prohlídky se vypočítá automaticky podle kategorie a věku zaměstnance
+        (vyhláška 79/2013 Sb.).
       </div>
       {error && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">

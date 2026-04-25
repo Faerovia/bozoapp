@@ -3,12 +3,13 @@
 /**
  * Modul „Úroveň rizik na pracovištích".
  *
- * Hierarchický přehled: Plant → Workplace → kategorie práce nejvyšší pozice.
- * Editace kategorie konkrétní pozice se otevírá v dialogu s rychlou volbou
- * (1/2/2R/3/4) a propisuje se do JobPosition.work_category.
+ * Hierarchický přehled: Plant → Workplace → Position → 13 rizikových faktorů.
+ * Pro každou pozici je k dispozici interaktivní matrix 13×5 (faktor × rating).
+ * Úroveň rizika pracoviště = maximum kategorií (category_proposed) ze všech
+ * jeho pozic. Úroveň provozovny = maximum všech pracovišť.
  *
- * Pro detailní RFA matrix (13 faktorů × 5 hodnocení) zachováváme tlačítko,
- * které přesměruje uživatele do modulu Provozovny.
+ * RFA se vytvoří automaticky při prvním kliknutí na rating, pokud pro pozici
+ * ještě neexistuje. Změna ratingu propisuje přes PATCH /risk-factors/{id}.
  */
 
 import { useState } from "react";
@@ -16,19 +17,18 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown, ChevronRight, Factory, Briefcase, ShieldCheck,
-  Pencil, ExternalLink, AlertTriangle,
+  ExternalLink, AlertTriangle, Loader2,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { Plant, Workplace, JobPosition } from "@/types/api";
+import type {
+  Plant, Workplace, JobPosition, RiskFactorAssessment, RiskRating, RiskFactor,
+} from "@/types/api";
+import { RF_LABELS, RF_ORDER, RISK_RATINGS } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-
-const CATEGORIES = ["1", "2", "2R", "3", "4"] as const;
-type Category = typeof CATEGORIES[number];
 
 const CATEGORY_COLORS: Record<string, string> = {
   "1":  "bg-green-100 text-green-700 border-green-300",
@@ -46,104 +46,237 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   "4":  "Vysoké riziko ohrožení zdraví — i přes opatření",
 };
 
-function maxCategory(positions: JobPosition[]): Category | null {
-  const order = ["1", "2", "2R", "3", "4"];
-  let highest: Category | null = null;
-  for (const p of positions) {
-    if (!p.work_category) continue;
-    const idx = order.indexOf(p.work_category);
-    const curIdx = highest ? order.indexOf(highest) : -1;
-    if (idx > curIdx) highest = p.work_category as Category;
+const RATING_ORDER = ["1", "2", "2R", "3", "4"] as const;
+
+function maxRating(ratings: (string | null | undefined)[]): RiskRating | null {
+  let highest: RiskRating | null = null;
+  let highestIdx = -1;
+  for (const r of ratings) {
+    if (!r) continue;
+    const idx = RATING_ORDER.indexOf(r as RiskRating);
+    if (idx > highestIdx) {
+      highest = r as RiskRating;
+      highestIdx = idx;
+    }
   }
   return highest;
 }
 
-// ── Editor kategorie pozice ──────────────────────────────────────────────────
+// ── RFA matrix per pozice ────────────────────────────────────────────────────
 
-function CategoryEditDialog({
-  position, onClose,
+function PositionRfaMatrix({
+  position,
+  onRatingChange,
 }: {
-  position: JobPosition | null;
-  onClose: () => void;
+  position: JobPosition;
+  onRatingChange: (rfa: RiskFactorAssessment | null) => void;
 }) {
   const qc = useQueryClient();
-  const [selected, setSelected] = useState<Category | "">(
-    (position?.work_category as Category) ?? "",
-  );
   const [error, setError] = useState<string | null>(null);
 
-  const mutation = useMutation({
-    mutationFn: (work_category: string | null) =>
-      api.patch(`/job-positions/${position?.id}`, { work_category }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["job-positions"] });
-      qc.invalidateQueries({ queryKey: ["risk-overview-positions"] });
-      onClose();
+  const { data: rfa, isLoading } = useQuery<RiskFactorAssessment | null>({
+    queryKey: ["rfa", position.id],
+    queryFn: async () => {
+      try {
+        return await api.get<RiskFactorAssessment>(
+          `/job-positions/${position.id}/risk-assessment`,
+        );
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }
+    },
+  });
+
+  const setRatingMutation = useMutation({
+    mutationFn: async ({ factor, rating }: { factor: RiskFactor; rating: RiskRating | null }) => {
+      if (rfa) {
+        return await api.patch<RiskFactorAssessment>(`/risk-factors/${rfa.id}`, {
+          [factor]: rating,
+        });
+      }
+      // Vytvořit nové RFA s tímto faktorem
+      return await api.post<RiskFactorAssessment>("/risk-factors", {
+        job_position_id: position.id,
+        profese:         position.name,
+        worker_count:    0,
+        women_count:     0,
+        [factor]:        rating,
+      });
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["rfa", position.id], data);
+      qc.invalidateQueries({ queryKey: ["rfa-summary"] });
+      onRatingChange(data);
+      setError(null);
     },
     onError: (err) => setError(err instanceof ApiError ? err.detail : "Chyba serveru"),
   });
 
-  if (!position) return null;
+  function handleClick(factor: RiskFactor, rating: RiskRating) {
+    const current = rfa?.[factor] ?? null;
+    // Toggle — pokud už je toto rating vybráno, smazat (=null)
+    const newValue = current === rating ? null : rating;
+    setRatingMutation.mutate({ factor, rating: newValue });
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-400 py-3">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Načítám hodnocení rizik…
+      </div>
+    );
+  }
 
   return (
-    <Dialog open={!!position} onClose={onClose} title={`Kategorie práce — ${position.name}`} size="md">
-      <div className="space-y-4">
-        <p className="text-sm text-gray-600">
-          Vyberte kategorii práce dle NV 361/2007 Sb. Kategorie se použije pro
-          výpočet lhůt periodických prohlídek a doporučení odborných vyšetření.
-        </p>
-
-        <div className="grid grid-cols-1 gap-2">
-          {CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setSelected(cat)}
-              className={cn(
-                "flex items-start gap-3 rounded-md border p-3 text-left transition-all",
-                selected === cat
-                  ? `${CATEGORY_COLORS[cat]} ring-2 ring-blue-500`
-                  : "border-gray-200 bg-white hover:border-gray-300",
-              )}
-            >
-              <span className={cn(
-                "shrink-0 inline-flex items-center justify-center rounded-full px-2.5 py-1 text-sm font-bold border",
-                CATEGORY_COLORS[cat],
-              )}>
-                {cat}
-              </span>
-              <span className="text-xs text-gray-700 leading-snug">
-                {CATEGORY_DESCRIPTIONS[cat]}
-              </span>
-            </button>
-          ))}
+    <div className="space-y-2">
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-1.5 text-xs text-red-700">
+          {error}
         </div>
-
-        <button
-          type="button"
-          onClick={() => setSelected("")}
-          className="text-xs text-gray-500 hover:text-gray-700 underline"
-        >
-          Vymazat kategorii
-        </button>
-
-        {error && (
-          <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>Zrušit</Button>
-          <Button
-            onClick={() => mutation.mutate(selected || null)}
-            loading={mutation.isPending}
-          >
-            Uložit
-          </Button>
-        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="text-left py-1.5 px-2 font-semibold text-gray-700 sticky left-0 bg-gray-100 min-w-[140px]">
+                Rizikový faktor
+              </th>
+              {RISK_RATINGS.map(r => (
+                <th key={r} className="py-1.5 px-2 font-semibold text-center w-12">
+                  <span className={cn(
+                    "inline-flex items-center justify-center rounded px-1.5 py-0.5 border",
+                    CATEGORY_COLORS[r],
+                  )}>
+                    {r}
+                  </span>
+                </th>
+              ))}
+              <th className="py-1.5 px-2 font-semibold text-gray-500 w-14">N/A</th>
+            </tr>
+          </thead>
+          <tbody>
+            {RF_ORDER.map((factor, idx) => {
+              const current = rfa?.[factor] ?? null;
+              return (
+                <tr key={factor} className={cn(idx % 2 === 0 ? "bg-white" : "bg-gray-50/50")}>
+                  <td className="py-1.5 px-2 text-gray-700 sticky left-0 bg-inherit">
+                    {RF_LABELS[factor]}
+                  </td>
+                  {RISK_RATINGS.map(r => {
+                    const selected = current === r;
+                    return (
+                      <td key={r} className="text-center p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleClick(factor, r)}
+                          disabled={setRatingMutation.isPending}
+                          className={cn(
+                            "w-9 h-7 rounded border text-xs font-semibold transition-all",
+                            selected
+                              ? `${CATEGORY_COLORS[r]} ring-2 ring-blue-500 ring-offset-1`
+                              : "bg-white border-gray-200 text-gray-300 hover:border-gray-400 hover:text-gray-600",
+                          )}
+                          aria-pressed={selected}
+                          aria-label={`${RF_LABELS[factor]}: kategorie ${r}`}
+                        >
+                          {selected ? r : "·"}
+                        </button>
+                      </td>
+                    );
+                  })}
+                  <td className="text-center p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (current !== null) {
+                          setRatingMutation.mutate({ factor, rating: null });
+                        }
+                      }}
+                      disabled={setRatingMutation.isPending || current === null}
+                      className={cn(
+                        "w-12 h-7 rounded border text-[10px] transition-all",
+                        current === null
+                          ? "bg-gray-100 border-gray-300 text-gray-500"
+                          : "bg-white border-gray-200 text-gray-400 hover:border-red-400 hover:text-red-600",
+                      )}
+                      aria-label={`${RF_LABELS[factor]}: nehodnoceno`}
+                    >
+                      —
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-    </Dialog>
+      <p className="text-[10px] text-gray-400 italic">
+        Tip: opětovným kliknutím na již vybranou kategorii ji zrušíte.
+        Sloupec &bdquo;N/A&ldquo; označuje, že faktor se na pozici nevyskytuje.
+      </p>
+    </div>
+  );
+}
+
+// ── Position card ────────────────────────────────────────────────────────────
+
+function PositionCard({
+  position,
+  onCategoryChange,
+}: {
+  position: JobPosition;
+  onCategoryChange: (positionId: string, category: RiskRating | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Lokální cache pro derived category — aktualizujeme když přijde RFA mutation
+  const [localCategory, setLocalCategory] = useState<RiskRating | null>(
+    (position.effective_category as RiskRating | null) ?? null,
+  );
+
+  function handleRfaChange(rfa: RiskFactorAssessment | null) {
+    if (rfa) {
+      const allFactors = RF_ORDER.map(f => rfa[f]);
+      const max = maxRating(allFactors);
+      setLocalCategory(max);
+      onCategoryChange(position.id, max);
+    }
+  }
+
+  const cat = localCategory;
+
+  return (
+    <div className="rounded-md border border-gray-200 bg-white">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left"
+      >
+        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
+        <span className="text-sm font-medium text-gray-900 flex-1 truncate">{position.name}</span>
+        {cat ? (
+          <Tooltip label={CATEGORY_DESCRIPTIONS[cat]}>
+            <span className={cn(
+              "shrink-0 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-bold border",
+              CATEGORY_COLORS[cat],
+            )}>
+              kat. {cat}
+            </span>
+          </Tooltip>
+        ) : (
+          <Tooltip label="Žádný rizikový faktor není ohodnocen">
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-500 px-2 py-0.5 text-[11px] font-medium border border-gray-300">
+              <AlertTriangle className="h-2.5 w-2.5" /> bez kat.
+            </span>
+          </Tooltip>
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t border-gray-100 p-3">
+          <PositionRfaMatrix position={position} onRatingChange={handleRfaChange} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -152,13 +285,18 @@ function CategoryEditDialog({
 function WorkplaceCard({
   workplace,
   positions,
-  onEditPosition,
+  positionCategories,
+  onCategoryChange,
 }: {
   workplace: Workplace;
   positions: JobPosition[];
-  onEditPosition: (p: JobPosition) => void;
+  positionCategories: Record<string, RiskRating | null>;
+  onCategoryChange: (positionId: string, category: RiskRating | null) => void;
 }) {
-  const maxCat = maxCategory(positions);
+  const allCats = positions.map(p =>
+    positionCategories[p.id] ?? (p.effective_category as RiskRating | null) ?? null,
+  );
+  const maxCat = maxRating(allCats);
 
   return (
     <div className="rounded-md border border-gray-200 bg-white p-3 space-y-2">
@@ -173,7 +311,7 @@ function WorkplaceCard({
           </div>
         </div>
         {maxCat ? (
-          <Tooltip label={`Nejvyšší kategorie rizika na tomto pracovišti: ${CATEGORY_DESCRIPTIONS[maxCat]}`}>
+          <Tooltip label={`Maximum napříč pozicemi: ${CATEGORY_DESCRIPTIONS[maxCat]}`}>
             <span className={cn(
               "shrink-0 inline-flex items-center justify-center rounded-full px-2.5 py-1 text-xs font-bold border",
               CATEGORY_COLORS[maxCat],
@@ -182,7 +320,7 @@ function WorkplaceCard({
             </span>
           </Tooltip>
         ) : (
-          <Tooltip label="Žádná pozice nemá nastavenou kategorii práce">
+          <Tooltip label="Žádná pozice nemá ohodnocené rizikové faktory">
             <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-500 px-2.5 py-1 text-xs font-medium border border-gray-300">
               <AlertTriangle className="h-3 w-3" /> bez kat.
             </span>
@@ -195,34 +333,15 @@ function WorkplaceCard({
           Žádné pozice. Přidejte je v modulu Provozovny.
         </p>
       ) : (
-        <ul className="pl-6 space-y-1">
+        <div className="space-y-1.5">
           {positions.map(p => (
-            <li key={p.id} className="flex items-center justify-between gap-2">
-              <span className="text-xs text-gray-700 truncate">{p.name}</span>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {p.work_category ? (
-                  <span className={cn(
-                    "inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-bold border",
-                    CATEGORY_COLORS[p.work_category],
-                  )}>
-                    {p.work_category}
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-gray-400">—</span>
-                )}
-                <Tooltip label="Změnit kategorii práce této pozice">
-                  <button
-                    onClick={() => onEditPosition(p)}
-                    className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
-                    aria-label="Upravit kategorii"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                </Tooltip>
-              </div>
-            </li>
+            <PositionCard
+              key={p.id}
+              position={p}
+              onCategoryChange={onCategoryChange}
+            />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
@@ -232,7 +351,9 @@ function WorkplaceCard({
 
 export default function RiskOverviewPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [editPosition, setEditPosition] = useState<JobPosition | null>(null);
+
+  // Lokální cache pro úpravy kategorií (pro live agregaci bez refetch)
+  const [positionCategories, setPositionCategories] = useState<Record<string, RiskRating | null>>({});
 
   const { data: plants = [], isLoading: plantsLoading } = useQuery<Plant[]>({
     queryKey: ["plants"],
@@ -265,10 +386,19 @@ export default function RiskOverviewPage() {
     return positions.filter(p => p.workplace_id === workplaceId);
   }
 
-  // Souhrn — kolik pracovišť celkem, kolik s kategorií ≥ 3, kolik bez kat.
+  function handleCategoryChange(positionId: string, category: RiskRating | null) {
+    setPositionCategories(prev => ({ ...prev, [positionId]: category }));
+  }
+
+  function getEffectiveCategory(p: JobPosition): RiskRating | null {
+    return positionCategories[p.id] ?? (p.effective_category as RiskRating | null) ?? null;
+  }
+
+  // Souhrn
   const summaryCounts = workplaces.reduce(
     (acc, w) => {
-      const cat = maxCategory(positionsFor(w.id));
+      const cats = positionsFor(w.id).map(getEffectiveCategory);
+      const cat = maxRating(cats);
       acc.total++;
       if (cat === "3" || cat === "4") acc.high++;
       else if (cat === null) acc.unset++;
@@ -287,9 +417,9 @@ export default function RiskOverviewPage() {
               Rozbalit vše
             </Button>
             <Link href="/workplaces">
-              <Button size="sm">
+              <Button size="sm" variant="outline">
                 <ExternalLink className="h-4 w-4 mr-1.5" />
-                Detailní RFA matrix
+                Plný RFA editor (PDF, poznámky)
               </Button>
             </Link>
           </div>
@@ -313,7 +443,7 @@ export default function RiskOverviewPage() {
           </Card>
           <Card>
             <CardContent className="p-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wide">Bez kategorie</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Bez ohodnocení</p>
               <p className="text-2xl font-bold text-amber-600 mt-1">{summaryCounts.unset}</p>
             </CardContent>
           </Card>
@@ -345,6 +475,12 @@ export default function RiskOverviewPage() {
             {plants.map(plant => {
               const wps = workplacesFor(plant.id);
               const isOpen = expanded[plant.id] ?? true;
+              // Plant-level agregace = max všech pracovišť
+              const plantCats = wps.flatMap(w =>
+                positionsFor(w.id).map(getEffectiveCategory),
+              );
+              const plantMax = maxRating(plantCats);
+
               return (
                 <Card key={plant.id}>
                   <CardContent className="p-0">
@@ -362,9 +498,19 @@ export default function RiskOverviewPage() {
                           </p>
                         )}
                       </div>
-                      <span className="text-xs text-gray-400">
-                        {wps.length} {wps.length === 1 ? "pracoviště" : "pracovišť"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {plantMax && (
+                          <span className={cn(
+                            "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-bold border",
+                            CATEGORY_COLORS[plantMax],
+                          )}>
+                            kat. {plantMax}
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-400">
+                          {wps.length} {wps.length === 1 ? "pracoviště" : "pracovišť"}
+                        </span>
+                      </div>
                     </button>
 
                     {isOpen && (
@@ -372,13 +518,14 @@ export default function RiskOverviewPage() {
                         {wps.length === 0 ? (
                           <p className="text-xs text-gray-400 italic">Žádná pracoviště</p>
                         ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                             {wps.map(w => (
                               <WorkplaceCard
                                 key={w.id}
                                 workplace={w}
                                 positions={positionsFor(w.id)}
-                                onEditPosition={setEditPosition}
+                                positionCategories={positionCategories}
+                                onCategoryChange={handleCategoryChange}
                               />
                             ))}
                           </div>
@@ -394,17 +541,12 @@ export default function RiskOverviewPage() {
 
         <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
           <ShieldCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-          Kategorie 1/2 jsou nerizikové, 2R/3/4 vyžadují periodickou
-          pracovnělékařskou prohlídku, odborná vyšetření (audiometrie, spirometrie, …)
-          a OOPP. Detailní hodnocení 13 rizikových faktorů (RFA matrix) najdete
-          v modulu Provozovny.
+          Klikněte na pozici pro rozbalení matrixu 13 rizikových faktorů.
+          U každého faktoru přiřaďte kategorii kliknutím na 1/2/2R/3/4 (toggle).
+          Úroveň rizika pracoviště = nejvyšší kategorie ze všech pozic na pracovišti.
+          Pro upload PDF protokolů a další detaily použijte modul Provozovny.
         </div>
       </div>
-
-      <CategoryEditDialog
-        position={editPosition}
-        onClose={() => setEditPosition(null)}
-      />
     </div>
   );
 }

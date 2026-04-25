@@ -270,29 +270,51 @@ function OdbornaExamForm({
 
 // ── Generovat vstupní (auto) ─────────────────────────────────────────────────
 
+interface GenerateResult {
+  created: number;
+  exam_ids: string[];
+  skipped_specialties: string[];
+  work_category: string | null;
+  triggered_by_factors: { specialty: string; factor: string; rating: string }[];
+  rfa_present: boolean;
+}
+
+const FACTOR_LABELS: Record<string, string> = {
+  rf_prach:       "Prach",
+  rf_chem:        "Chemické látky",
+  rf_hluk:        "Hluk",
+  rf_vibrace:     "Vibrace",
+  rf_zareni:      "Záření",
+  rf_tlak:        "Tlak",
+  rf_fyz_zatez:   "Fyzická zátěž",
+  rf_prac_poloha: "Pracovní poloha",
+  rf_teplo:       "Teplo",
+  rf_chlad:       "Chlad",
+  rf_psych:       "Psychická zátěž",
+  rf_zrak:        "Zraková zátěž",
+  rf_bio:         "Biologičtí činitelé",
+};
+
 function GenerateInitialDialog({
-  open, onClose, employees,
+  open, onClose, employees, specialties,
 }: {
   open: boolean;
   onClose: () => void;
   employees: Employee[];
+  specialties: SpecialtyCatalogEntry[];
 }) {
   const qc = useQueryClient();
   const [employeeId, setEmployeeId] = useState("");
-  const [result, setResult] = useState<{ created: number; skipped_specialties: string[]; work_category: string | null } | null>(null);
+  const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () => api.post<{ created: number; exam_ids: string[]; skipped_specialties: string[]; work_category: string | null }>(
+    mutationFn: () => api.post<GenerateResult>(
       "/medical-exams/generate-initial", { employee_id: employeeId },
     ),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["medical-exams"] });
-      setResult({
-        created: data.created,
-        skipped_specialties: data.skipped_specialties,
-        work_category: data.work_category,
-      });
+      setResult(data);
       setError(null);
     },
     onError: (err) => setError(err instanceof ApiError ? err.detail : "Chyba serveru"),
@@ -300,6 +322,10 @@ function GenerateInitialDialog({
 
   function reset() {
     setEmployeeId(""); setResult(null); setError(null);
+  }
+
+  function specLabel(key: string) {
+    return specialties.find(s => s.key === key)?.label || key;
   }
 
   return (
@@ -311,9 +337,10 @@ function GenerateInitialDialog({
     >
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
-          Podle kategorie práce zaměstnance se automaticky vytvoří draft záznam
-          vstupní prohlídky a všech odborných vyšetření vyžadovaných pro jeho
-          kategorii. OZO je následně doplní po skutečné prohlídce.
+          Vytvoří se vstupní lékařská prohlídka a odborná vyšetření odpovídající
+          <strong> konkrétním rizikovým faktorům</strong> na pozici zaměstnance
+          (z hodnocení rizik / RFA). Periodicita odborné prohlídky se odvodí
+          z ratingu daného faktoru, ne ze souhrnné kategorie pozice.
         </p>
 
         <div className="space-y-1.5">
@@ -338,20 +365,40 @@ function GenerateInitialDialog({
         )}
 
         {result && (
-          <div className="rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">
+          <div className="rounded-md bg-green-50 border border-green-200 px-3 py-3 text-sm text-green-800 space-y-2">
             <p>
               <strong>Vytvořeno {result.created} prohlídek.</strong>
-              {result.work_category && ` Použita kategorie práce ${result.work_category}.`}
             </p>
-            {result.skipped_specialties.length > 0 && (
-              <p className="text-xs mt-1">
-                Přeskočeno (už existuje): {result.skipped_specialties.join(", ")}
+            {result.triggered_by_factors.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold">Přiřazené odborné prohlídky:</p>
+                <ul className="text-xs space-y-0.5 pl-2">
+                  {result.triggered_by_factors.map((t, i) => (
+                    <li key={i}>
+                      • <strong>{specLabel(t.specialty)}</strong> —
+                      kvůli faktoru <em>{FACTOR_LABELS[t.factor] || t.factor}</em>
+                      {" = kat. "}{t.rating}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!result.rfa_present && (
+              <p className="text-xs text-amber-700 italic">
+                Pozice zaměstnance nemá vyplněné hodnocení rizik (RFA).
+                Vytvořila se pouze vstupní prohlídka. Pro auto-generaci odborných
+                prohlídek vyplňte nejdřív RFA v modulu &bdquo;Úroveň rizik na pracovištích&ldquo;.
               </p>
             )}
-            {!result.work_category && (
-              <p className="text-xs mt-1 text-amber-700">
-                Pozor: zaměstnanec nemá přiřazenou pozici nebo pozice nemá kategorii.
-                Vytvořila se jen vstupní prohlídka.
+            {result.rfa_present && result.triggered_by_factors.length === 0 && (
+              <p className="text-xs italic">
+                Žádný rizikový faktor nedosahuje úrovně, která by vyžadovala
+                odbornou prohlídku.
+              </p>
+            )}
+            {result.skipped_specialties.length > 0 && (
+              <p className="text-xs">
+                Přeskočeno (už existuje): {result.skipped_specialties.join(", ")}
               </p>
             )}
           </div>
@@ -818,6 +865,7 @@ export default function MedicalExamsPage() {
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
         employees={employees}
+        specialties={specialtyCatalog?.specialties ?? []}
       />
     </div>
   );

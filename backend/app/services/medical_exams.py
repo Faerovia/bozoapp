@@ -7,13 +7,70 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.validation import assert_in_tenant
 from app.models.employee import Employee
-from app.models.job_position import JobPosition
+from app.models.job_position import JobPosition, compute_periodic_exam_months
 from app.models.medical_exam import MedicalExam
-from app.schemas.medical_exams import MedicalExamCreateRequest, MedicalExamUpdateRequest
+from app.models.risk_factor_assessment import RF_FIELDS, RiskFactorAssessment
+from app.schemas.medical_exams import (
+    MedicalExamCreateRequest,
+    MedicalExamUpdateRequest,
+)
 from app.services.medical_specialty_catalog import (
     SPECIALTY_CATALOG,
-    get_required_specialties_for_category,
+    get_periodicity_for_category,
+    get_required_specialties_for_factors,
 )
+
+
+def _age_at(reference: date, birth_date: date | None) -> int | None:
+    """Spočítá věk v celých letech k referenčnímu datu."""
+    if birth_date is None:
+        return None
+    age = reference.year - birth_date.year
+    # Korekce pokud ještě nebylo letošní výročí
+    if (reference.month, reference.day) < (birth_date.month, birth_date.day):
+        age -= 1
+    return age
+
+
+async def _resolve_periodic_months(
+    db: AsyncSession,
+    *,
+    employee_id: uuid.UUID,
+    job_position_id: uuid.UUID | None,
+    exam_date: date,
+    tenant_id: uuid.UUID,
+) -> int | None:
+    """
+    Auto-výpočet lhůty periodické prohlídky podle (kategorie z RFA, věk).
+    Použije se v create/update pokud OZO nezadal valid_months ručně.
+    """
+    # Věk zaměstnance
+    emp = (await db.execute(
+        select(Employee).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == tenant_id,
+        )
+    )).scalar_one_or_none()
+    age = _age_at(exam_date, emp.birth_date) if emp else None
+
+    # Kategorie z RFA pozice (preferuje category_proposed, fallback work_category)
+    category: str | None = None
+    if job_position_id is not None:
+        pos = (await db.execute(
+            select(JobPosition).where(JobPosition.id == job_position_id)
+        )).scalar_one_or_none()
+        if pos is not None:
+            category = pos.work_category
+        rfa = (await db.execute(
+            select(RiskFactorAssessment).where(
+                RiskFactorAssessment.job_position_id == job_position_id,
+                RiskFactorAssessment.tenant_id == tenant_id,
+            )
+        )).scalar_one_or_none()
+        if rfa is not None and rfa.category_proposed:
+            category = rfa.category_proposed
+
+    return compute_periodic_exam_months(category, age)
 
 
 def _specialty_label(specialty: str | None) -> str | None:
@@ -152,6 +209,31 @@ async def create_medical_exam(
         await assert_in_tenant(
             db, JobPosition, data.job_position_id, tenant_id, field_name="job_position_id"
         )
+
+    valid_months = data.valid_months
+    valid_until = data.valid_until
+    # Auto-výpočet lhůty pro periodickou prohlídku, pokud OZO nezadal ručně
+    if (
+        data.exam_type == "periodicka"
+        and valid_months is None
+        and valid_until is None
+    ):
+        valid_months = await _resolve_periodic_months(
+            db,
+            employee_id=data.employee_id,
+            job_position_id=data.job_position_id,
+            exam_date=data.exam_date,
+            tenant_id=tenant_id,
+        )
+        if valid_months is not None:
+            import calendar
+            d = data.exam_date
+            month = d.month + valid_months
+            year = d.year + (month - 1) // 12
+            month = ((month - 1) % 12) + 1
+            last_day = calendar.monthrange(year, month)[1]
+            valid_until = date(year, month, min(d.day, last_day))
+
     exam = MedicalExam(
         tenant_id=tenant_id,
         created_by=created_by,
@@ -163,8 +245,8 @@ async def create_medical_exam(
         exam_date=data.exam_date,
         result=data.result,
         physician_name=data.physician_name,
-        valid_months=data.valid_months,
-        valid_until=data.valid_until,
+        valid_months=valid_months,
+        valid_until=valid_until,
         notes=data.notes,
     )
     db.add(exam)
@@ -180,27 +262,43 @@ async def generate_initial_exam_requests(
 ) -> dict[str, Any]:
     """
     Auto-vygeneruje vstupní lékařskou prohlídku + povinné odborné prohlídky
-    podle kategorie práce zaměstnance (z jeho přiřazené job_position).
+    podle KONKRÉTNÍCH rizikových faktorů na pozici zaměstnance (z RFA).
 
-    Záznamy se vytvoří jako 'planned' draft — bez exam_date (default today),
-    bez výsledku. OZO je následně doplní po skutečné prohlídce.
+    Klíčový princip: odborná prohlídka se přidělí JEN podle daného faktoru,
+    ne podle souhrnné kategorie. Příklad: pozice má rf_hluk=4 ale ostatní 1
+    → přiřadí se POUZE audiometrie (1× za rok), žádná spirometrie/RTG/EKG.
 
-    Pokud zaměstnanec už má aktivní prohlídku stejného typu/specialty
-    (status=active, validity_status != expired), nevytvoří se duplikát.
+    Periodicita každé odborné prohlídky se odvozuje z ratingu faktoru,
+    který ji vyvolal (ne z max kategorie pozice).
+
+    Záznamy se vytvoří jako draft (bez výsledku) — OZO doplní po skutečné
+    prohlídce. Existující aktivní záznam stejného typu/specialty se přeskočí.
     """
     await assert_in_tenant(db, Employee, employee_id, tenant_id, field_name="employee_id")
     emp = (await db.execute(
         select(Employee).where(Employee.id == employee_id)
     )).scalar_one()
 
-    work_category: str | None = None
     job_position_id: uuid.UUID | None = emp.job_position_id
+    work_category: str | None = None
+    factor_ratings: dict[str, str | None] = {}
+
     if job_position_id is not None:
         pos = (await db.execute(
             select(JobPosition).where(JobPosition.id == job_position_id)
         )).scalar_one_or_none()
         if pos is not None:
             work_category = pos.work_category
+
+        # Načti RFA pro pozici (může neexistovat)
+        rfa = (await db.execute(
+            select(RiskFactorAssessment).where(
+                RiskFactorAssessment.job_position_id == job_position_id,
+                RiskFactorAssessment.tenant_id == tenant_id,
+            )
+        )).scalar_one_or_none()
+        if rfa is not None:
+            factor_ratings = {f: getattr(rfa, f, None) for f in RF_FIELDS}
 
     # Existující aktivní prohlídky tohoto zaměstnance
     existing = (await db.execute(
@@ -219,7 +317,7 @@ async def generate_initial_exam_requests(
     created_exams: list[MedicalExam] = []
     skipped: list[str] = []
 
-    # 1) Vstupní preventivní prohlídka
+    # 1) Vstupní preventivní prohlídka — vždy
     if not has_vstupni:
         exam = MedicalExam(
             tenant_id=tenant_id,
@@ -236,28 +334,33 @@ async def generate_initial_exam_requests(
     else:
         skipped.append("vstupni")
 
-    # 2) Odborné prohlídky podle kategorie práce
-    if work_category is not None:
-        required = get_required_specialties_for_category(work_category)
-        for specialty in required:
-            if specialty in existing_specialties:
-                skipped.append(specialty)
-                continue
-            exam = MedicalExam(
-                tenant_id=tenant_id,
-                created_by=created_by,
-                employee_id=employee_id,
-                job_position_id=job_position_id,
-                exam_category="odborna",
-                exam_type="odborna",
-                specialty=specialty,
-                exam_date=today,
-                notes=(
-                    f"Auto-vygenerováno na základě kategorie práce {work_category}."
-                ),
-            )
-            db.add(exam)
-            created_exams.append(exam)
+    # 2) Odborné prohlídky podle JEDNOTLIVÝCH rizikových faktorů
+    triggered: list[tuple[str, str, str]] = []  # (specialty, factor, rating)
+    if factor_ratings:
+        triggered = get_required_specialties_for_factors(factor_ratings)
+
+    for specialty, source_factor, factor_rating in triggered:
+        if specialty in existing_specialties:
+            skipped.append(specialty)
+            continue
+        # Periodicita: měsíce podle ratingu daného faktoru
+        valid_months = get_periodicity_for_category(specialty, factor_rating)
+        exam = MedicalExam(
+            tenant_id=tenant_id,
+            created_by=created_by,
+            employee_id=employee_id,
+            job_position_id=job_position_id,
+            exam_category="odborna",
+            exam_type="odborna",
+            specialty=specialty,
+            exam_date=today,
+            valid_months=valid_months,
+            notes=(
+                f"Auto-vygenerováno na základě faktoru {source_factor} = {factor_rating}."
+            ),
+        )
+        db.add(exam)
+        created_exams.append(exam)
 
     await db.flush()
     return {
@@ -265,6 +368,10 @@ async def generate_initial_exam_requests(
         "exam_ids":            [e.id for e in created_exams],
         "skipped_specialties": skipped,
         "work_category":       work_category,
+        "triggered_by_factors": [
+            {"specialty": s, "factor": f, "rating": r} for s, f, r in triggered
+        ],
+        "rfa_present":          bool(factor_ratings),
     }
 
 

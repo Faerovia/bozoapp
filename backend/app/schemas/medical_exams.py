@@ -102,8 +102,16 @@ class GenerateInitialExamsRequest(BaseModel):
     employee_id: uuid.UUID
 
 
+class TriggeredSpecialty(BaseModel):
+    specialty: str
+    factor: str       # rf_hluk, rf_prach, ...
+    rating: str       # 2, 2R, 3, 4
+
+
 class GenerateInitialExamsResponse(BaseModel):
     created: int
     exam_ids: list[uuid.UUID]
-    skipped_specialties: list[str]    # už existující prohlídky stejného typu
-    work_category: str | None         # použitá kategorie pro derivaci
+    skipped_specialties: list[str]      # už existující prohlídky stejného typu
+    work_category: str | None           # max kategorie pozice (informativně)
+    triggered_by_factors: list[TriggeredSpecialty] = Field(default_factory=list)
+    rfa_present: bool = False           # má pozice vyplněné RFA?
