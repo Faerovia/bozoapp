@@ -54,14 +54,18 @@ class _DocumentPdf(FPDF):
         self._tenant_name = tenant_name
         self._doc_title = doc_title
         # Unicode font pro českou diakritiku + em-dashe / typografické uvozovky.
-        # `fonts-dejavu-core` má jen Sans + Bold; Oblique chybí — pro italic
-        # falbeck na regular (vizuálně jen header/footer, není kritické).
+        # `fonts-dejavu-core` má jen Sans + Bold; Oblique a BoldOblique chybí
+        # — pro italic / bold-italic fallback na regular / bold.
         self.add_font(FONT, style="", fname=_font_path("DejaVuSans.ttf"))
         self.add_font(FONT, style="B", fname=_font_path("DejaVuSans-Bold.ttf"))
         try:
             self.add_font(FONT, style="I", fname=_font_path("DejaVuSans-Oblique.ttf"))
         except FileNotFoundError:
             self.add_font(FONT, style="I", fname=_font_path("DejaVuSans.ttf"))
+        try:
+            self.add_font(FONT, style="BI", fname=_font_path("DejaVuSans-BoldOblique.ttf"))
+        except FileNotFoundError:
+            self.add_font(FONT, style="BI", fname=_font_path("DejaVuSans-Bold.ttf"))
 
     def header(self) -> None:
         # Hlavička jen na první stránce — fpdf volá pre každou stránku
@@ -105,6 +109,93 @@ def _strip_inline(text: str) -> str:
     return text
 
 
+# ── Inline styled text rendering ────────────────────────────────────────────
+
+
+def _tokenize_inline(text: str) -> list[tuple[str, str]]:
+    """
+    Rozparsuje řádek na seznam (style, text) tokenů, kde style je
+    prázdný řetězec, "B" (bold), "I" (italic) nebo "BI" (bold-italic).
+
+    Podporuje:
+      **bold**
+      *italic*
+      ***bold-italic***
+      [text](url) → vrátí jen text
+      `code` → vrátí jen code (bez stylů)
+    """
+    # Nejprve nahradíme odkazy a inline kód za prostý text
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", text)
+    text = _INLINE_CODE_RE.sub(r"\1", text)
+
+    tokens: list[tuple[str, str]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        # ***bold-italic***
+        if text.startswith("***", i):
+            end = text.find("***", i + 3)
+            if end != -1:
+                tokens.append(("BI", text[i + 3 : end]))
+                i = end + 3
+                continue
+        # **bold**
+        if text.startswith("**", i):
+            end = text.find("**", i + 2)
+            if end != -1:
+                tokens.append(("B", text[i + 2 : end]))
+                i = end + 2
+                continue
+        # *italic*
+        if text[i] == "*" and (i + 1 < n and text[i + 1] != "*"):
+            end = text.find("*", i + 1)
+            if end != -1 and (end + 1 >= n or text[end + 1] != "*"):
+                tokens.append(("I", text[i + 1 : end]))
+                i = end + 1
+                continue
+        # plain char
+        # Najdi nejbližší marker
+        next_marker = n
+        for m in ("**", "*"):
+            idx = text.find(m, i)
+            if idx != -1 and idx < next_marker:
+                next_marker = idx
+        tokens.append(("", text[i:next_marker]))
+        i = next_marker
+
+    # Slouč po sobě jdoucí stejně-stylované tokeny
+    merged: list[tuple[str, str]] = []
+    for style, txt in tokens:
+        if not txt:
+            continue
+        if merged and merged[-1][0] == style:
+            merged[-1] = (style, merged[-1][1] + txt)
+        else:
+            merged.append((style, txt))
+    return merged
+
+
+def _render_inline_tokens(
+    pdf: FPDF, tokens: list[tuple[str, str]], size: int = 11,
+    line_height: float = 6.0,
+) -> None:
+    """
+    Vykreslí styled inline tokens jako jeden flow paragraph s wrap.
+    Použije pdf.write() — automatic line break.
+    """
+    for style, txt in tokens:
+        if "B" in style and "I" in style:
+            pdf.set_font(FONT, "BI" if "BI" in style else "B", size)
+        elif "B" in style:
+            pdf.set_font(FONT, "B", size)
+        elif "I" in style:
+            pdf.set_font(FONT, "I", size)
+        else:
+            pdf.set_font(FONT, "", size)
+        pdf.write(line_height, txt)
+    pdf.ln(line_height)
+
+
 def _parse_table_row(line: str) -> list[str]:
     """`| a | b | c |` → ['a', 'b', 'c']"""
     parts = line.strip().strip("|").split("|")
@@ -112,10 +203,10 @@ def _parse_table_row(line: str) -> list[str]:
 
 
 def _render_paragraph(pdf: FPDF, text: str) -> None:
-    """Render plain paragraph s wrap."""
-    pdf.set_font(FONT, "", 11)
+    """Render paragraph s inline bold/italic + wrap."""
     pdf.set_text_color(40, 40, 40)
-    pdf.multi_cell(0, 6, _strip_inline(text), new_x="LMARGIN", new_y="NEXT")
+    tokens = _tokenize_inline(text)
+    _render_inline_tokens(pdf, tokens, size=11, line_height=6.0)
     pdf.ln(1)
 
 
@@ -132,15 +223,14 @@ def _render_heading(pdf: FPDF, level: int, text: str) -> None:
 
 
 def _render_list_item(pdf: FPDF, text: str, ordered: bool, idx: int) -> None:
-    pdf.set_font(FONT, "", 11)
     pdf.set_text_color(40, 40, 40)
     bullet = f"{idx}." if ordered else "•"
+    pdf.set_font(FONT, "", 11)
     # 6mm indent + 5mm bullet column
-    x = pdf.get_x()
     pdf.cell(6, 6, "")
     pdf.cell(5, 6, bullet)
-    pdf.multi_cell(0, 6, _strip_inline(text), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(x)
+    tokens = _tokenize_inline(text)
+    _render_inline_tokens(pdf, tokens, size=11, line_height=6.0)
 
 
 def _calc_col_widths(headers: list[str], rows: list[list[str]],

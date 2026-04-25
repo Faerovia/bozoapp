@@ -11,7 +11,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, FileText, Trash2, Save, Sparkles, Database, Loader2, Download,
+  Plus, FileText, Sparkles, Loader2,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { DocumentEditor } from "./document-editor";
 
 const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
@@ -155,151 +156,6 @@ function GenerateDialog({
         </div>
       </div>
     </Dialog>
-  );
-}
-
-// ── Editor pane ────────────────────────────────────────────────────────────
-
-function DocumentEditor({
-  docId,
-}: {
-  docId: string;
-}) {
-  const qc = useQueryClient();
-  const [title, setTitle] = useState("");
-  const [contentMd, setContentMd] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  const { data: doc, isLoading } = useQuery<GeneratedDocument>({
-    queryKey: ["document", docId],
-    queryFn: () => api.get(`/documents/${docId}`),
-  });
-
-  // Sync local state s loaded doc
-  useEffect(() => {
-    if (doc) {
-      setTitle(doc.title);
-      setContentMd(doc.content_md);
-      setDirty(false);
-      setSaveError(null);
-    }
-  }, [doc]);
-
-  const save = useMutation({
-    mutationFn: () =>
-      api.patch<GeneratedDocument>(`/documents/${docId}`, {
-        title,
-        content_md: contentMd,
-      }),
-    onSuccess: () => {
-      setDirty(false);
-      setSaveError(null);
-      qc.invalidateQueries({ queryKey: ["document", docId] });
-      qc.invalidateQueries({ queryKey: ["documents"] });
-    },
-    onError: (err) => setSaveError(errMsg(err)),
-  });
-
-  const remove = useMutation({
-    mutationFn: () => api.delete(`/documents/${docId}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["documents"] });
-      qc.removeQueries({ queryKey: ["document", docId] });
-    },
-  });
-
-  if (isLoading || !doc) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="border-b border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
-        <FileText className="h-5 w-5 text-gray-400 shrink-0" />
-        <Input
-          value={title}
-          onChange={(e) => { setTitle(e.target.value); setDirty(true); }}
-          className="flex-1 font-semibold border-transparent hover:border-gray-200 focus:border-blue-500"
-          placeholder="Název dokumentu"
-        />
-        <span className={cn(
-          "rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide",
-          TYPE_BADGES[doc.document_type]
-        )}>
-          {DOCUMENT_TYPE_LABELS[doc.document_type].split("(")[0].trim()}
-        </span>
-      </div>
-
-      {/* Toolbar */}
-      <div className="border-b border-gray-100 bg-gray-50/50 px-4 py-2 flex items-center justify-between">
-        <span className="text-xs text-gray-500">
-          {doc.ai_input_tokens != null && (
-            <>
-              <Sparkles className="inline h-3 w-3 mr-1 text-blue-500" />
-              AI tokens: {doc.ai_input_tokens} input / {doc.ai_output_tokens} output
-            </>
-          )}
-          {doc.ai_input_tokens == null && (
-            <>
-              <Database className="inline h-3 w-3 mr-1 text-emerald-500" />
-              Generováno z dat (bez AI)
-            </>
-          )}
-        </span>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              window.open(`/api/v1/documents/${docId}/pdf?download=true`, "_blank")
-            }
-          >
-            <Download className="h-3.5 w-3.5 mr-1" />
-            Stáhnout PDF
-          </Button>
-          <Button
-            size="sm"
-            disabled={!dirty || save.isPending}
-            loading={save.isPending}
-            onClick={() => save.mutate()}
-          >
-            <Save className="h-3.5 w-3.5 mr-1" />
-            Uložit
-          </Button>
-          <button
-            onClick={() => {
-              if (confirm("Opravdu smazat tento dokument?")) remove.mutate();
-            }}
-            className="rounded p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-            title="Smazat"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {saveError && (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-sm text-red-700">
-          {saveError}
-        </div>
-      )}
-
-      {/* Editor */}
-      <textarea
-        value={contentMd}
-        onChange={(e) => { setContentMd(e.target.value); setDirty(true); }}
-        className="flex-1 w-full px-6 py-4 text-sm font-mono leading-relaxed resize-none focus:outline-none bg-white"
-        placeholder="Markdown obsah dokumentu…"
-        spellCheck={false}
-      />
-    </div>
   );
 }
 
