@@ -18,12 +18,18 @@ from app.models.user import User
 from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
+    MembershipResponse,
     RegisterRequest,
     ResetPasswordRequest,
+    SelectTenantRequest,
     TokenResponse,
     UserResponse,
 )
 from app.services.auth import _TotpRequiredError, login_user, register_user
+from app.services.memberships import (
+    get_user_memberships,
+    has_membership,
+)
 from app.services.password_reset import (
     request_reset as svc_request_reset,
 )
@@ -223,6 +229,53 @@ async def logout(
 @router.get("/auth/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)) -> User:
     return current_user
+
+
+# ── Multi-tenant membership endpoints ───────────────────────────────────────
+
+
+@router.get("/auth/memberships", response_model=list[MembershipResponse])
+async def list_memberships(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[MembershipResponse]:
+    """Vrátí list klientů (tenantů), kam má current user přístup."""
+    rows = await get_user_memberships(db, current_user.id)
+    return [MembershipResponse.model_validate(r) for r in rows]
+
+
+@router.post("/auth/select-tenant", response_model=TokenResponse)
+async def select_tenant(
+    data: SelectTenantRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """
+    Přepne aktivní tenant. Vystaví nový access token s vybraným tenant_id
+    a rolí přiřazenou v dané membership. Refresh token zůstává platný
+    s původním tenant_id (rolling — re-vystavíme při dalším refreshi).
+    """
+    membership = await has_membership(db, current_user.id, data.tenant_id)
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Nemáš přístup k tomuto klientovi",
+        )
+
+    new_access = create_access_token(
+        current_user.id, data.tenant_id, membership.role
+    )
+
+    # CSRF token zůstává; jen access token se mění (refresh netvoříme).
+    # Frontend bude pro další requesty používat nový access token.
+    return TokenResponse(
+        access_token=new_access,
+        # Refresh nedáváme — používá se stávající refresh; jen access se mění.
+        # Schema TokenResponse vyžaduje refresh_token; pošleme prázdný string
+        # a frontend si necháme stávající. Lepší by bylo samostatné schema.
+        refresh_token="",
+        token_type="bearer",
+    )
 
 
 # ── Password reset ────────────────────────────────────────────────────────────

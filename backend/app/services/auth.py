@@ -62,6 +62,16 @@ async def register_user(
     db.add(user)
     await db.flush()
 
+    # Vytvoř i M:N membership (default), aby fungoval client switcher.
+    from app.models.membership import UserTenantMembership
+    db.add(UserTenantMembership(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        role="ozo",
+        is_default=True,
+    ))
+    await db.flush()
+
     access_token = create_access_token(user.id, tenant.id, user.role)
     refresh_token = create_refresh_token(user.id, tenant.id)
 

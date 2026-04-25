@@ -69,21 +69,43 @@ async def get_current_user(
     except (JWTError, KeyError, ValueError):
         raise exc
 
-    # Nastav RLS kontext pro tuto transakci přes set_config()
-    # s parameter bindingem (bezpečnější než SET LOCAL s f-stringem).
-    # Třetí parametr `true` = SET LOCAL (scoped na transakci).
+    # User lookup obejde RLS — JWT je už ověřený. Po multi-tenant refaktoru
+    # user.tenant_id (primární) může být jiný než aktuální tenant z JWT
+    # (OZO přepnul na klienta), a RLS by lookup zablokovala.
     await db.execute(
-        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-        {"tid": str(tenant_id)},
+        text("SELECT set_config('app.is_superadmin', 'true', true)")
     )
-
     result = await db.execute(
         select(User).where(User.id == user_id, User.is_active == True)  # noqa: E712
     )
     user = result.scalar_one_or_none()
+    # Po lookupu superadmin reset — dál už jedeme s normálním kontextem
+    await db.execute(
+        text("SELECT set_config('app.is_superadmin', 'false', true)")
+    )
 
     if user is None:
         raise exc
+
+    # Ověř, že user má membership na tenant_id z JWT (revoke ochrana).
+    # Platform admin tuto kontrolu obchází (může být všude).
+    if not user.is_platform_admin:
+        from app.models.membership import UserTenantMembership
+        m_res = await db.execute(
+            select(UserTenantMembership).where(
+                UserTenantMembership.user_id == user_id,
+                UserTenantMembership.tenant_id == tenant_id,
+            )
+        )
+        if m_res.scalar_one_or_none() is None:
+            raise exc
+
+    # Nastav RLS kontext pro tuto transakci. Pokud platform admin, nasadíme
+    # ještě bypass (níže) — pro normálního usera jen current_tenant_id.
+    await db.execute(
+        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+        {"tid": str(tenant_id)},
+    )
 
     # Platform admin → aktivuj cross-tenant bypass pro zbytek requestu.
     # RLS policy `platform_admin_bypass` na všech tabulkách (viz migrace 019)

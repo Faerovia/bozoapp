@@ -128,9 +128,11 @@ async def test_platform_admin_creates_tenant_with_ozo(
 
 
 @pytest.mark.asyncio
-async def test_platform_admin_rejects_duplicate_email(
+async def test_platform_admin_attach_existing_ozo_to_new_tenant(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
+    """Multi-client OZO: stejný email lze přidat k více tenantům.
+    Druhý tenant pouze připojí existujícího usera přes membership."""
     await _register_regular_ozo(client, "ad4")
     await _promote_to_platform_admin(db_session, "regularad4@me.cz")
 
@@ -140,21 +142,24 @@ async def test_platform_admin_rejects_duplicate_email(
     )
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
-    # První tenant projde
     r1 = await client.post(
         "/api/v1/admin/tenants",
         json={"tenant_name": "Klient A", "ozo_email": "dup@me.cz"},
         headers=headers,
     )
     assert r1.status_code == 201
+    ozo_user_id_a = r1.json()["ozo_user_id"]
 
-    # Druhý pokus se stejným emailem → 409
+    # Druhý call se stejným emailem — vytvoří nový tenant a připojí
+    # existujícího user_id přes membership (žádný 409).
     r2 = await client.post(
         "/api/v1/admin/tenants",
         json={"tenant_name": "Klient B", "ozo_email": "dup@me.cz"},
         headers=headers,
     )
-    assert r2.status_code == 409
+    assert r2.status_code == 201
+    assert r2.json()["ozo_user_id"] == ozo_user_id_a
+    assert r2.json()["tenant"]["name"] == "Klient B"
 
 
 @pytest.mark.asyncio

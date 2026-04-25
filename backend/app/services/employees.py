@@ -159,6 +159,16 @@ async def create_employee(
         await db.flush()
         linked_user_id = new_user.id
 
+        # Membership pro client switcher / multi-tenant kontrolu
+        from app.models.membership import UserTenantMembership
+        db.add(UserTenantMembership(
+            user_id=new_user.id,
+            tenant_id=tenant_id,
+            role=role,
+            is_default=True,
+        ))
+        await db.flush()
+
     employee = Employee(
         tenant_id=tenant_id,
         created_by=created_by,

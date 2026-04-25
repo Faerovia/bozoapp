@@ -17,3 +17,9 @@ class Tenant(Base, TimestampMixin):
     # Relativní cesta v UPLOAD_DIR k logu firmy (PNG/JPG, max 1 MB).
     # Používá se v certifikátech školení. Migrace 022.
     logo_path: Mapped[str | None] = mapped_column(String(500))
+    # Pokud True, zaměstnanci/HR klienta se mohou logovat do tenantu.
+    # Pokud False, tenant je OZO-only (ostatní role nemají vlastní login).
+    # Migrace 026.
+    external_login_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )

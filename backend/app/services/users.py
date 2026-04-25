@@ -38,6 +38,16 @@ async def create_user(
     )
     db.add(user)
     await db.flush()
+
+    # Membership na tenant — bez ní get_current_user vrací 401 po refaktoru.
+    from app.models.membership import UserTenantMembership
+    db.add(UserTenantMembership(
+        user_id=user.id,
+        tenant_id=tenant_id,
+        role=data.role,
+        is_default=True,
+    ))
+    await db.flush()
     return user
 
 

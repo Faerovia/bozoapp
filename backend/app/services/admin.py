@@ -18,11 +18,11 @@ import re
 import secrets as pysecrets
 import uuid
 
-from fastapi import HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
+from app.models.membership import UserTenantMembership
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.password_reset import request_reset
@@ -41,33 +41,44 @@ async def create_tenant_with_ozo(
     tenant_name: str,
     ozo_email: str,
     ozo_full_name: str | None = None,
+    external_login_enabled: bool = False,
     reset_url_template: str = "https://app.bozoapp.cz/reset-password?token={token}",
 ) -> tuple[Tenant, User]:
     """
-    Vytvoří nový tenant + OZO uživatele. OZO dostane random heslo a email
-    s reset-password linkem → nastaví si heslo sám.
+    Vytvoří nový tenant + OZO uživatele. Pokud OZO s daným emailem už
+    existuje (typicky multi-client OZO), pouze přidá novou membership
+    (NEvytváří nového usera ani neposílá password reset).
 
-    Vrací (tenant, ozo_user). Heslo není vráceno — jen token v emailu.
+    `external_login_enabled` — pokud True, klientův HR/admin se může
+    zaregistrovat do tenantu. Default False (OZO-only tenant).
     """
-    # Superadmin bypass — INSERT to tenants vyžaduje RLS bypass, tenant ještě
-    # neexistuje, nemáme app.current_tenant_id.
     await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))
 
-    # Kontrola duplicitního emailu napříč všemi tenanty — jeden email = jeden user
-    existing = (await db.execute(
-        select(User).where(User.email == ozo_email)
-    )).scalar_one_or_none()
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Uživatel s emailem {ozo_email} již existuje",
-        )
-
-    tenant = Tenant(name=tenant_name, slug=_slugify(tenant_name))
+    tenant = Tenant(
+        name=tenant_name,
+        slug=_slugify(tenant_name),
+        external_login_enabled=external_login_enabled,
+    )
     db.add(tenant)
     await db.flush()
 
-    # Random heslo — nikdy ho uživatel neuvidí, reset flow ho přepíše.
+    # Pokud OZO už v systému existuje (multi-client) — jen přidáme membership.
+    existing = (await db.execute(
+        select(User).where(User.email == ozo_email)
+    )).scalar_one_or_none()
+
+    if existing is not None:
+        membership = UserTenantMembership(
+            user_id=existing.id,
+            tenant_id=tenant.id,
+            role="ozo",
+            is_default=False,
+        )
+        db.add(membership)
+        await db.flush()
+        return tenant, existing
+
+    # Nový OZO — vytvoříme usera + reset email + membership na nový tenant
     random_pwd = pysecrets.token_urlsafe(32)
     user = User(
         tenant_id=tenant.id,
@@ -80,8 +91,16 @@ async def create_tenant_with_ozo(
     db.add(user)
     await db.flush()
 
-    # Commit je v get_db; spustíme reset_request, který vytvoří password_reset_token
-    # a pošle email přes EmailSender (v produkci SMTP, v dev console/null).
+    # Membership pro nového usera — is_default=True (jediný klient)
+    membership = UserTenantMembership(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        role="ozo",
+        is_default=True,
+    )
+    db.add(membership)
+    await db.flush()
+
     await request_reset(
         db, ozo_email, request_ip=None, reset_url_template=reset_url_template
     )

@@ -35,6 +35,9 @@ class CreateTenantRequest(BaseModel):
     tenant_name: str = Field(..., min_length=2, max_length=255)
     ozo_email: EmailStr
     ozo_full_name: str | None = Field(None, max_length=255)
+    # Pokud True, klient (HR/admin firmy) se může do svého tenantu zaregistrovat
+    # vlastním loginem. Pokud False, tenant je OZO-only (default).
+    external_login_enabled: bool = False
 
 
 class CreateTenantResponse(BaseModel):
@@ -66,6 +69,7 @@ async def admin_create_tenant(
         tenant_name=data.tenant_name,
         ozo_email=data.ozo_email,
         ozo_full_name=data.ozo_full_name,
+        external_login_enabled=data.external_login_enabled,
     )
     return CreateTenantResponse(
         tenant=TenantResponse.model_validate(tenant),

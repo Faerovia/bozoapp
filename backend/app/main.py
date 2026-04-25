@@ -19,6 +19,7 @@ from app.api.v1 import (
     job_positions,
     medical_exams,
     oopp,
+    ozo_overview,
     revisions,
     risks,
     tenant,
@@ -198,3 +199,4 @@ app.include_router(oopp.router, prefix="/api/v1", tags=["oopp"])
 app.include_router(workplaces.router, prefix="/api/v1", tags=["workplaces"])
 app.include_router(job_positions.router, prefix="/api/v1", tags=["job-positions"])
 app.include_router(medical_exams.router, prefix="/api/v1", tags=["medical-exams"])
+app.include_router(ozo_overview.router, prefix="/api/v1", tags=["ozo-overview"])

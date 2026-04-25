@@ -54,6 +54,20 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MembershipResponse(BaseModel):
+    """Klient × role pro current_user. Pro client switcher."""
+    tenant_id: uuid.UUID
+    tenant_name: str
+    role: str
+    is_default: bool
+
+    model_config = {"from_attributes": True}
+
+
+class SelectTenantRequest(BaseModel):
+    tenant_id: uuid.UUID
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 

@@ -8,6 +8,7 @@ class TenantResponse(BaseModel):
     name: str
     slug: str
     is_active: bool
+    external_login_enabled: bool = False
 
     model_config = {"from_attributes": True}
 
