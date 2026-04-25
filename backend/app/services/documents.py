@@ -38,8 +38,15 @@ log = logging.getLogger(__name__)
 
 async def list_documents(
     db: AsyncSession, tenant_id: uuid.UUID,
-    *, document_type: str | None = None,
+    *,
+    document_type: str | None = None,
+    folder_id: uuid.UUID | None = None,
+    folder_id_set: bool = False,
 ) -> list[GeneratedDocument]:
+    """
+    List documents. Pokud folder_id_set=True, filtruje na konkrétní složku
+    (None = root úroveň, žádná složka). Bez folder_id_set se vrací vše.
+    """
     q = (
         select(GeneratedDocument)
         .where(GeneratedDocument.tenant_id == tenant_id)
@@ -47,6 +54,11 @@ async def list_documents(
     )
     if document_type:
         q = q.where(GeneratedDocument.document_type == document_type)
+    if folder_id_set:
+        if folder_id is None:
+            q = q.where(GeneratedDocument.folder_id.is_(None))
+        else:
+            q = q.where(GeneratedDocument.folder_id == folder_id)
     res = await db.execute(q)
     return list(res.scalars().all())
 
@@ -65,12 +77,23 @@ async def get_document_by_id(
 
 async def update_document(
     db: AsyncSession, doc: GeneratedDocument,
-    *, title: str | None = None, content_md: str | None = None,
+    *,
+    title: str | None = None,
+    content_md: str | None = None,
+    folder_id: uuid.UUID | None = None,
+    folder_id_set: bool = False,
 ) -> GeneratedDocument:
     if title is not None:
         doc.title = title
     if content_md is not None:
         doc.content_md = content_md
+    if folder_id_set:
+        if folder_id is not None:
+            from app.models.document_folder import DocumentFolder
+            await assert_in_tenant(
+                db, DocumentFolder, folder_id, doc.tenant_id, field_name="folder_id",
+            )
+        doc.folder_id = folder_id
     await db.flush()
     return doc
 
@@ -558,10 +581,46 @@ async def generate_document(
     return doc
 
 
+async def create_imported_document(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    created_by: uuid.UUID,
+    *,
+    title: str,
+    content_md: str,
+    folder_id: uuid.UUID | None,
+    source_filename: str | None = None,
+) -> GeneratedDocument:
+    """
+    Uloží naimportovaný textový dokument jako GeneratedDocument typu 'imported'.
+    """
+    if folder_id is not None:
+        from app.models.document_folder import DocumentFolder
+        await assert_in_tenant(
+            db, DocumentFolder, folder_id, tenant_id, field_name="folder_id",
+        )
+    doc = GeneratedDocument(
+        tenant_id=tenant_id,
+        created_by=created_by,
+        folder_id=folder_id,
+        document_type="imported",
+        title=title,
+        content_md=content_md,
+        params={
+            "source_filename": source_filename,
+            "imported_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
 # Re-export pro testy
 __all__ = [
     "DEVICE_TYPES",
     "OOPP_RISK_COLS",
+    "create_imported_document",
     "generate_document",
     "get_document_by_id",
     "list_documents",

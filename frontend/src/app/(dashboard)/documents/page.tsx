@@ -11,7 +11,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, FileText, Sparkles, Loader2,
+  Plus, FileText, Sparkles, Loader2, Upload,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -25,6 +25,8 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { DocumentEditor } from "./document-editor";
+import { FolderTree, type DocumentFolderItem } from "./folder-tree";
+import { ImportDocumentDialog } from "./import-dialog";
 
 const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
@@ -33,6 +35,7 @@ const TYPE_BADGES: Record<DocumentType, string> = {
   training_outline: "bg-blue-100 text-blue-700",
   revision_schedule: "bg-emerald-100 text-emerald-700",
   risk_categorization: "bg-amber-100 text-amber-700",
+  imported: "bg-gray-100 text-gray-700",
 };
 
 function isAiType(t: DocumentType): boolean {
@@ -164,10 +167,23 @@ function GenerateDialog({
 export default function DocumentsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  // null = "Vše" pro aktuální doménu, jinak ID složky. Před první volbou: undefined → vše.
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
 
   const { data: docs = [], isLoading } = useQuery<GeneratedDocumentListItem[]>({
-    queryKey: ["documents"],
-    queryFn: () => api.get("/documents"),
+    queryKey: ["documents", selectedFolderId],
+    queryFn: () => {
+      if (selectedFolderId === undefined) return api.get("/documents");
+      const qs = selectedFolderId === null ? "?root_only=true" : `?folder_id=${selectedFolderId}`;
+      return api.get(`/documents${qs}`);
+    },
+  });
+
+  // Folders pro import dialog (všechny domény)
+  const { data: allFolders = [] } = useQuery<DocumentFolderItem[]>({
+    queryKey: ["document-folders", "all"],
+    queryFn: () => api.get("/document-folders"),
   });
 
   // Auto-select první dokument
@@ -186,14 +202,31 @@ export default function DocumentsPage() {
       <Header
         title="Dokumenty"
         actions={
-          <Button size="sm" onClick={() => setGenerateOpen(true)}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            Vygenerovat
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4 mr-1.5" />
+              Importovat
+            </Button>
+            <Button size="sm" onClick={() => setGenerateOpen(true)}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Vygenerovat
+            </Button>
+          </div>
         }
       />
 
       <div className="flex flex-1 overflow-hidden">
+        {/* Folder tree — úplně vlevo */}
+        <div className="w-72 border-r border-gray-200 bg-white">
+          <FolderTree
+            selectedFolderId={selectedFolderId === undefined ? null : selectedFolderId}
+            onSelectFolder={(id) => {
+              setSelectedFolderId(id);
+              setSelectedId(null);
+            }}
+          />
+        </div>
+
         {/* Levý panel — list */}
         <div className="w-72 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
           {isLoading ? (
@@ -271,6 +304,17 @@ export default function DocumentsPage() {
         onClose={() => setGenerateOpen(false)}
         onGenerated={(id) => {
           setGenerateOpen(false);
+          setSelectedId(id);
+        }}
+      />
+
+      <ImportDocumentDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        folders={allFolders}
+        defaultFolderId={selectedFolderId === undefined ? null : selectedFolderId}
+        onImported={(id) => {
+          setImportOpen(false);
           setSelectedId(id);
         }}
       />

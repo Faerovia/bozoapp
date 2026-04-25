@@ -10,6 +10,7 @@ DocumentType = Literal[
     "training_outline",
     "revision_schedule",
     "risk_categorization",
+    "imported",
 ]
 
 
@@ -17,16 +18,19 @@ class GenerateDocumentRequest(BaseModel):
     document_type: DocumentType
     # Volitelné parametry (např. pro training_outline: position_id)
     params: dict[str, Any] = Field(default_factory=dict)
+    folder_id: uuid.UUID | None = None
 
 
 class DocumentUpdateRequest(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=255)
     content_md: str | None = None
+    folder_id: uuid.UUID | None = None
 
 
 class DocumentResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
+    folder_id: uuid.UUID | None = None
     document_type: str
     title: str
     content_md: str
@@ -41,6 +45,7 @@ class DocumentResponse(BaseModel):
 class DocumentListItem(BaseModel):
     """List view bez content_md (úspora payload)."""
     id: uuid.UUID
+    folder_id: uuid.UUID | None = None
     document_type: str
     title: str
     ai_input_tokens: int | None

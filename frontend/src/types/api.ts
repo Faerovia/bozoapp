@@ -560,13 +560,15 @@ export type DocumentType =
   | "bozp_directive"
   | "training_outline"
   | "revision_schedule"
-  | "risk_categorization";
+  | "risk_categorization"
+  | "imported";
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   bozp_directive: "Směrnice BOZP",
   training_outline: "Osnova školení BOZP (per pozice)",
   revision_schedule: "Harmonogram revizí",
   risk_categorization: "Kategorizace prací (RFA)",
+  imported: "Importováno",
 };
 
 export const DOCUMENT_TYPE_DESC: Record<DocumentType, string> = {
@@ -578,10 +580,13 @@ export const DOCUMENT_TYPE_DESC: Record<DocumentType, string> = {
     "Tabulkový přehled všech revizí s termíny. Bez AI — čistá data.",
   risk_categorization:
     "Tabulka kategorií prací dle NV 361/2007. Z RFA, bez AI.",
+  imported:
+    "Externě nahraný textový dokument (PDF/DOCX/MD/TXT).",
 };
 
 export interface GeneratedDocumentListItem {
   id: string;
+  folder_id: string | null;
   document_type: DocumentType;
   title: string;
   ai_input_tokens: number | null;
@@ -592,6 +597,7 @@ export interface GeneratedDocumentListItem {
 export interface GeneratedDocument {
   id: string;
   tenant_id: string;
+  folder_id: string | null;
   document_type: DocumentType;
   title: string;
   content_md: string;

@@ -32,11 +32,17 @@ router = APIRouter()
 @router.get("/documents", response_model=list[DocumentListItem])
 async def list_documents_endpoint(
     document_type: str | None = Query(None),
+    folder_id: uuid.UUID | None = Query(None),
+    root_only: bool = Query(False, description="Vrátí jen dokumenty bez složky"),
     current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
+    folder_id_set = root_only or folder_id is not None
     return await list_documents(
-        db, current_user.tenant_id, document_type=document_type,
+        db, current_user.tenant_id,
+        document_type=document_type,
+        folder_id=folder_id,
+        folder_id_set=folder_id_set,
     )
 
 
@@ -93,8 +99,13 @@ async def update_document_endpoint(
     doc = await get_document_by_id(db, doc_id, current_user.tenant_id)
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokument nenalezen")
+    folder_id_set = "folder_id" in data.model_fields_set
     return await update_document(
-        db, doc, title=data.title, content_md=data.content_md,
+        db, doc,
+        title=data.title,
+        content_md=data.content_md,
+        folder_id=data.folder_id,
+        folder_id_set=folder_id_set,
     )
 
 
