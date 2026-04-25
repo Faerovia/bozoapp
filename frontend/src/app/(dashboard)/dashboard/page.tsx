@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import type { DashboardResponse, CalendarItem, UserResponse } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
 import {
   AlertTriangle,
   GraduationCap,
@@ -15,6 +16,7 @@ import {
   Stethoscope,
   CalendarClock,
   TrendingUp,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -194,6 +196,24 @@ export default function DashboardPage() {
             Nepodařilo se načíst data. Zkuste obnovit stránku.
           </div>
         ) : data ? (
+          <>
+            {(data.workplaces_without_category ?? 0) > 0 && (
+              <Link href="/risk-overview" className="block">
+                <div className="rounded-lg bg-red-50 border border-red-300 p-4 flex items-center gap-3 hover:bg-red-100 transition-colors cursor-pointer">
+                  <ShieldAlert className="h-6 w-6 text-red-600 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-red-800">
+                      Pracoviště bez určené kategorie rizik: {data.workplaces_without_category}
+                    </p>
+                    <p className="text-xs text-red-700">
+                      Každé pracoviště musí mít určenou kategorii rizik (RFA).
+                      Klikněte pro přejití do modulu Úroveň rizik na pracovištích.
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            )}
+
           <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
             <StatCard
               title="Čekající revize rizik"
@@ -231,6 +251,7 @@ export default function DashboardPage() {
               description="Vyprší do 60 dnů"
             />
           </div>
+          </>
         ) : null}
 
         {/* Calendar */}

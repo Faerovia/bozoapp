@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -78,7 +79,7 @@ async def export_tenant(
     return Response(
         content=body,
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=False)},
     )
 
 

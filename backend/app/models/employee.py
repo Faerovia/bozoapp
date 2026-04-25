@@ -1,7 +1,7 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -58,6 +58,14 @@ class Employee(Base, TimestampMixin):
 
     # Stav
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+
+    # Throttling pro auto-generaci lékařských prohlídek
+    # Po každé úspěšné generaci se aktualizuje. Manuální tlačítko
+    # „Generovat prohlídky" projde jen ty zaměstnance, kteří byli zkontrolováni
+    # před více než 30 minutami (nebo ještě nikdy).
+    last_exam_auto_check_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
 
     notes: Mapped[str | None] = mapped_column(Text)
 

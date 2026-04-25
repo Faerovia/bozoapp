@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.core.storage import (
     delete_file,
@@ -41,6 +42,7 @@ from app.services.medical_exam_referral import generate_referral_pdf
 from app.services.medical_exams import (
     attach_employee_info,
     create_medical_exam,
+    generate_exams_for_all_employees,
     generate_initial_exam_requests,
     get_medical_exam_by_id,
     get_medical_exams,
@@ -137,12 +139,11 @@ async def export_medical_exams_pdf(
     enriched = await attach_employee_info(db, exams, include_personal_id=True)
     pdf_bytes = generate_medical_exams_pdf(enriched, tenant_name)
 
-    disposition = "attachment" if download else "inline"
     filename = f"prehled_lekarskych_prohlidek_{date.today()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=not download)},
     )
 
 
@@ -173,11 +174,29 @@ async def generate_initial_exams_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """
-    Auto-vygeneruje vstupní + odborné prohlídky podle kategorie pozice zaměstnance.
-    Skipuje typy/specialty, které už existují jako aktivní záznam.
+    Auto-vygeneruje vstupní + odborné prohlídky pro JEDNOHO zaměstnance.
+    Použití pro detail / debug, hlavní use-case je /generate-all.
     """
     return await generate_initial_exam_requests(
         db, payload.employee_id, current_user.tenant_id, current_user.id,
+    )
+
+
+@router.post(
+    "/medical-exams/generate-all",
+    status_code=status.HTTP_200_OK,
+)
+async def generate_exams_for_all_endpoint(
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Hromadná auto-generace prohlídek pro všechny aktivní zaměstnance.
+    Throttling: zaměstnanec, který byl zkontrolován v posledních 30 minutách,
+    se přeskočí. Bezpečné spustit opakovaně — idempotentní.
+    """
+    return await generate_exams_for_all_employees(
+        db, current_user.tenant_id, current_user.id,
     )
 
 
@@ -366,10 +385,9 @@ async def get_referral_pdf(
         specialty_label=specialty_label,
     )
 
-    disposition = "attachment" if download else "inline"
     filename = f"zadanka_{employee.last_name}_{exam.exam_date}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=not download)},
     )

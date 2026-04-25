@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.core.storage import (
     MAX_REVISION_FILE_BYTES,
@@ -123,12 +124,11 @@ async def export_revisions_pdf(
     )
     pdf_bytes = generate_revisions_pdf(records, tenant_name)
 
-    disposition = "attachment" if download else "inline"
     filename = f"harmonogram_revizi_{date.today()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=not download)},
     )
 
 
@@ -212,7 +212,7 @@ async def get_revision_qr(
     return Response(
         content=png_bytes,
         media_type="image/png",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=True)},
     )
 
 

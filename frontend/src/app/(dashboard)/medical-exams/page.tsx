@@ -270,48 +270,27 @@ function OdbornaExamForm({
 
 // ── Generovat vstupní (auto) ─────────────────────────────────────────────────
 
-interface GenerateResult {
-  created: number;
-  exam_ids: string[];
-  skipped_specialties: string[];
-  work_category: string | null;
-  triggered_by_factors: { specialty: string; factor: string; rating: string }[];
-  rfa_present: boolean;
+interface BulkGenerateResult {
+  total_employees: number;
+  processed: number;
+  skipped_throttle: number;
+  skipped_failed: number;
+  total_exams_created: number;
+  throttle_minutes: number;
 }
 
-const FACTOR_LABELS: Record<string, string> = {
-  rf_prach:       "Prach",
-  rf_chem:        "Chemické látky",
-  rf_hluk:        "Hluk",
-  rf_vibrace:     "Vibrace",
-  rf_zareni:      "Záření",
-  rf_tlak:        "Tlak",
-  rf_fyz_zatez:   "Fyzická zátěž",
-  rf_prac_poloha: "Pracovní poloha",
-  rf_teplo:       "Teplo",
-  rf_chlad:       "Chlad",
-  rf_psych:       "Psychická zátěž",
-  rf_zrak:        "Zraková zátěž",
-  rf_bio:         "Biologičtí činitelé",
-};
-
-function GenerateInitialDialog({
-  open, onClose, employees, specialties,
+function GenerateBulkDialog({
+  open, onClose,
 }: {
   open: boolean;
   onClose: () => void;
-  employees: Employee[];
-  specialties: SpecialtyCatalogEntry[];
 }) {
   const qc = useQueryClient();
-  const [employeeId, setEmployeeId] = useState("");
-  const [result, setResult] = useState<GenerateResult | null>(null);
+  const [result, setResult] = useState<BulkGenerateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () => api.post<GenerateResult>(
-      "/medical-exams/generate-initial", { employee_id: employeeId },
-    ),
+    mutationFn: () => api.post<BulkGenerateResult>("/medical-exams/generate-all", {}),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["medical-exams"] });
       setResult(data);
@@ -321,42 +300,28 @@ function GenerateInitialDialog({
   });
 
   function reset() {
-    setEmployeeId(""); setResult(null); setError(null);
-  }
-
-  function specLabel(key: string) {
-    return specialties.find(s => s.key === key)?.label || key;
+    setResult(null); setError(null);
   }
 
   return (
     <Dialog
       open={open}
       onClose={() => { reset(); onClose(); }}
-      title="Auto-generovat vstupní + odborné prohlídky"
+      title="Generovat prohlídky pro všechny zaměstnance"
       size="md"
     >
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
-          Vytvoří se vstupní lékařská prohlídka a odborná vyšetření odpovídající
-          <strong> konkrétním rizikovým faktorům</strong> na pozici zaměstnance
-          (z hodnocení rizik / RFA). Periodicita odborné prohlídky se odvodí
-          z ratingu daného faktoru, ne ze souhrnné kategorie pozice.
+          Systém projde všechny aktivní zaměstnance a u každého ověří, zda má
+          aktuální vstupní prohlídku a všechny odborné prohlídky vyžadované
+          jeho rizikovými faktory na pozici (z RFA). Chybějící draft záznamy
+          se vytvoří automaticky. Periodicita se odvozuje z ratingu konkrétního
+          faktoru a věku zaměstnance (vyhláška 79/2013 Sb.).
         </p>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="gen-employee">Zaměstnanec *</Label>
-          <select
-            id="gen-employee"
-            value={employeeId}
-            onChange={(e) => setEmployeeId(e.target.value)}
-            className={SELECT_CLS}
-          >
-            <option value="">— Vyberte zaměstnance —</option>
-            {employees.map(e => (
-              <option key={e.id} value={e.id}>{e.last_name} {e.first_name}</option>
-            ))}
-          </select>
-        </div>
+        <p className="text-xs text-gray-500 italic">
+          Throttling: zaměstnanec, který byl zkontrolován v posledních 30 minutách,
+          se přeskočí. Bezpečné spustit opakovaně.
+        </p>
 
         {error && (
           <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
@@ -365,40 +330,20 @@ function GenerateInitialDialog({
         )}
 
         {result && (
-          <div className="rounded-md bg-green-50 border border-green-200 px-3 py-3 text-sm text-green-800 space-y-2">
+          <div className="rounded-md bg-green-50 border border-green-200 px-3 py-3 text-sm text-green-800 space-y-1">
             <p>
-              <strong>Vytvořeno {result.created} prohlídek.</strong>
+              <strong>Zpracováno {result.processed} z {result.total_employees} zaměstnanců.</strong>
             </p>
-            {result.triggered_by_factors.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs font-semibold">Přiřazené odborné prohlídky:</p>
-                <ul className="text-xs space-y-0.5 pl-2">
-                  {result.triggered_by_factors.map((t, i) => (
-                    <li key={i}>
-                      • <strong>{specLabel(t.specialty)}</strong> —
-                      kvůli faktoru <em>{FACTOR_LABELS[t.factor] || t.factor}</em>
-                      {" = kat. "}{t.rating}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {!result.rfa_present && (
-              <p className="text-xs text-amber-700 italic">
-                Pozice zaměstnance nemá vyplněné hodnocení rizik (RFA).
-                Vytvořila se pouze vstupní prohlídka. Pro auto-generaci odborných
-                prohlídek vyplňte nejdřív RFA v modulu &bdquo;Úroveň rizik na pracovištích&ldquo;.
-              </p>
-            )}
-            {result.rfa_present && result.triggered_by_factors.length === 0 && (
-              <p className="text-xs italic">
-                Žádný rizikový faktor nedosahuje úrovně, která by vyžadovala
-                odbornou prohlídku.
-              </p>
-            )}
-            {result.skipped_specialties.length > 0 && (
+            <p>Vytvořeno celkem {result.total_exams_created} nových prohlídek.</p>
+            {result.skipped_throttle > 0 && (
               <p className="text-xs">
-                Přeskočeno (už existuje): {result.skipped_specialties.join(", ")}
+                Přeskočeno (zkontrolováno v posledních {result.throttle_minutes} minutách):
+                {" "}{result.skipped_throttle}
+              </p>
+            )}
+            {result.skipped_failed > 0 && (
+              <p className="text-xs text-amber-700">
+                Selhalo: {result.skipped_failed} (viz log)
               </p>
             )}
           </div>
@@ -411,9 +356,8 @@ function GenerateInitialDialog({
           <Button
             onClick={() => mutation.mutate()}
             loading={mutation.isPending}
-            disabled={!employeeId}
           >
-            <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Vygenerovat
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Spustit kontrolu
           </Button>
         </div>
       </div>
@@ -563,9 +507,9 @@ export default function MedicalExamsPage() {
         title="Lékařské prohlídky"
         actions={
           <div className="flex items-center gap-2">
-            <Tooltip label="Auto-vygenerovat vstupní + odborné podle kategorie práce">
+            <Tooltip label="Projde všechny zaměstnance a vytvoří chybějící prohlídky podle RFA">
               <Button variant="outline" size="sm" onClick={() => setGenerateOpen(true)}>
-                <Sparkles className="h-4 w-4 mr-1.5" /> Generovat vstupní
+                <Sparkles className="h-4 w-4 mr-1.5" /> Generovat prohlídky
               </Button>
             </Tooltip>
             <Button onClick={() => { setServerError(null); setCreatePreventiveOpen(true); }} size="sm">
@@ -861,11 +805,9 @@ export default function MedicalExamsPage() {
         )}
       </Dialog>
 
-      <GenerateInitialDialog
+      <GenerateBulkDialog
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
-        employees={employees}
-        specialties={specialtyCatalog?.specialties ?? []}
       />
     </div>
   );

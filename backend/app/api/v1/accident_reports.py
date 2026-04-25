@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.core.storage import (
     delete_file,
@@ -75,12 +76,11 @@ async def export_accident_log_pdf_endpoint(
     reports = await get_accident_reports(db, current_user.tenant_id, report_status=report_status)
     pdf_bytes = generate_accident_log_pdf(reports, tenant_name)
 
-    disposition = "attachment" if download else "inline"
     filename = f"kniha_urazu_{date.today()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=not download)},
     )
 
 
@@ -217,13 +217,12 @@ async def get_accident_report_pdf(
 
     pdf_bytes = generate_accident_report_pdf(report, tenant_name)
 
-    disposition = "attachment" if download else "inline"
     filename = f"uraz_{report.accident_date}_{report_id}.pdf"
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=not download)},
     )
 
 

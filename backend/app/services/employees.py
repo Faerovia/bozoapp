@@ -200,6 +200,25 @@ async def create_employee(
             db, employee.id, data.responsible_plant_ids, tenant_id
         )
 
+    # Auto-generace vstupní + odborné prohlídky.
+    # Logika: každý nový zaměstnanec automaticky dostane draft vstupní
+    # prohlídky. Pokud má pozici s vyplněným RFA, dopočítají se i odborné
+    # prohlídky podle konkrétních rizikových faktorů. Idempotentní —
+    # pokud by funkce byla volána znovu, neduplikuje existující záznamy.
+    try:
+        from app.services.medical_exams import generate_initial_exam_requests
+        await generate_initial_exam_requests(
+            db, employee.id, tenant_id, created_by,
+        )
+    except Exception:
+        # Auto-generace nesmí blokovat založení zaměstnance.
+        # Případnou chybu pouze zalogujeme — OZO může spustit ručně později.
+        import logging
+        logging.getLogger(__name__).exception(
+            "Auto-generation of medical exams failed for employee %s",
+            employee.id,
+        )
+
     return employee, generated_password
 
 
@@ -250,6 +269,14 @@ async def update_employee(
         "responsible_plant_ids", None
     )
 
+    # Detekce změny pozice — pokud OZO přiřadí pozici dříve nepřiřazenému
+    # zaměstnanci, nebo změní pozici, dopočítáme nové odborné prohlídky.
+    old_position_id = employee.job_position_id
+    new_position_id = update_fields.get("job_position_id", old_position_id)
+    position_changed = (
+        "job_position_id" in update_fields and old_position_id != new_position_id
+    )
+
     for field, value in update_fields.items():
         setattr(employee, field, value)
 
@@ -260,6 +287,22 @@ async def update_employee(
         await set_employee_responsibilities(
             db, employee.id, resp_plants, employee.tenant_id
         )
+
+    # Pokud se pozice změnila, dogeneruj případné nové prohlídky.
+    # generate_initial_exam_requests je idempotentní — neduplikuje
+    # existující aktivní záznamy stejného typu/specialty.
+    if position_changed and new_position_id is not None:
+        try:
+            from app.services.medical_exams import generate_initial_exam_requests
+            await generate_initial_exam_requests(
+                db, employee.id, employee.tenant_id, employee.created_by,
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Auto-generation of medical exams failed for employee %s after position change",
+                employee.id,
+            )
 
     return employee
 

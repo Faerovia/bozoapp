@@ -60,6 +60,7 @@ export interface DashboardResponse {
   overdue_revisions: number;
   draft_accident_reports: number;
   expiring_medical_exams: number;
+  workplaces_without_category?: number;
   upcoming_calendar: CalendarItem[];
 }
 

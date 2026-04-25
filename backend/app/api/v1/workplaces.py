@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.core.storage import (
     MAX_TRAINING_PDF_BYTES,
@@ -208,12 +209,11 @@ async def export_risk_factors_pdf(
     grouped = await get_rfa_grouped_for_export(db, current_user.tenant_id, plant_id=plant_id)
     pdf_bytes = generate_risk_factor_list_pdf(grouped, tenant_name)
 
-    disposition = "attachment" if download else "inline"
-    filename = f"seznam_rizikových_faktoru_{date.today()}.pdf"
+    filename = f"seznam_rizikovych_faktoru_{date.today()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=not download)},
     )
 
 
@@ -366,7 +366,7 @@ async def download_rfa_factor_pdf(
     return Response(
         content=content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{factor}.pdf"'},
+        headers={"Content-Disposition": content_disposition(f"{factor}.pdf", inline=True)},
     )
 
 

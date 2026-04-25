@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -64,12 +65,11 @@ async def export_risks_pdf(
     risks = await get_risks(db, current_user.tenant_id, status=risk_status)
     pdf_bytes = generate_risks_pdf(risks, tenant_name)
 
-    disposition = "attachment" if download else "inline"
     filename = f"registr_rizik_{date.today()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, inline=not download)},
     )
 
 

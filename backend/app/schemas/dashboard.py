@@ -20,6 +20,9 @@ class DashboardResponse(BaseModel):
     expiring_medical_exams: int
     """Aktivní lékařské prohlídky, které expirují do 60 dní nebo jsou prošlé."""
 
+    workplaces_without_category: int = 0
+    """Aktivní pracoviště bez určené kategorie rizik (RFA ani manuální override)."""
+
     # ── Nadcházející termíny ──────────────────────────────────────────────────
     upcoming_calendar: list[CalendarItem]
     """Top 10 nejnaléhavějších položek (overdue první, pak nejbližší)."""

@@ -100,12 +100,14 @@ async def test_create_exam_with_valid_months(client: AsyncClient) -> None:
 async def test_list_exams(client: AsyncClient) -> None:
     headers, _ = await _ozo_headers(client, "m3")
     eid = await _create_employee(client, headers, "m3")
+    # Při vytvoření zaměstnance se auto-vygeneruje vstupní prohlídka draft
+    # (bez RFA žádná odborná). Test pak přidá manuálně další 2 → celkem 3.
     await _create_exam(client, headers, eid, exam_type="vstupni")
     await _create_exam(client, headers, eid, exam_type="periodicka")
 
     resp = await client.get("/api/v1/medical-exams", headers=headers)
     assert resp.status_code == 200
-    assert len(resp.json()) == 2
+    assert len(resp.json()) == 3
 
 
 @pytest.mark.asyncio

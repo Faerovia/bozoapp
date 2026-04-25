@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -19,6 +19,8 @@ from app.services.medical_specialty_catalog import (
     get_periodicity_for_category,
     get_required_specialties_for_factors,
 )
+
+AUTO_CHECK_THROTTLE_MINUTES = 30
 
 
 def _age_at(reference: date, birth_date: date | None) -> int | None:
@@ -362,6 +364,8 @@ async def generate_initial_exam_requests(
         db.add(exam)
         created_exams.append(exam)
 
+    # Aktualizuj timestamp poslední auto-kontroly pro throttling
+    emp.last_exam_auto_check_at = datetime.now(UTC)
     await db.flush()
     return {
         "created":             len(created_exams),
@@ -423,3 +427,62 @@ async def get_expiring_exams(
     )
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+async def generate_exams_for_all_employees(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    created_by: uuid.UUID,
+) -> dict[str, Any]:
+    """
+    Hromadná auto-generace prohlídek napříč všemi aktivními zaměstnanci tenantu.
+
+    Throttle: zaměstnanec, který byl zkontrolován v posledních
+    AUTO_CHECK_THROTTLE_MINUTES minutách, se přeskočí (jeho prohlídky
+    už jsou aktuální).
+
+    Vrací souhrn: kolik bylo zpracováno, kolik přeskočeno (throttle),
+    kolik nových prohlídek celkem vzniklo.
+    """
+    cutoff = datetime.now(UTC) - timedelta(minutes=AUTO_CHECK_THROTTLE_MINUTES)
+
+    employees = (await db.execute(
+        select(Employee).where(
+            Employee.tenant_id == tenant_id,
+            Employee.status == "active",
+        )
+    )).scalars().all()
+
+    processed = 0
+    skipped_throttle = 0
+    skipped_failed = 0
+    total_created = 0
+
+    for emp in employees:
+        if (
+            emp.last_exam_auto_check_at is not None
+            and emp.last_exam_auto_check_at >= cutoff
+        ):
+            skipped_throttle += 1
+            continue
+        try:
+            res = await generate_initial_exam_requests(
+                db, emp.id, tenant_id, created_by,
+            )
+            processed += 1
+            total_created += int(res.get("created", 0))
+        except Exception:
+            skipped_failed += 1
+            import logging
+            logging.getLogger(__name__).exception(
+                "Bulk auto-generation failed for employee %s", emp.id,
+            )
+
+    return {
+        "total_employees":      len(employees),
+        "processed":            processed,
+        "skipped_throttle":     skipped_throttle,
+        "skipped_failed":       skipped_failed,
+        "total_exams_created":  total_created,
+        "throttle_minutes":     AUTO_CHECK_THROTTLE_MINUTES,
+    }
