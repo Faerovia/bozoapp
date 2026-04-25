@@ -13,10 +13,12 @@ import {
   Building2,
   Stethoscope,
   LogOut,
+  Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, logout } from "@/lib/api";
 import type { UserResponse } from "@/types/api";
+import { ClientSwitcher } from "./client-switcher";
 
 // ── Role model (sjednocené s backend/permissions.py) ─────────────────────────
 type Role =
@@ -40,6 +42,12 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  {
+    href: "/my-clients",
+    label: "Moji klienti",
+    icon: Briefcase,
+    roles: ["admin", "ozo"],
+  },
   {
     href: "/dashboard",
     label: "Dashboard",
@@ -119,6 +127,9 @@ export function Sidebar() {
           beta
         </span>
       </div>
+
+      {/* Client switcher (jen pro OZO multi-client) */}
+      <ClientSwitcher />
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4">

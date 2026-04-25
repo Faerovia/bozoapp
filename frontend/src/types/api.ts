@@ -11,8 +11,35 @@ export interface UserResponse {
   tenant_id: string;
   email: string;
   full_name: string | null;
-  role: "ozo" | "manager" | "employee";
+  role: "admin" | "ozo" | "hr_manager" | "equipment_responsible" | "employee" | "manager";
   is_active: boolean;
+}
+
+// ── OZO multi-tenant memberships ─────────────────────────────────────────────
+
+export interface Membership {
+  tenant_id: string;
+  tenant_name: string;
+  role: string;
+  is_default: boolean;
+}
+
+export interface ClientMetrics {
+  expiring_trainings: number;
+  due_revisions: number;
+  overdue_revisions: number;
+  expiring_medical_exams: number;
+  draft_accident_reports: number;
+  expiring_oopp: number;
+}
+
+export interface ClientOverview {
+  tenant_id: string;
+  tenant_name: string;
+  role: string;
+  is_default: boolean;
+  metrics: ClientMetrics;
+  total_actions: number;
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

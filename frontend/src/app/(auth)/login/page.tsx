@@ -44,7 +44,26 @@ function LoginForm() {
     setServerError(null);
     try {
       await api.post("/auth/login", data);
-      const next = searchParams.get("next") ?? "/dashboard";
+
+      // Default landing podle role + počtu klientů:
+      // - OZO/admin s 2+ memberships → /my-clients
+      // - jinak → /dashboard
+      let next = searchParams.get("next");
+      if (!next) {
+        try {
+          const me = await api.get<{ role: string }>("/auth/me");
+          if (me.role === "ozo" || me.role === "admin") {
+            const memberships = await api.get<{ tenant_id: string }[]>(
+              "/auth/memberships"
+            );
+            next = memberships.length > 1 ? "/my-clients" : "/dashboard";
+          } else {
+            next = "/dashboard";
+          }
+        } catch {
+          next = "/dashboard";
+        }
+      }
       router.push(next);
       router.refresh();
     } catch (err) {
