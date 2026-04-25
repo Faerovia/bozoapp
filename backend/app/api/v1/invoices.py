@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,7 @@ from app.core.dependencies import get_current_user
 from app.models.invoice import Invoice
 from app.models.user import User
 from app.schemas.invoice import InvoiceListItem, InvoiceResponse
+from app.services.invoice_delivery import render_and_save_pdf
 
 router = APIRouter()
 
@@ -47,3 +49,28 @@ async def get_my_invoice(
     if invoice is None:
         raise HTTPException(status_code=404, detail="Faktura nenalezena")
     return invoice
+
+
+@router.get("/billing/invoices/{invoice_id}/pdf")
+async def download_my_invoice_pdf(
+    invoice_id: uuid.UUID,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Tenant si stáhne vlastní fakturu jako PDF (regeneruje aktuální verzi)."""
+    invoice = (await db.execute(
+        select(Invoice).where(Invoice.id == invoice_id)
+    )).scalar_one_or_none()
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Faktura nenalezena")
+
+    pdf_bytes, _ = render_and_save_pdf(invoice)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'inline; filename="faktura_{invoice.invoice_number}.pdf"'
+            ),
+        },
+    )

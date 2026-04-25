@@ -93,15 +93,84 @@ async def admin_create_invoice(
 @router.post("/admin/invoices/run-monthly")
 async def admin_run_monthly(
     today: date | None = None,
+    deliver: bool = True,
     _admin: User = Depends(require_platform_admin()),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Manuální trigger měsíčního cronu (idempotentní jen do míry sekvence — pozor)."""
+    """
+    Manuální trigger měsíčního cronu. Pokud `deliver=True`, automaticky
+    vyrenderuje PDF a pošle email pro každou novou fakturu.
+    """
     invoices = await generate_monthly_invoices(db, today=today)
+    delivered: list[str] = []
+    if deliver:
+        for inv in invoices:
+            await deliver_invoice(db, inv)
+            delivered.append(inv.invoice_number)
     return {
         "generated_count": len(invoices),
         "invoice_numbers": [inv.invoice_number for inv in invoices],
+        "delivered_count": len(delivered),
     }
+
+
+@router.get("/admin/invoices/{invoice_id}/pdf")
+async def admin_invoice_pdf(
+    invoice_id: uuid.UUID,
+    _admin: User = Depends(require_platform_admin()),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Stáhne (a regeneruje) PDF faktury."""
+    await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))
+    invoice = (await db.execute(
+        select(Invoice).where(Invoice.id == invoice_id)
+    )).scalar_one_or_none()
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Faktura nenalezena")
+
+    pdf_bytes, rel_path = render_and_save_pdf(invoice)
+    invoice.pdf_path = rel_path
+    await db.flush()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'inline; filename="faktura_{invoice.invoice_number}.pdf"'
+            ),
+        },
+    )
+
+
+@router.post("/admin/invoices/{invoice_id}/send")
+async def admin_invoice_send(
+    invoice_id: uuid.UUID,
+    _admin: User = Depends(require_platform_admin()),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Vyrenderuje PDF a pošle fakturu emailem na recipient_snapshot.email."""
+    await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))
+    invoice = (await db.execute(
+        select(Invoice).where(Invoice.id == invoice_id)
+    )).scalar_one_or_none()
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Faktura nenalezena")
+
+    recipient = (
+        invoice.recipient_snapshot.get("email")
+        or invoice.issuer_snapshot.get("issuer_email")
+    )
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="Faktura nemá příjemce — vyplň tenant.billing_email.",
+        )
+
+    pdf_bytes, rel_path = render_and_save_pdf(invoice)
+    invoice.pdf_path = rel_path
+    await send_invoice_email(db, invoice, pdf_bytes)
+    return {"sent_to": recipient, "pdf_path": rel_path}
 
 
 @router.get("/admin/invoices", response_model=list[InvoiceListItem])

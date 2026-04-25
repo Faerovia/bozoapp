@@ -32,7 +32,6 @@ from fpdf import FPDF
 from app.models.invoice import Invoice
 from app.services.export_pdf import _font_path  # reuse DejaVu finder
 
-
 # ── Pay-by-Square SPAYD generator ────────────────────────────────────────────
 
 
