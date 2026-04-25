@@ -121,8 +121,13 @@ export async function uploadFile<T>(
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export async function login(email: string, password: string) {
-  return api.post("/auth/login", { email, password });
+export async function login(emailOrUsername: string, password: string) {
+  // Pokud řetězec obsahuje '@', považujeme ho za email; jinak username.
+  const payload: { email?: string; username?: string; password: string } =
+    emailOrUsername.includes("@")
+      ? { email: emailOrUsername, password }
+      : { username: emailOrUsername, password };
+  return api.post("/auth/login", payload);
 }
 
 export async function logout() {

@@ -80,28 +80,30 @@ async def register_user(
 
 async def login_user(
     db: AsyncSession,
-    email: str,
+    email: str | None,
     password: str,
     *,
+    username: str | None = None,
     totp_code: str | None = None,
 ) -> tuple[User, str, str] | None:
     """
-    Ověří přihlašovací údaje.
+    Ověří přihlašovací údaje. Najde uživatele buď podle emailu (per-tenant
+    unique) nebo username (global unique pro platform admina).
     Vrátí (user, access_token, refresh_token) nebo None.
 
     Ochrany:
     - **Progressive delay**: před ověřením spi úměrně počtu fail pokusů
-      pro daný email (Redis counter). Nad prahem → 429.
-    - **Timing attack resistance**: při neexistujícím emailu voláme
+      pro daný identifier (Redis counter). Nad prahem → 429.
+    - **Timing attack resistance**: při neexistujícím identifieru voláme
       verify_password proti dummy hashi, aby celkový čas byl stejný jako
       pro existujícího uživatele se špatným heslem.
 
-    RLS bypass: hledáme uživatele podle emailu napříč tenanty,
-    tenant_id ještě neznáme.
+    RLS bypass: hledáme uživatele napříč tenanty (tenant_id ještě neznáme).
     """
+    identifier = email or username or ""
     # 1) Progressive delay podle fail countu. Volá se PŘED jakýmkoli DB/crypto
-    #    dotazem, aby attacker platil čas i kdyby o email nic nevěděl.
-    can_proceed = await apply_login_delay(email)
+    #    dotazem, aby attacker platil čas i kdyby o identifier nic nevěděl.
+    can_proceed = await apply_login_delay(identifier)
     if not can_proceed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -112,20 +114,26 @@ async def login_user(
         text("SELECT set_config('app.is_superadmin', 'true', true)")
     )
 
-    result = await db.execute(
-        select(User).where(User.email == email, User.is_active == True)  # noqa: E712
-    )
+    if email:
+        query = select(User).where(
+            User.email == email, User.is_active == True,  # noqa: E712
+        )
+    else:
+        query = select(User).where(
+            User.username == username, User.is_active == True,  # noqa: E712
+        )
+    result = await db.execute(query)
     user = result.scalar_one_or_none()
 
     # 2) Timing attack ochrana: pokud user neexistuje, ověřujeme dummy hash,
     #    abychom spotřebovali stejný Argon2 time jako legit login.
     if user is None:
         verify_password(password, _DUMMY_PASSWORD_HASH)
-        await record_login_failure(email)
+        await record_login_failure(identifier)
         return None
 
     if not verify_password(password, user.hashed_password):
-        await record_login_failure(email)
+        await record_login_failure(identifier)
         return None
 
     # 2FA gate — pokud je zapnuté, musí přijít platný TOTP nebo recovery code
@@ -136,10 +144,10 @@ async def login_user(
             # HTTPException s detail="TOTP_REQUIRED".
             raise _TotpRequiredError()
         if not await totp_svc.verify(db, user, totp_code):
-            await record_login_failure(email)
+            await record_login_failure(identifier)
             return None
 
-    await record_login_success(email)
+    await record_login_success(identifier)
 
     access_token = create_access_token(user.id, user.tenant_id, user.role)
     refresh_token = create_refresh_token(user.id, user.tenant_id)

@@ -102,9 +102,16 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
+    if not data.email and not data.username:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Pošlete buď email nebo username",
+        )
     try:
         result = await login_user(
-            db, data.email, data.password, totp_code=data.totp_code
+            db, data.email, data.password,
+            username=data.username,
+            totp_code=data.totp_code,
         )
     except _TotpRequiredError:
         # Password OK, 2FA zapnuté, ale kód nepřišel. Klient pošle znovu s totp_code.

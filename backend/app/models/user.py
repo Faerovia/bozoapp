@@ -16,6 +16,9 @@ class User(Base, TimestampMixin):
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     email: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Volitelné username pro platform-admin login bez emailu.
+    # Per uživatel UNIQUE napříč tenantů (partial unique index na username IS NOT NULL).
+    username: Mapped[str | None] = mapped_column(String(50))
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(50), default="employee", nullable=False)

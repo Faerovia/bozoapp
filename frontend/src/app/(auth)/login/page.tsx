@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 const schema = z.object({
-  email: z.string().email("Zadejte platný email"),
+  // Email pro běžné uživatele, nebo username (krátký řetězec) pro platform admina.
+  email: z.string().min(1, "Zadejte email nebo přihlašovací jméno"),
   password: z.string().min(1, "Heslo je povinné"),
 });
 
@@ -42,17 +43,30 @@ function LoginForm() {
 
   const onSubmit = async (data: FormData) => {
     setServerError(null);
+    // Backend přijímá email NEBO username. Rozlišíme podle '@'.
+    const payload: {
+      email?: string;
+      username?: string;
+      password: string;
+    } = data.email.includes("@")
+      ? { email: data.email, password: data.password }
+      : { username: data.email, password: data.password };
     try {
-      await api.post("/auth/login", data);
+      await api.post("/auth/login", payload);
 
       // Default landing podle role + počtu klientů:
-      // - OZO/admin s 2+ memberships → /my-clients
+      // - platform admin → /admin
+      // - OZO s 2+ memberships → /my-clients
       // - jinak → /dashboard
       let next = searchParams.get("next");
       if (!next) {
         try {
-          const me = await api.get<{ role: string }>("/auth/me");
-          if (me.role === "ozo" || me.role === "admin") {
+          const me = await api.get<{ role: string; is_platform_admin: boolean }>(
+            "/auth/me",
+          );
+          if (me.is_platform_admin) {
+            next = "/admin";
+          } else if (me.role === "ozo") {
             const memberships = await api.get<{ tenant_id: string }[]>(
               "/auth/memberships"
             );
@@ -87,12 +101,12 @@ function LoginForm() {
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">Email nebo přihlašovací jméno</Label>
             <Input
               id="email"
-              type="email"
+              type="text"
               placeholder="vas@email.cz"
-              autoComplete="email"
+              autoComplete="username"
               {...register("email")}
             />
             {errors.email && (

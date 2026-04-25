@@ -10,9 +10,11 @@ export interface UserResponse {
   id: string;
   tenant_id: string;
   email: string;
+  username: string | null;
   full_name: string | null;
   role: "admin" | "ozo" | "hr_manager" | "equipment_responsible" | "employee" | "manager";
   is_active: boolean;
+  is_platform_admin: boolean;
 }
 
 // ── OZO multi-tenant memberships ─────────────────────────────────────────────

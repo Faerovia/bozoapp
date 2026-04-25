@@ -25,7 +25,11 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Buď email nebo username — klient pošle jen jedno z nich.
+    # Email je per-tenant unikátní (běžní uživatelé), username je globálně
+    # unikátní (slouží pro platform admina).
+    email: EmailStr | None = None
+    username: str | None = None
     password: str
     # Pokud má user zapnuté 2FA, musí přiložit TOTP kód nebo recovery code.
     # Klient neví dopředu, jestli user má 2FA — pošle nejdřív login bez kódu,

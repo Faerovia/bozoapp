@@ -16,6 +16,7 @@ import {
   Briefcase,
   FileText,
   ShieldAlert,
+  Crown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, logout } from "@/lib/api";
@@ -128,9 +129,14 @@ export function Sidebar() {
   });
 
   const role = (user?.role as Role | undefined) ?? null;
-  const visible = role
-    ? NAV_ITEMS.filter((item) => item.roles.includes(role))
-    : [];
+  const isPlatformAdmin = user?.is_platform_admin === true;
+  // Platform admin vidí všechny tenant moduly (kvůli impersonate). Bez tenant
+  // dat je většina prázdná, ale UI je dostupné pro debug i přímou navigaci.
+  const visible = isPlatformAdmin
+    ? NAV_ITEMS
+    : role
+      ? NAV_ITEMS.filter((item) => item.roles.includes(role))
+      : [];
 
   return (
     <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
@@ -148,6 +154,22 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="space-y-0.5">
+          {isPlatformAdmin && (
+            <li className="mb-3 pb-3 border-b border-gray-100">
+              <Link
+                href="/admin"
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold transition-colors",
+                  pathname.startsWith("/admin")
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-amber-50 text-amber-700 hover:bg-amber-100",
+                )}
+              >
+                <Crown className="h-4 w-4 shrink-0" />
+                Platform admin
+              </Link>
+            </li>
+          )}
           {visible.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + "/");
             const labelText = typeof label === "function" ? label(role!) : label;
