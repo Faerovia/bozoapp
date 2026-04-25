@@ -45,11 +45,13 @@ export interface ClientOverview {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export interface CalendarItem {
-  id: string;
+  source: "revision" | "risk" | "training" | "medical_exam";
+  source_id: string;
   title: string;
   due_date: string;       // ISO date
-  source: "revision" | "training" | "medical_exam";
-  is_overdue: boolean;
+  due_status: string;     // overdue | due_soon | ok
+  responsible_user_id: string | null;
+  detail_url: string;
 }
 
 export interface DashboardResponse {

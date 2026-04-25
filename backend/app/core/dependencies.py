@@ -115,4 +115,8 @@ async def get_current_user(
             text("SELECT set_config('app.is_platform_admin', 'true', true)")
         )
 
+    # OZO multi-client: response /auth/me musí ukazovat AKTIVNÍ tenant
+    # (z JWT), ne primární z DB. Frontend ClientSwitcher to potřebuje.
+    # Mutace nemá efekt na DB (commit nevolán).
+    user.tenant_id = tenant_id
     return user

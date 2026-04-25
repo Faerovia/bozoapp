@@ -5,7 +5,7 @@ Služby pro M:N user × tenant memberships (OZO multi-client).
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.membership import UserTenantMembership
@@ -17,26 +17,36 @@ async def get_user_memberships(
 ) -> list[dict[str, Any]]:
     """
     Vrátí list memberships pro uživatele s JOIN tenant.name.
-    Pozn.: Tabulka memberships nemá RLS — přečteme cross-tenant; ochranu
-    zajišťuje filter user_id = caller's user_id.
+
+    Bypass RLS na `tenants` (tabulka má policy `id = current_tenant_id`,
+    což by JOIN omezilo na 1 tenant). Filter user_id ochrání před
+    cross-tenant únikem — vidíme jen membership current usera.
     """
-    result = await db.execute(
-        select(UserTenantMembership, Tenant)
-        .join(Tenant, UserTenantMembership.tenant_id == Tenant.id)
-        .where(UserTenantMembership.user_id == user_id)
-        .order_by(
-            UserTenantMembership.is_default.desc(),
-            Tenant.name,
-        )
+    await db.execute(
+        text("SELECT set_config('app.is_superadmin', 'true', true)")
     )
-    rows = []
-    for membership, tenant in result.all():
-        rows.append({
-            "tenant_id": membership.tenant_id,
-            "tenant_name": tenant.name,
-            "role": membership.role,
-            "is_default": membership.is_default,
-        })
+    try:
+        result = await db.execute(
+            select(UserTenantMembership, Tenant)
+            .join(Tenant, UserTenantMembership.tenant_id == Tenant.id)
+            .where(UserTenantMembership.user_id == user_id)
+            .order_by(
+                UserTenantMembership.is_default.desc(),
+                Tenant.name,
+            )
+        )
+        rows = []
+        for membership, tenant in result.all():
+            rows.append({
+                "tenant_id": membership.tenant_id,
+                "tenant_name": tenant.name,
+                "role": membership.role,
+                "is_default": membership.is_default,
+            })
+    finally:
+        await db.execute(
+            text("SELECT set_config('app.is_superadmin', 'false', true)")
+        )
     return rows
 
 

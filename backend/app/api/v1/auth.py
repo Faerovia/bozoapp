@@ -247,13 +247,14 @@ async def list_memberships(
 @router.post("/auth/select-tenant", response_model=TokenResponse)
 async def select_tenant(
     data: SelectTenantRequest,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """
     Přepne aktivní tenant. Vystaví nový access token s vybraným tenant_id
-    a rolí přiřazenou v dané membership. Refresh token zůstává platný
-    s původním tenant_id (rolling — re-vystavíme při dalším refreshi).
+    a rolí z membership. Cookie `access_token` se přepíše (httpOnly,
+    JS ji nemůže měnit). Refresh token zůstává platný s původním tenant_id.
     """
     membership = await has_membership(db, current_user.id, data.tenant_id)
     if membership is None:
@@ -266,13 +267,21 @@ async def select_tenant(
         current_user.id, data.tenant_id, membership.role
     )
 
-    # CSRF token zůstává; jen access token se mění (refresh netvoříme).
-    # Frontend bude pro další requesty používat nový access token.
+    # Přepiš HTTP-only cookie aby browser používal nový token
+    is_prod = settings.is_production
+    response.set_cookie(
+        key="access_token",
+        value=new_access,
+        max_age=_ACCESS_MAX_AGE,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        path="/",
+    )
+
     return TokenResponse(
         access_token=new_access,
-        # Refresh nedáváme — používá se stávající refresh; jen access se mění.
-        # Schema TokenResponse vyžaduje refresh_token; pošleme prázdný string
-        # a frontend si necháme stávající. Lepší by bylo samostatné schema.
+        # Refresh netvoříme — používá se stávající.
         refresh_token="",
         token_type="bearer",
     )

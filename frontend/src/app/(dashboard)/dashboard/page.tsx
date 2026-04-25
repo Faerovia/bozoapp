@@ -61,12 +61,14 @@ function StatCard({ title, value, icon: Icon, color, description }: StatCardProp
 
 const SOURCE_LABELS: Record<CalendarItem["source"], string> = {
   revision:     "Revize",
+  risk:         "Riziko",
   training:     "Školení",
   medical_exam: "Prohlídka",
 };
 
 const SOURCE_COLORS: Record<CalendarItem["source"], string> = {
   revision:     "bg-purple-100 text-purple-700",
+  risk:         "bg-rose-100 text-rose-700",
   training:     "bg-blue-100 text-blue-700",
   medical_exam: "bg-teal-100 text-teal-700",
 };
@@ -102,7 +104,7 @@ function CalendarTable({ items }: { items: CalendarItem[] }) {
         </thead>
         <tbody className="divide-y divide-gray-50">
           {items.map((item) => (
-            <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+            <tr key={`${item.source}-${item.source_id}`} className="hover:bg-gray-50 transition-colors">
               <td className="py-3 px-4 font-medium text-gray-900">{item.title}</td>
               <td className="py-3 px-4">
                 <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", SOURCE_COLORS[item.source])}>
@@ -111,7 +113,7 @@ function CalendarTable({ items }: { items: CalendarItem[] }) {
               </td>
               <td className="py-3 px-4 text-gray-600">{formatDate(item.due_date)}</td>
               <td className="py-3 px-4">
-                {item.is_overdue ? (
+                {item.due_status === "overdue" ? (
                   <span className="flex items-center gap-1 text-red-600 text-xs font-medium">
                     <AlertTriangle className="h-3 w-3" />
                     Po termínu
