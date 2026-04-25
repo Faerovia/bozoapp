@@ -129,12 +129,28 @@ async def document_pdf(
     tenant = tenant_res.scalar_one()
 
     pdf_bytes = render_document_pdf(doc, tenant)
-    safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in doc.title)
+
+    # HTTP headers must be Latin-1. Pro filename použij ASCII fallback +
+    # filename* dle RFC 5987 (UTF-8) pro moderní browsery.
+    import unicodedata
+    from urllib.parse import quote
+    ascii_title = (
+        unicodedata.normalize("NFKD", doc.title)
+        .encode("ascii", "ignore").decode("ascii")
+    )
+    ascii_safe = "".join(
+        c if c.isalnum() or c in "-_ " else "_" for c in ascii_title
+    ) or "document"
+    utf8_quoted = quote(doc.title, safe="")
+
     disposition = "attachment" if download else "inline"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'{disposition}; filename="{safe_title}.pdf"',
+            "Content-Disposition": (
+                f'{disposition}; filename="{ascii_safe}.pdf"; '
+                f"filename*=UTF-8''{utf8_quoted}.pdf"
+            ),
         },
     )
