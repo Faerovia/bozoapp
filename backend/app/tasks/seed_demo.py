@@ -46,6 +46,16 @@ from app.models.training import Training, TrainingAssignment
 from app.models.user import User
 from app.models.workplace import Plant, Workplace
 
+# Registrace zbylých modelů do SQLAlchemy metadata (FK target tabulky:
+# accident_reports.risk_id → risks.id atd.). Bez toho `flush` selže.
+from app.models import (  # noqa: F401, E402
+    audit_log,
+    password_reset_token,
+    recovery_code,
+    refresh_token,
+    risk,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("seed_demo")
 
@@ -452,7 +462,7 @@ async def _seed_medical_exams(
             result="zpusobily",
             valid_months=valid_months,
             valid_until=_add_months(exam_date, valid_months),
-            doctor_name="MUDr. Karel Procházka",
+            physician_name="MUDr. Karel Procházka",
         ))
     await db.flush()
 
@@ -463,22 +473,31 @@ async def _seed_accident(
 ) -> None:
     if not employees:
         return
+    from datetime import time
+    emp = employees[0]
     db.add(AccidentReport(
         tenant_id=tenant_id,
         created_by=created_by,
-        title="Pád ze žebříku — prokopnutí kolene",
+        employee_id=emp.id,
+        employee_name=f"{emp.first_name} {emp.last_name}",
+        workplace="Hala A — sklad nářadí",
         accident_date=date.today() - timedelta(days=45),
-        location="Hala A — sklad nářadí",
+        accident_time=time(9, 30),
+        injury_type="podvrtnutí kolene",
+        injured_body_part="pravé koleno",
+        injury_source="žebřík (nestabilní)",
+        injury_cause=(
+            "Zaměstnanec při výměně osvětlovacího tělesa stoupl na nestabilní "
+            "žebřík, který se posunul."
+        ),
         description=(
             "Zaměstnanec při výměně osvětlovacího tělesa stoupl na nestabilní "
             "žebřík, který se posunul. Zaměstnanec spadl ze ~1.5 m a poranil "
             "si pravé koleno. Po ošetření v nemocnici diagnostikováno "
             "podvrtnutí, 14 dní pracovní neschopnosti."
         ),
-        employee_id=employees[0].id,
         injured_count=1,
         is_fatal=False,
-        work_absence_days=14,
         risk_review_required=True,
         witnesses=[{"name": "Petr Svoboda", "contact": "+420604111222"}],
         status="final",
