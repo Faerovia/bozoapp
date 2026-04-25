@@ -1,13 +1,23 @@
 "use client";
 
-import { useState } from "react";
+/**
+ * Modul OOPP (NV 390/2021 Sb. Příloha č. 2).
+ *
+ * 3 záložky:
+ *  1) Vyhodnocení rizik — výběr pozice + matrix 14×26 (checkboxy)
+ *  2) OOPP per pozice    — pozice s vyplněným gridem, k nim přidělené OOPP
+ *  3) Výdeje zaměstnancům — záznamy + zaznamenat nový výdej
+ */
+
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm, useWatch } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { HardHat, Plus, Pencil, Archive, Download } from "lucide-react";
+import {
+  Plus, Pencil, Trash2, ShieldAlert, Boxes, ClipboardList, Save,
+} from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { OOPPAssignment, Employee } from "@/types/api";
+import type {
+  Employee, JobPosition, OoppCatalog, OoppItem, OoppIssue, RiskGrid,
+} from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,406 +26,867 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-// ── Konstanty ────────────────────────────────────────────────────────────────
-
-const OOPP_TYPES: { value: string; label: string }[] = [
-  { value: "head_protection",         label: "Ochrana hlavy (helmy, přilby)" },
-  { value: "eye_protection",          label: "Ochrana zraku (brýle, štíty)" },
-  { value: "hearing_protection",      label: "Ochrana sluchu (chrániče, zátkové)" },
-  { value: "respiratory_protection",  label: "Ochrana dýchacích cest" },
-  { value: "hand_protection",         label: "Ochrana rukou (rukavice)" },
-  { value: "foot_protection",         label: "Ochrana nohou (boty, návleky)" },
-  { value: "body_protection",         label: "Ochrana těla (oděvy, vesty)" },
-  { value: "fall_protection",         label: "Ochrana proti pádu (postroje, lana)" },
-  { value: "other",                   label: "Jiné OOPP" },
-];
-
-const STATUS_LABELS: Record<string, string> = {
-  active:    "Aktivní",
-  returned:  "Vráceno",
-  discarded: "Vyřazeno",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  active:    "bg-green-100 text-green-700",
-  returned:  "bg-gray-100 text-gray-500",
-  discarded: "bg-gray-100 text-gray-500",
-};
-
-const VALIDITY_COLORS: Record<string, string> = {
-  valid:          "bg-green-100 text-green-700",
-  expiring_soon:  "bg-amber-100 text-amber-700",
-  expired:        "bg-red-100 text-red-700",
-  no_expiry:      "bg-gray-100 text-gray-500",
-};
-
-// ── Schéma formuláře ─────────────────────────────────────────────────────────
-
-const schema = z.object({
-  employee_id:    z.string().uuid().or(z.literal("")).optional().transform(v => v || null),
-  employee_name:  z.string().min(1, "Jméno je povinné"),
-  oopp_type:      z.string().min(1, "Typ OOPP je povinný"),
-  oopp_name:      z.string().min(1, "Název OOPP je povinný"),
-  issued_at:      z.string().min(1, "Datum vydání je povinné"),
-  valid_until:    z.string().optional(),
-  quantity:       z.coerce.number().int().min(1, "Minimálně 1").default(1),
-  size_spec:      z.string().optional(),
-  serial_number:  z.string().optional(),
-  notes:          z.string().optional(),
-});
-
-type FormData = z.infer<typeof schema>;
-
-// ── Formulář ─────────────────────────────────────────────────────────────────
-
 const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
-function OOPPForm({
+const VALIDITY_LABELS: Record<string, string> = {
+  no_expiry: "Bez expirace",
+  valid: "Platné",
+  expiring_soon: "Brzy expiruje",
+  expired: "PROŠLO",
+};
+const VALIDITY_COLORS: Record<string, string> = {
+  no_expiry: "bg-gray-100 text-gray-500",
+  valid: "bg-green-100 text-green-700",
+  expiring_soon: "bg-amber-100 text-amber-700",
+  expired: "bg-red-100 text-red-700",
+};
+
+function fmtDate(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("cs-CZ");
+}
+
+function errMsg(err: unknown): string {
+  return err instanceof ApiError ? err.detail : "Chyba serveru";
+}
+
+// ── Risk grid matrix ─────────────────────────────────────────────────────────
+
+function RiskGridMatrix({
+  positionId,
+  catalog,
+}: {
+  positionId: string;
+  catalog: OoppCatalog;
+}) {
+  const qc = useQueryClient();
+  const [matrix, setMatrix] = useState<Record<string, Set<number>>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery<RiskGrid>({
+    queryKey: ["oopp-grid", positionId],
+    queryFn: async () => {
+      try {
+        return await api.get<RiskGrid>(`/job-positions/${positionId}/oopp-grid`);
+      } catch (err) {
+        // 404 = grid neexistuje, vrátíme prázdný
+        if (err instanceof ApiError && err.status === 404) {
+          return {
+            id: "",
+            tenant_id: "",
+            job_position_id: positionId,
+            grid: {},
+            has_any_risk: false,
+            created_by: "",
+          };
+        }
+        throw err;
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (data) {
+      const next: Record<string, Set<number>> = {};
+      for (const [bp, cols] of Object.entries(data.grid)) {
+        next[bp] = new Set(cols);
+      }
+      setMatrix(next);
+    }
+  }, [data]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const payload: Record<string, number[]> = {};
+      for (const [bp, set] of Object.entries(matrix)) {
+        if (set.size > 0) payload[bp] = Array.from(set).sort((a, b) => a - b);
+      }
+      return api.put(`/job-positions/${positionId}/oopp-grid`, { grid: payload });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["oopp-grid", positionId] });
+      qc.invalidateQueries({ queryKey: ["oopp-positions"] });
+      setError(null);
+    },
+    onError: (err) => setError(errMsg(err)),
+  });
+
+  function toggle(bp: string, col: number) {
+    setMatrix((prev) => {
+      const next = { ...prev };
+      const set = new Set(prev[bp] ?? []);
+      if (set.has(col)) set.delete(col);
+      else set.add(col);
+      next[bp] = set;
+      return next;
+    });
+  }
+
+  if (isLoading) {
+    return <div className="h-32 animate-pulse bg-gray-50 rounded" />;
+  }
+
+  // Skupiny sloupců pro hlavičku
+  const groups: { name: string; from: number; to: number }[] = [];
+  let currentGroup = "";
+  let groupStart = 1;
+  catalog.risk_columns.forEach((rc, idx) => {
+    if (rc.group !== currentGroup) {
+      if (currentGroup) {
+        groups.push({ name: currentGroup, from: groupStart, to: idx });
+      }
+      currentGroup = rc.group;
+      groupStart = idx + 1;
+    }
+  });
+  groups.push({ name: currentGroup, from: groupStart, to: catalog.risk_columns.length });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-xs text-gray-500">
+        <ShieldAlert className="h-4 w-4 text-amber-500" />
+        Zaškrtni rizika, kterým je pozice vystavena. Tabulka odpovídá Příloze č. 2 NV 390/2021 Sb.
+      </div>
+
+      <div className="overflow-auto border border-gray-200 rounded">
+        <table className="text-xs">
+          <thead className="bg-gray-50 sticky top-0">
+            <tr>
+              <th className="text-left p-2 sticky left-0 bg-gray-50 z-10 border-r border-gray-200" rowSpan={2}>
+                Část těla
+              </th>
+              {groups.map((g) => (
+                <th
+                  key={g.name}
+                  colSpan={g.to - g.from + 1}
+                  className="text-center p-1 border-l border-gray-200 font-semibold uppercase"
+                >
+                  {g.name}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {catalog.risk_columns.map((rc) => (
+                <th
+                  key={rc.col}
+                  className="p-1 border-l border-gray-200 align-bottom"
+                  style={{ width: 28, minWidth: 28 }}
+                  title={rc.label}
+                >
+                  <div
+                    style={{
+                      writingMode: "vertical-rl",
+                      transform: "rotate(180deg)",
+                    }}
+                    className="text-[10px] whitespace-nowrap py-1 max-h-32 truncate"
+                  >
+                    {rc.label}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {catalog.body_parts.map((bp, idx) => (
+              <tr key={bp.key} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}>
+                <td className="p-2 sticky left-0 z-10 border-r border-gray-200 bg-inherit font-medium">
+                  {bp.key}. {bp.label}
+                </td>
+                {catalog.risk_columns.map((rc) => {
+                  const checked = matrix[bp.key]?.has(rc.col) ?? false;
+                  return (
+                    <td
+                      key={rc.col}
+                      className="text-center border-l border-gray-100"
+                      style={{ width: 28, minWidth: 28 }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggle(bp.key, rc.col)}
+                        className="h-3.5 w-3.5 cursor-pointer"
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <Button onClick={() => saveMutation.mutate()} loading={saveMutation.isPending}>
+          <Save className="h-4 w-4 mr-1.5" />
+          Uložit hodnocení
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Tab 1: Vyhodnocení rizik ─────────────────────────────────────────────────
+
+function RiskGridTab({
+  positions,
+  catalog,
+}: {
+  positions: JobPosition[];
+  catalog: OoppCatalog;
+}) {
+  const [selectedId, setSelectedId] = useState<string>("");
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        <div className="space-y-1.5">
+          <Label htmlFor="grid_position">Pracovní pozice</Label>
+          <select
+            id="grid_position"
+            value={selectedId}
+            onChange={(e) => setSelectedId(e.target.value)}
+            className={SELECT_CLS}
+          >
+            <option value="">— vyber pozici —</option>
+            {positions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}{p.workplace_name ? ` · ${p.workplace_name}` : ""}
+                {p.plant_name ? ` · ${p.plant_name}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedId ? (
+          <RiskGridMatrix positionId={selectedId} catalog={catalog} />
+        ) : (
+          <div className="text-sm text-gray-400 text-center py-8">
+            Vyber pozici pro zobrazení matice rizik.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Tab 2: OOPP per pozice ───────────────────────────────────────────────────
+
+function OoppItemForm({
+  positionId,
+  bodyPart,
   defaultValues,
   onSubmit,
   isSubmitting,
-  serverError,
-  employees,
+  error,
+  bodyParts,
 }: {
-  defaultValues?: Partial<FormData>;
-  onSubmit: (data: FormData) => void;
+  positionId: string;
+  bodyPart?: string;
+  defaultValues?: Partial<OoppItem>;
+  onSubmit: (data: { body_part: string; name: string; valid_months: number | null; notes: string | null }) => void;
   isSubmitting: boolean;
-  serverError: string | null;
-  employees: Employee[];
+  error: string | null;
+  bodyParts: { key: string; label: string }[];
 }) {
-  const { register, handleSubmit, formState: { errors }, control } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: defaultValues ?? { quantity: 1 },
+  const [form, setForm] = useState({
+    body_part: defaultValues?.body_part ?? bodyPart ?? "G",
+    name: defaultValues?.name ?? "",
+    valid_months: defaultValues?.valid_months?.toString() ?? "",
+    notes: defaultValues?.notes ?? "",
   });
 
-  const selectedEmployeeId = useWatch({ control, name: "employee_id" });
-
-  // Auto-fill employee_name when employee is selected
-  const selectedEmployee = selectedEmployeeId
-    ? employees.find(e => e.id === selectedEmployeeId)
-    : null;
-
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="space-y-1.5">
-        <Label htmlFor="employee_id">Zaměstnanec / Sklad</Label>
-        <select id="employee_id" {...register("employee_id")} className={SELECT_CLS}>
-          <option value="">— Nevybráno / Sklad —</option>
-          {employees.map(e => (
-            <option key={e.id} value={e.id}>
-              {e.last_name} {e.first_name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="employee_name">Jméno / Označení *</Label>
-        <Input
-          id="employee_name"
-          placeholder={selectedEmployee ? `${selectedEmployee.last_name} ${selectedEmployee.first_name}` : "Sklad, jméno, nebo název"}
-          {...register("employee_name")}
-        />
-        {errors.employee_name && <p className="text-xs text-red-600">{errors.employee_name.message}</p>}
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="oopp_type">Typ OOPP *</Label>
-        <select id="oopp_type" {...register("oopp_type")} className={SELECT_CLS}>
-          <option value="">— Vyberte typ —</option>
-          {OOPP_TYPES.map(t => (
-            <option key={t.value} value={t.value}>{t.label}</option>
-          ))}
-        </select>
-        {errors.oopp_type && <p className="text-xs text-red-600">{errors.oopp_type.message}</p>}
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="oopp_name">Specifická položka (např. Přilba Petzl Vertex) *</Label>
-        <Input id="oopp_name" {...register("oopp_name")} />
-        {errors.oopp_name && <p className="text-xs text-red-600">{errors.oopp_name.message}</p>}
-      </div>
-
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({
+          body_part: form.body_part,
+          name: form.name,
+          valid_months: form.valid_months ? parseInt(form.valid_months, 10) : null,
+          notes: form.notes || null,
+        });
+      }}
+      className="space-y-3"
+    >
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="issued_at">Datum vydání *</Label>
-          <Input id="issued_at" type="date" {...register("issued_at")} />
-          {errors.issued_at && <p className="text-xs text-red-600">{errors.issued_at.message}</p>}
+          <Label htmlFor="body_part">Část těla *</Label>
+          <select
+            id="body_part"
+            value={form.body_part}
+            onChange={(e) => setForm({ ...form, body_part: e.target.value })}
+            className={SELECT_CLS}
+          >
+            {bodyParts.map((bp) => (
+              <option key={bp.key} value={bp.key}>{bp.key}. {bp.label}</option>
+            ))}
+          </select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="valid_until">Platnost do</Label>
-          <Input id="valid_until" type="date" {...register("valid_until")} />
+          <Label htmlFor="valid_months">Perioda výdeje (měsíce)</Label>
+          <Input
+            id="valid_months"
+            type="number"
+            min="1"
+            value={form.valid_months}
+            onChange={(e) => setForm({ ...form, valid_months: e.target.value })}
+            placeholder="např. 12"
+          />
         </div>
       </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="quantity">Počet *</Label>
-          <Input id="quantity" type="number" min="1" {...register("quantity")} />
-          {errors.quantity && <p className="text-xs text-red-600">{errors.quantity.message}</p>}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="size_spec">Velikost</Label>
-          <Input id="size_spec" placeholder="M, L, XL atd." {...register("size_spec")} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="serial_number">Sériové číslo</Label>
-          <Input id="serial_number" {...register("serial_number")} />
-        </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="name">Název OOPP *</Label>
+        <Input
+          id="name"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="např. Pracovní rukavice odolné proti řezu"
+          required
+        />
       </div>
-
       <div className="space-y-1.5">
         <Label htmlFor="notes">Poznámky</Label>
         <textarea
           id="notes"
-          {...register("notes")}
+          value={form.notes}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
           rows={2}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          className={cn(SELECT_CLS, "resize-none")}
         />
       </div>
-
-      {serverError && (
+      <input type="hidden" value={positionId} readOnly />
+      {error && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-          {serverError}
+          {error}
         </div>
       )}
-
-      <div className="flex justify-end gap-2 pt-2">
+      <div className="flex justify-end">
         <Button type="submit" loading={isSubmitting}>Uložit</Button>
       </div>
     </form>
   );
 }
 
-// ── Stránka ───────────────────────────────────────────────────────────────────
-
-export default function OOPPPage() {
+function PositionOoppDetail({
+  position,
+  catalog,
+}: {
+  position: { id: string; name: string };
+  catalog: OoppCatalog;
+}) {
   const qc = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>("active");
-  const [editAssignment, setEditAssignment] = useState<OOPPAssignment | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [addModal, setAddModal] = useState<{ bodyPart: string } | null>(null);
+  const [editItem, setEditItem] = useState<OoppItem | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const { data: assignments = [], isLoading } = useQuery<OOPPAssignment[]>({
-    queryKey: ["oopp", statusFilter],
-    queryFn: () => api.get(`/oopp${statusFilter ? `?status=${statusFilter}` : ""}`),
+  const { data: items = [] } = useQuery<OoppItem[]>({
+    queryKey: ["oopp-items", position.id],
+    queryFn: () => api.get(`/oopp/items?job_position_id=${position.id}&item_status=active`),
   });
 
-  const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey: ["employees"],
-    queryFn: () => api.get("/employees?emp_status=active"),
-    staleTime: 5 * 60 * 1000,
+  const { data: grid } = useQuery<RiskGrid | null>({
+    queryKey: ["oopp-grid", position.id],
+    queryFn: async () => {
+      try {
+        return await api.get<RiskGrid>(`/job-positions/${position.id}/oopp-grid`);
+      } catch {
+        return null;
+      }
+    },
   });
 
-  const createMutation = useMutation({
-    mutationFn: (data: FormData) => api.post("/oopp", data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["oopp"] }); setCreateOpen(false); },
-    onError: (err) => setServerError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+  const checkedBodyParts = new Set(Object.keys(grid?.grid ?? {}));
+
+  const createItem = useMutation({
+    mutationFn: (payload: { body_part: string; name: string; valid_months: number | null; notes: string | null }) =>
+      api.post("/oopp/items", { ...payload, job_position_id: position.id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["oopp-items", position.id] });
+      setAddModal(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
   });
 
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<FormData> }) =>
-      api.patch(`/oopp/${id}`, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["oopp"] }); setEditAssignment(null); },
-    onError: (err) => setServerError(err instanceof ApiError ? err.detail : "Chyba serveru"),
+  const updateItem = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<OoppItem> }) =>
+      api.patch(`/oopp/items/${id}`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["oopp-items", position.id] });
+      setEditItem(null);
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
   });
 
-  const archiveMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/oopp/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["oopp"] }),
+  const archiveItem = useMutation({
+    mutationFn: (id: string) => api.delete(`/oopp/items/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["oopp-items", position.id] }),
   });
 
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("cs-CZ");
-  }
-
-  function getValidityLabel(status: string): string {
-    return status === "valid" ? "Platný"
-         : status === "expiring_soon" ? "Expiruje brzy"
-         : status === "expired" ? "Vypršel"
-         : "Bez expirace";
-  }
+  const itemsByBodyPart = items.reduce<Record<string, OoppItem[]>>((acc, item) => {
+    (acc[item.body_part] ??= []).push(item);
+    return acc;
+  }, {});
 
   return (
-    <div>
-      <Header
-        title="OOPP (Osobní ochranné pomůcky)"
-        actions={
-          <Button onClick={() => { setServerError(null); setCreateOpen(true); }} size="sm">
-            <Plus className="h-4 w-4 mr-1.5" />
-            Nový OOPP
-          </Button>
-        }
-      />
+    <div className="space-y-3">
+      {catalog.body_parts.map((bp) => {
+        const isChecked = checkedBodyParts.has(bp.key);
+        const list = itemsByBodyPart[bp.key] ?? [];
 
-      <div className="p-6 space-y-4">
-        {/* Filtry */}
-        <div className="flex items-center gap-2">
-          {(["", "active", "returned"] as const).map(val => (
-            <button
-              key={val}
-              onClick={() => setStatusFilter(val)}
-              className={cn(
-                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                statusFilter === val
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              )}
-            >
-              {val === "" ? "Všechny" : val === "active" ? "Aktivní" : "Vráceno"}
-            </button>
-          ))}
-          <span className="ml-auto text-xs text-gray-400">{assignments.length} záznamů</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.open("/api/v1/oopp/export/pdf", "_blank")}
-          >
-            <Download className="h-3.5 w-3.5 mr-1" />
-            PDF
-          </Button>
-        </div>
+        // Skryj body parts, pro které není nic zaškrtnuté A není přidáno OOPP
+        if (!isChecked && list.length === 0) return null;
 
-        {/* Tabulka */}
-        <Card>
-          <CardContent className="p-0">
-            {isLoading ? (
-              <div className="space-y-0 divide-y divide-gray-50">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-12 animate-pulse bg-gray-50 mx-4 my-2 rounded" />
-                ))}
+        return (
+          <div key={bp.key} className="border border-gray-100 rounded-md p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-gray-800">
+                  {bp.key}. {bp.label}
+                </span>
+                {isChecked && (
+                  <span className="rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-xs font-medium">
+                    {grid?.grid[bp.key].length} riziko/a
+                  </span>
+                )}
               </div>
-            ) : assignments.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-                <HardHat className="h-10 w-10 mb-3 opacity-30" />
-                <p className="text-sm">Žádný OOPP</p>
-                <p className="text-xs mt-1">Přidejte položku OOPP tlačítkem výše</p>
-              </div>
+              <button
+                onClick={() => { setFormError(null); setAddModal({ bodyPart: bp.key }); }}
+                className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+              >
+                <Plus className="h-3 w-3" /> Přidat OOPP
+              </button>
+            </div>
+
+            {list.length === 0 ? (
+              <div className="text-xs text-gray-400 pl-2">Zatím žádné OOPP přiděleno.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100 bg-gray-50">
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Zaměstnanec</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">OOPP</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Vydáno</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Platnost</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Stav</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Množství</th>
-                      <th className="py-3 px-4" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {assignments.map(assignment => (
-                      <tr key={assignment.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4 font-medium text-gray-900">
-                          {assignment.employee_name}
-                        </td>
-                        <td className="py-3 px-4 text-gray-600">
-                          <div>
-                            <p className="font-medium text-gray-900">{assignment.oopp_name}</p>
-                            <p className="text-xs text-gray-400">{assignment.oopp_type}</p>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-gray-600">
-                          {formatDate(assignment.issued_at)}
-                        </td>
-                        <td className="py-3 px-4">
-                          {assignment.valid_until ? (
-                            <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", VALIDITY_COLORS[assignment.validity_status])}>
-                              {getValidityLabel(assignment.validity_status)}
-                            </span>
-                          ) : (
-                            <span className="text-gray-500 text-xs">Bez expirace</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", STATUS_COLORS[assignment.status])}>
-                            {STATUS_LABELS[assignment.status]}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-gray-600">
-                          {assignment.quantity} {assignment.size_spec ? `(${assignment.size_spec})` : ""}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => { setServerError(null); setEditAssignment(assignment); }}
-                              className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                              title="Upravit"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            {assignment.status === "active" && (
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Archivovat OOPP: ${assignment.oopp_name} (${assignment.employee_name})?`))
-                                    archiveMutation.mutate(assignment.id);
-                                }}
-                                className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                title="Archivovat"
-                              >
-                                <Archive className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="divide-y divide-gray-50">
+                {list.map((item) => (
+                  <li key={item.id} className="py-1.5 flex items-center justify-between">
+                    <div>
+                      <span className="font-medium text-gray-800">{item.name}</span>
+                      {item.valid_months && (
+                        <span className="ml-2 text-xs text-gray-500">
+                          výdej á {item.valid_months} měs.
+                        </span>
+                      )}
+                      {item.notes && (
+                        <span className="ml-2 text-xs text-gray-400">· {item.notes}</span>
+                      )}
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => { setFormError(null); setEditItem(item); }}
+                        className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                        title="Upravit"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Archivovat ${item.name}?`)) archiveItem.mutate(item.id);
+                        }}
+                        className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                        title="Archivovat"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        );
+      })}
 
-      {/* Dialog: Nový OOPP */}
+      {/* Dialog: přidat OOPP */}
       <Dialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Nový OOPP"
-        size="lg"
+        open={!!addModal}
+        onClose={() => { setAddModal(null); setFormError(null); }}
+        title="Přidat OOPP"
+        size="md"
       >
-        <OOPPForm
-          onSubmit={(data) => { setServerError(null); createMutation.mutate(data); }}
-          isSubmitting={createMutation.isPending}
-          serverError={serverError}
-          employees={employees}
-        />
-      </Dialog>
-
-      {/* Dialog: Upravit OOPP */}
-      <Dialog
-        open={!!editAssignment}
-        onClose={() => setEditAssignment(null)}
-        title={editAssignment ? `${editAssignment.oopp_name}` : ""}
-        size="lg"
-      >
-        {editAssignment && (
-          <OOPPForm
-            defaultValues={{
-              employee_id:    editAssignment.employee_id ?? "",
-              employee_name:  editAssignment.employee_name,
-              oopp_type:      editAssignment.oopp_type,
-              oopp_name:      editAssignment.oopp_name,
-              issued_at:      editAssignment.issued_at,
-              valid_until:    editAssignment.valid_until ?? "",
-              quantity:       editAssignment.quantity,
-              size_spec:      editAssignment.size_spec ?? "",
-              serial_number:  editAssignment.serial_number ?? "",
-              notes:          editAssignment.notes ?? "",
-            }}
-            onSubmit={(data) => {
-              setServerError(null);
-              updateMutation.mutate({ id: editAssignment.id, data });
-            }}
-            isSubmitting={updateMutation.isPending}
-            serverError={serverError}
-            employees={employees}
+        {addModal && (
+          <OoppItemForm
+            positionId={position.id}
+            bodyPart={addModal.bodyPart}
+            bodyParts={catalog.body_parts}
+            onSubmit={(data) => createItem.mutate(data)}
+            isSubmitting={createItem.isPending}
+            error={formError}
           />
         )}
       </Dialog>
+
+      {/* Dialog: editace OOPP */}
+      <Dialog
+        open={!!editItem}
+        onClose={() => { setEditItem(null); setFormError(null); }}
+        title={editItem ? `Upravit: ${editItem.name}` : ""}
+        size="md"
+      >
+        {editItem && (
+          <OoppItemForm
+            positionId={position.id}
+            defaultValues={editItem}
+            bodyParts={catalog.body_parts}
+            onSubmit={(data) => updateItem.mutate({ id: editItem.id, data })}
+            isSubmitting={updateItem.isPending}
+            error={formError}
+          />
+        )}
+      </Dialog>
+    </div>
+  );
+}
+
+function PositionsTab({ catalog }: { catalog: OoppCatalog }) {
+  const { data: positions = [] } = useQuery<{ id: string; name: string; workplace_id: string }[]>({
+    queryKey: ["oopp-positions"],
+    queryFn: () => api.get("/oopp/positions"),
+  });
+  const [selectedId, setSelectedId] = useState<string>("");
+  const selected = positions.find((p) => p.id === selectedId);
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        {positions.length === 0 ? (
+          <div className="text-sm text-gray-400 text-center py-8">
+            Zatím žádná pozice nemá vyplněnou matici rizik.
+            Přepni se na záložku &bdquo;Vyhodnocení rizik&ldquo;.
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="positions">Pozice s vyhodnoceným rizikem</Label>
+              <select
+                id="positions"
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className={SELECT_CLS}
+              >
+                <option value="">— vyber pozici —</option>
+                {positions.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {selected && (
+              <PositionOoppDetail
+                position={{ id: selected.id, name: selected.name }}
+                catalog={catalog}
+              />
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Tab 3: Issues (výdeje) ───────────────────────────────────────────────────
+
+function IssuesTab() {
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const { data: issues = [] } = useQuery<OoppIssue[]>({
+    queryKey: ["oopp-issues"],
+    queryFn: () => api.get("/oopp/issues?issue_status=active"),
+  });
+
+  const { data: employees = [] } = useQuery<Employee[]>({
+    queryKey: ["employees", "active"],
+    queryFn: () => api.get("/employees?employee_status=active"),
+  });
+
+  const { data: items = [] } = useQuery<OoppItem[]>({
+    queryKey: ["oopp-items", "all"],
+    queryFn: () => api.get("/oopp/items?item_status=active"),
+  });
+
+  const [form, setForm] = useState({
+    employee_id: "",
+    position_oopp_item_id: "",
+    issued_at: new Date().toISOString().slice(0, 10),
+    quantity: "1",
+    size_spec: "",
+    notes: "",
+  });
+
+  const createIssue = useMutation({
+    mutationFn: () =>
+      api.post("/oopp/issues", {
+        employee_id: form.employee_id,
+        position_oopp_item_id: form.position_oopp_item_id,
+        issued_at: form.issued_at,
+        quantity: parseInt(form.quantity, 10) || 1,
+        size_spec: form.size_spec || null,
+        notes: form.notes || null,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["oopp-issues"] });
+      setCreateOpen(false);
+      setForm({
+        employee_id: "",
+        position_oopp_item_id: "",
+        issued_at: new Date().toISOString().slice(0, 10),
+        quantity: "1",
+        size_spec: "",
+        notes: "",
+      });
+      setFormError(null);
+    },
+    onError: (err) => setFormError(errMsg(err)),
+  });
+
+  const archiveIssue = useMutation({
+    mutationFn: (id: string) => api.delete(`/oopp/issues/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["oopp-issues"] }),
+  });
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <span className="text-sm text-gray-500">{issues.length} aktivních výdejů</span>
+          <Button size="sm" onClick={() => { setFormError(null); setCreateOpen(true); }}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            Zaznamenat výdej
+          </Button>
+        </div>
+
+        {issues.length === 0 ? (
+          <div className="text-sm text-gray-400 text-center py-12">
+            Zatím žádné výdeje OOPP.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">Zaměstnanec</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">OOPP</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">Posl. výdej</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">Další výdej</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-500">Stav</th>
+                  <th className="py-3 px-4" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {issues.map((issue) => (
+                  <tr key={issue.id} className="hover:bg-gray-50/50">
+                    <td className="py-2.5 px-4 font-medium text-gray-900">
+                      {issue.employee_name || "—"}
+                    </td>
+                    <td className="py-2.5 px-4 text-gray-700">
+                      {issue.item_name}
+                      {issue.body_part && (
+                        <span className="ml-1 text-xs text-gray-400">({issue.body_part})</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4 text-gray-600">{fmtDate(issue.issued_at)}</td>
+                    <td className="py-2.5 px-4 text-gray-600">{fmtDate(issue.valid_until)}</td>
+                    <td className="py-2.5 px-4">
+                      <span className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-medium",
+                        VALIDITY_COLORS[issue.validity_status] || "bg-gray-100"
+                      )}>
+                        {VALIDITY_LABELS[issue.validity_status] || issue.validity_status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4">
+                      <button
+                        onClick={() => {
+                          if (confirm("Vyřadit výdej?")) archiveIssue.mutate(issue.id);
+                        }}
+                        className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                        title="Vyřadit"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+
+      {/* Dialog: zaznamenat výdej */}
+      <Dialog
+        open={createOpen}
+        onClose={() => { setCreateOpen(false); setFormError(null); }}
+        title="Zaznamenat výdej OOPP"
+        size="md"
+      >
+        <form
+          onSubmit={(e) => { e.preventDefault(); createIssue.mutate(); }}
+          className="space-y-3"
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor="i_emp">Zaměstnanec *</Label>
+            <select
+              id="i_emp"
+              value={form.employee_id}
+              onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
+              className={SELECT_CLS}
+              required
+            >
+              <option value="">— vyber —</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>{e.full_name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="i_item">OOPP položka *</Label>
+            <select
+              id="i_item"
+              value={form.position_oopp_item_id}
+              onChange={(e) => setForm({ ...form, position_oopp_item_id: e.target.value })}
+              className={SELECT_CLS}
+              required
+            >
+              <option value="">— vyber —</option>
+              {items.map((it) => (
+                <option key={it.id} value={it.id}>
+                  {it.name} ({it.body_part}{it.valid_months ? `, á ${it.valid_months} m` : ""})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5 col-span-2">
+              <Label htmlFor="i_date">Datum výdeje *</Label>
+              <Input
+                id="i_date"
+                type="date"
+                value={form.issued_at}
+                onChange={(e) => setForm({ ...form, issued_at: e.target.value })}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="i_qty">Počet ks</Label>
+              <Input
+                id="i_qty"
+                type="number"
+                min="1"
+                value={form.quantity}
+                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="i_size">Velikost</Label>
+            <Input
+              id="i_size"
+              value={form.size_spec}
+              onChange={(e) => setForm({ ...form, size_spec: e.target.value })}
+              placeholder="např. L, 42, vel. M"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="i_notes">Poznámka</Label>
+            <textarea
+              id="i_notes"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={2}
+              className={cn(SELECT_CLS, "resize-none")}
+            />
+          </div>
+
+          {formError && (
+            <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              {formError}
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <Button type="submit" loading={createIssue.isPending}>Uložit</Button>
+          </div>
+        </form>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ── Stránka ──────────────────────────────────────────────────────────────────
+
+type Tab = "grid" | "positions" | "issues";
+
+export default function OoppPage() {
+  const [tab, setTab] = useState<Tab>("grid");
+
+  const { data: catalog } = useQuery<OoppCatalog>({
+    queryKey: ["oopp-catalog"],
+    queryFn: () => api.get("/oopp/catalog"),
+    staleTime: Infinity,
+  });
+
+  const { data: positions = [] } = useQuery<JobPosition[]>({
+    queryKey: ["job-positions", "active"],
+    queryFn: () => api.get("/job-positions?jp_status=active"),
+  });
+
+  return (
+    <div>
+      <Header title="OOPP" />
+
+      <div className="px-6 pt-4">
+        <div className="flex gap-1 border-b border-gray-200">
+          {([
+            { key: "grid",      label: "Vyhodnocení rizik",     icon: ShieldAlert },
+            { key: "positions", label: "OOPP per pozice",       icon: Boxes },
+            { key: "issues",    label: "Výdeje zaměstnancům",   icon: ClipboardList },
+          ] as { key: Tab; label: string; icon: typeof ShieldAlert }[]).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+                tab === t.key
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              )}
+            >
+              <t.icon className="h-4 w-4" />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-6">
+        {!catalog ? (
+          <div className="h-32 animate-pulse bg-gray-50 rounded" />
+        ) : tab === "grid" ? (
+          <RiskGridTab positions={positions} catalog={catalog} />
+        ) : tab === "positions" ? (
+          <PositionsTab catalog={catalog} />
+        ) : (
+          <IssuesTab />
+        )}
+      </div>
     </div>
   );
 }

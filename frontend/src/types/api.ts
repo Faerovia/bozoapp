@@ -401,14 +401,55 @@ export interface AccidentReport {
   created_at: string;
 }
 
-// ── OOPP ──────────────────────────────────────────────────────────────────────
+// ── OOPP (NV 390/2021 Sb. — Příloha č. 2) ────────────────────────────────────
 
-export interface OOPPAssignment {
+export interface OoppCatalogBodyPart {
+  key: string;          // A-N
+  label: string;
+  group: string | null; // např. "hlava"
+}
+
+export interface OoppCatalogRiskColumn {
+  col: number;          // 1-26
+  label: string;
+  subgroup: string | null;
+  group: string;        // fyzikální / chemická / biologické / jiná
+}
+
+export interface OoppCatalog {
+  body_parts: OoppCatalogBodyPart[];
+  risk_columns: OoppCatalogRiskColumn[];
+}
+
+export interface RiskGrid {
   id: string;
-  employee_id: string | null;
-  employee_name: string;
-  oopp_type: string;
-  oopp_name: string;
+  tenant_id: string;
+  job_position_id: string;
+  grid: Record<string, number[]>; // { "G": [1, 6], ... }
+  has_any_risk: boolean;
+  created_by: string;
+}
+
+export interface OoppItem {
+  id: string;
+  tenant_id: string;
+  job_position_id: string;
+  body_part: string;     // A-N
+  name: string;
+  valid_months: number | null;
+  notes: string | null;
+  status: "active" | "archived";
+  created_by: string;
+}
+
+export interface OoppIssue {
+  id: string;
+  tenant_id: string;
+  employee_id: string;
+  employee_name: string | null;
+  position_oopp_item_id: string;
+  item_name: string | null;
+  body_part: string | null;
   issued_at: string;
   valid_until: string | null;
   validity_status: ValidityStatus;
@@ -417,6 +458,7 @@ export interface OOPPAssignment {
   serial_number: string | null;
   notes: string | null;
   status: "active" | "returned" | "discarded";
+  created_by: string;
 }
 
 // ── Generický API error ───────────────────────────────────────────────────────
