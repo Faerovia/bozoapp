@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # a v obsahu QR kódů (sken vede na /devices/{qr_token}/record).
     app_public_url: str = "http://localhost:3000"
 
+    # Claude API (Anthropic) pro generátor BOZP/PO dokumentů.
+    # Sdílený platformový klíč — fair-use limit per tenant je v aplikaci.
+    # Pokud prázdný, /documents/generate vrátí 503 Service Unavailable.
+    anthropic_api_key: str = ""
+    # Model pro generování (claude-sonnet-4-6 dle project instructions)
+    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_max_tokens: int = 8000
+
     # Observability
     sentry_dsn: str = ""
 

@@ -14,6 +14,7 @@ from app.api.v1 import (
     admin,
     auth,
     dashboard,
+    documents,
     employees,
     health,
     job_positions,
@@ -200,3 +201,4 @@ app.include_router(workplaces.router, prefix="/api/v1", tags=["workplaces"])
 app.include_router(job_positions.router, prefix="/api/v1", tags=["job-positions"])
 app.include_router(medical_exams.router, prefix="/api/v1", tags=["medical-exams"])
 app.include_router(ozo_overview.router, prefix="/api/v1", tags=["ozo-overview"])
+app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
