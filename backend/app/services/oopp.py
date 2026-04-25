@@ -28,7 +28,6 @@ from app.schemas.oopp import (
     _add_months,
 )
 
-
 # ── Risk grid ────────────────────────────────────────────────────────────────
 
 
