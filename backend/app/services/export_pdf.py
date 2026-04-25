@@ -12,10 +12,11 @@ Všechny používají stejnou infrastrukturu: fpdf2 + DejaVu fonty (češtiny).
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fpdf import FPDF
 
@@ -339,55 +340,87 @@ def generate_accident_log_pdf(reports: Sequence[AccidentReport], tenant_name: st
 # v dalším commitu s novou strukturou (risk grid + per-position items).
 
 
-def generate_medical_exams_pdf(exams: Sequence[MedicalExam], tenant_name: str) -> bytes:
-    """Přehled lékařských prohlídek pro tisk a archivaci."""
+def generate_medical_exams_pdf(
+    exams: Sequence[MedicalExam | dict[str, Any]],
+    tenant_name: str,
+    *,
+    employee_info: dict[uuid.UUID, dict[str, Any]] | None = None,
+) -> bytes:
+    """
+    Přehled lékařských prohlídek pro tisk a archivaci.
+
+    Přijímá buď ORM objekty MedicalExam (zachování zpětné kompatibility),
+    nebo enriched dicty z attach_employee_info() obsahující employee_name,
+    employee_personal_id, specialty_label apod.
+
+    Pokud je předán dict-only vstup nebo employee_info mapping, dat o
+    zaměstnanci se použijí přednostně.
+    """
     EXAM_TYPE_CS = {  # noqa: N806
-        "vstupni": "Vstupní",
+        "vstupni":    "Vstupní",
         "periodicka": "Periodická",
-        "vystupni": "Výstupní",
-        "mimoradna": "Mimořádná",
+        "vystupni":   "Výstupní",
+        "mimoradna":  "Mimořádná",
+        "odborna":    "Odborná",
     }
     RESULT_CS = {  # noqa: N806
-        "zpusobilyý": "Způsobilý",
-        "zpusobilyý_omezeni": "Způsobilý s omez.",
-        "nezpusobilyý": "Nezpůsobilý",
-        "pozbyl_zpusobilosti": "Pozbyl způsob.",
+        "zpusobily":             "Způsobilý",
+        "zpusobily_omezeni":     "Způsobilý s omez.",
+        "nezpusobily":           "Nezpůsobilý",
+        "pozbyl_zpusobilosti":   "Pozbyl způsob.",
     }
+
+    def _g(e: MedicalExam | dict[str, Any], attr: str, default: Any = None) -> Any:
+        if isinstance(e, dict):
+            return e.get(attr, default)
+        return getattr(e, attr, default)
 
     pdf = _ExportPDF("PŘEHLED LÉKAŘSKÝCH PROHLÍDEK", tenant_name)
 
+    # Šířky sloupců součet ≤ 277 mm (landscape A4 minus margin)
     cols = [
-        ("Zaměstnanec (ID)", 40),
-        ("Druh prohlídky", 28),
-        ("Datum", 24),
-        ("Výsledek", 34),
-        ("Lékař", 44),
-        ("Platnost do", 24),
-        ("Stav platnosti", 30),
-        ("Zbývá dní", 18),
-        ("Status", 15),
-        ("Poznámky", 20),
+        ("Jméno a příjmení",      45),
+        ("Rodné číslo",           25),
+        ("Druh prohlídky",        28),
+        ("Spec.",                 22),
+        ("Datum poslední",        22),
+        ("Datum následující",     24),
+        ("Platnost",              22),
+        ("Výsledek",              30),
+        ("Lékař (PLS)",           40),
+        ("Status",                14),
     ]
     pdf.table_header(cols)
 
     for i, e in enumerate(exams):
-        days = e.days_until_expiry
-        days_str = str(days) if days is not None else "—"
+        emp_id = _g(e, "employee_id")
+        info = (employee_info or {}).get(emp_id, {}) if emp_id else {}
+        emp_name  = _g(e, "employee_name") or info.get("employee_name") or "—"
+        personal_id = _g(e, "employee_personal_id") or info.get("personal_id") or "—"
+        spec_label = _g(e, "specialty_label") or _g(e, "specialty") or "—"
+        type_label = EXAM_TYPE_CS.get(_g(e, "exam_type", ""), _g(e, "exam_type") or "—")
+        result = _g(e, "result")
+        result_label = RESULT_CS.get(result or "", "—") if result else "—"
+        validity = _g(e, "validity_status") or "no_expiry"
         pdf.table_row([
-            (str(e.employee_id)[:8] + "…", 40),
-            (EXAM_TYPE_CS.get(e.exam_type, e.exam_type), 28),
-            (_fmt_date(e.exam_date), 24),
-            (RESULT_CS.get(e.result or "", "—") if e.result else "—", 34),
-            (e.physician_name or "—", 44),
-            (_fmt_date(e.valid_until), 24),
-            (VALIDITY_CS.get(e.validity_status, e.validity_status), 30),
-            (days_str, 18),
-            ("Akt." if e.status == "active" else "Arch.", 15),
-            (e.notes or "—", 20),
+            (emp_name, 45),
+            (personal_id, 25),
+            (type_label, 28),
+            (spec_label, 22),
+            (_fmt_date(_g(e, "exam_date")), 22),
+            (_fmt_date(_g(e, "valid_until")), 24),
+            (VALIDITY_CS.get(validity, validity), 22),
+            (result_label, 30),
+            (_g(e, "physician_name") or "—", 40),
+            ("Akt." if _g(e, "status") == "active" else "Arch.", 14),
         ], shade=i % 2 == 1)
 
-    expired_count = sum(1 for e in exams if e.validity_status == "expired")
-    expiring_count = sum(1 for e in exams if e.validity_status == "expiring_soon")
+    expired_count = sum(
+        1 for e in exams if _g(e, "validity_status") == "expired"
+    )
+    expiring_count = sum(
+        1 for e in exams if _g(e, "validity_status") == "expiring_soon"
+    )
     pdf.section_note(
         f"Celkem záznamů: {len(exams)}   |   "
         f"Prošlé: {expired_count}   |   Brzy vyprší: {expiring_count}"

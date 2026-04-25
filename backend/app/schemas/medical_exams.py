@@ -3,11 +3,16 @@ from datetime import date
 
 from pydantic import BaseModel, Field, model_validator
 
+EXAM_TYPE_PATTERN = "^(vstupni|periodicka|vystupni|mimoradna|odborna)$"
+EXAM_CATEGORY_PATTERN = "^(preventivni|odborna)$"
+
 
 class MedicalExamCreateRequest(BaseModel):
     employee_id: uuid.UUID
     job_position_id: uuid.UUID | None = None
-    exam_type: str = Field(..., pattern="^(vstupni|periodicka|vystupni|mimoradna)$")
+    exam_category: str = Field("preventivni", pattern=EXAM_CATEGORY_PATTERN)
+    exam_type: str = Field(..., pattern=EXAM_TYPE_PATTERN)
+    specialty: str | None = Field(None, max_length=50)
     exam_date: date
     result: str | None = Field(
         None,
@@ -19,8 +24,24 @@ class MedicalExamCreateRequest(BaseModel):
     notes: str | None = None
 
     @model_validator(mode="after")
-    def compute_valid_until(self) -> "MedicalExamCreateRequest":
-        """Pokud valid_until není zadáno, vypočítá ho z exam_date + valid_months."""
+    def validate_and_compute(self) -> "MedicalExamCreateRequest":
+        # Konzistence kategorie a typu
+        if self.exam_category == "odborna":
+            if not self.specialty:
+                raise ValueError(
+                    "U odborné prohlídky je nutné uvést specialty (typ vyšetření).",
+                )
+            if self.exam_type != "odborna":
+                self.exam_type = "odborna"
+        else:
+            # preventivni — specialty nedává smysl
+            self.specialty = None
+            if self.exam_type == "odborna":
+                raise ValueError(
+                    "exam_type='odborna' není platný pro exam_category='preventivni'.",
+                )
+
+        # Auto-výpočet valid_until z valid_months
         if self.valid_until is None and self.valid_months is not None:
             import calendar
             d = self.exam_date
@@ -34,9 +55,9 @@ class MedicalExamCreateRequest(BaseModel):
 
 class MedicalExamUpdateRequest(BaseModel):
     job_position_id: uuid.UUID | None = None
-    exam_type: str | None = Field(
-        None, pattern="^(vstupni|periodicka|vystupni|mimoradna)$"
-    )
+    exam_category: str | None = Field(None, pattern=EXAM_CATEGORY_PATTERN)
+    exam_type: str | None = Field(None, pattern=EXAM_TYPE_PATTERN)
+    specialty: str | None = Field(None, max_length=50)
     exam_date: date | None = None
     result: str | None = Field(
         None,
@@ -53,8 +74,15 @@ class MedicalExamResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     employee_id: uuid.UUID
+    employee_name: str | None = None      # naplněno servicem (manuálně)
+    employee_personal_id: str | None = None  # rodné číslo (jen pro ozo/hr_manager)
     job_position_id: uuid.UUID | None
+    job_position_name: str | None = None
+    work_category: str | None = None      # 1/2/2R/3/4 (z position)
+    exam_category: str
     exam_type: str
+    specialty: str | None
+    specialty_label: str | None = None    # lidsky čitelné z catalogu
     exam_date: date
     result: str | None
     physician_name: str | None
@@ -62,8 +90,20 @@ class MedicalExamResponse(BaseModel):
     valid_until: date | None
     validity_status: str   # computed property z modelu
     days_until_expiry: int | None  # computed property z modelu
+    has_report: bool = False              # je nahraná zpráva?
     notes: str | None
     status: str
     created_by: uuid.UUID
 
     model_config = {"from_attributes": True}
+
+
+class GenerateInitialExamsRequest(BaseModel):
+    employee_id: uuid.UUID
+
+
+class GenerateInitialExamsResponse(BaseModel):
+    created: int
+    exam_ids: list[uuid.UUID]
+    skipped_specialties: list[str]    # už existující prohlídky stejného typu
+    work_category: str | None         # použitá kategorie pro derivaci

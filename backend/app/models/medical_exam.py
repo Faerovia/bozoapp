@@ -18,7 +18,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 from app.models.base import TimestampMixin
 
-ExamType = Literal["vstupni", "periodicka", "vystupni", "mimoradna"]
+ExamType = Literal["vstupni", "periodicka", "vystupni", "mimoradna", "odborna"]
+ExamCategory = Literal["preventivni", "odborna"]
 ExamResult = Literal["zpusobily", "zpusobily_omezeni", "nezpusobily", "pozbyl_zpusobilosti"]
 
 EXPIRING_SOON_DAYS = 60  # 2 měsíce před vypršením = varování
@@ -28,8 +29,12 @@ class MedicalExam(Base, TimestampMixin):
     __tablename__ = "medical_exams"
     __table_args__ = (
         CheckConstraint(
-            "exam_type IN ('vstupni','periodicka','vystupni','mimoradna')",
+            "exam_type IN ('vstupni','periodicka','vystupni','mimoradna','odborna')",
             name="ck_me_exam_type",
+        ),
+        CheckConstraint(
+            "exam_category IN ('preventivni','odborna')",
+            name="ck_me_exam_category",
         ),
         CheckConstraint(
             "result IN ('zpusobily','zpusobily_omezeni','nezpusobily','pozbyl_zpusobilosti') OR result IS NULL",  # noqa: E501
@@ -48,13 +53,22 @@ class MedicalExam(Base, TimestampMixin):
         ForeignKey("job_positions.id", ondelete="SET NULL"), nullable=True
     )
 
+    # 'preventivni' = vstupní/periodická/výstupní/mimořádná (vyhláška 79/2013 Sb.)
+    # 'odborna'     = audiometrie, spirometrie, EKG, ... (specialty pole specifikuje jaká)
+    exam_category: Mapped[str] = mapped_column(
+        String(20), default="preventivni", nullable=False,
+    )
     exam_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    specialty: Mapped[str | None] = mapped_column(String(50))  # jen pro odborné
     exam_date: Mapped[date] = mapped_column(Date, nullable=False)
     result: Mapped[str | None] = mapped_column(String(30))
 
     physician_name: Mapped[str | None] = mapped_column(String(255))
     valid_months: Mapped[int | None] = mapped_column(SmallInteger)
     valid_until: Mapped[date | None] = mapped_column(Date)
+
+    # Cesta k nahrané zprávě z prohlídky (PDF nebo sken)
+    report_path: Mapped[str | None] = mapped_column(String(500))
 
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)

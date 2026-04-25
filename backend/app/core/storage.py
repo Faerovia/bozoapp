@@ -111,6 +111,37 @@ def save_rfa_factor_pdf(
     return rel_path
 
 
+def save_medical_exam_report(
+    tenant_id: uuid.UUID,
+    exam_id: uuid.UUID,
+    content: bytes,
+    filename: str,
+) -> str:
+    """
+    Uloží zprávu z lékařské prohlídky (PDF nebo sken).
+    Per prohlídka může existovat jen jeden — předchozí přepíše.
+    """
+    if len(content) > MAX_REVISION_FILE_BYTES:
+        raise ValueError(
+            f"Soubor je příliš velký (max {MAX_REVISION_FILE_BYTES // 1024 // 1024} MB)"
+        )
+
+    ext = Path(filename).suffix.lower()
+    if ext == ".pdf":
+        if not content.startswith(b"%PDF"):
+            raise ValueError("Soubor má příponu .pdf ale není platné PDF")
+    elif ext not in _ALLOWED_IMAGE_EXTENSIONS:
+        raise ValueError(
+            "Nepodporovaný formát (povoleno: PDF, PNG, JPG, JPEG, WEBP, HEIC)"
+        )
+
+    rel_path = f"medical_exams/{tenant_id}/{exam_id}/report{ext}"
+    full = _safe_join(rel_path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_bytes(content)
+    return rel_path
+
+
 def save_accident_signed_document(
     tenant_id: uuid.UUID,
     accident_id: uuid.UUID,

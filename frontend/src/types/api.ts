@@ -391,22 +391,50 @@ export interface EmployeeResponsibilities {
 
 // ── Medical Exams ─────────────────────────────────────────────────────────────
 
-export type ExamType = "vstupni" | "periodicka" | "vystupni" | "mimoradna";
+export type ExamType = "vstupni" | "periodicka" | "vystupni" | "mimoradna" | "odborna";
 export type ExamResult = "zpusobily" | "zpusobily_omezeni" | "nezpusobily" | "pozbyl_zpusobilosti";
+
+export type ExamCategory = "preventivni" | "odborna";
+
+export type SpecialtyKey =
+  | "audiometrie"
+  | "spirometrie"
+  | "prstova_plethysmografie"
+  | "ekg_klidove"
+  | "ocni_vysetreni"
+  | "rtg_plic"
+  | "psychotesty";
+
+export interface SpecialtyCatalogEntry {
+  key: SpecialtyKey | string;
+  label: string;
+  purpose: string;
+  examples: string;
+}
 
 export interface MedicalExam {
   id: string;
+  tenant_id: string;
   employee_id: string;
   employee_name: string | null;
+  employee_personal_id: string | null;
+  job_position_id: string | null;
+  job_position_name: string | null;
+  work_category: string | null;
+  exam_category: ExamCategory;
   exam_type: ExamType;
+  specialty: string | null;
+  specialty_label: string | null;
   exam_date: string;
   result: ExamResult | null;
   valid_months: number | null;
   valid_until: string | null;
   validity_status: ValidityStatus;
   days_until_expiry: number | null;
-  doctor_name: string | null;
+  has_report: boolean;
+  physician_name: string | null;
   notes: string | null;
+  status: "active" | "archived";
 }
 
 // ── Accident Reports ──────────────────────────────────────────────────────────

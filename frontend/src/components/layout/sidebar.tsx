@@ -15,6 +15,7 @@ import {
   LogOut,
   Briefcase,
   FileText,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, logout } from "@/lib/api";
@@ -94,6 +95,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/workplaces",
     label: "Provozovny, pracoviště, pozice",
     icon: Building2,
+    roles: MANAGERS,
+  },
+  {
+    href: "/risk-overview",
+    label: "Úroveň rizik na pracovištích",
+    icon: ShieldAlert,
     roles: MANAGERS,
   },
   {
