@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -8,6 +9,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Numeric,
     SmallInteger,
     String,
     Text,
@@ -65,6 +67,7 @@ class AccidentReport(Base, TimestampMixin):
     # Testy
     alcohol_test_performed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     alcohol_test_result: Mapped[str | None] = mapped_column(String(20))
+    alcohol_test_value: Mapped[Decimal | None] = mapped_column(Numeric(4, 2))  # promile
     drug_test_performed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     drug_test_result: Mapped[str | None] = mapped_column(String(20))
 
@@ -85,6 +88,9 @@ class AccidentReport(Base, TimestampMixin):
 
     # Workflow
     status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
+
+    # Podepsaný papírový záznam (sken / PDF)
+    signed_document_path: Mapped[str | None] = mapped_column(String(500))
 
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False

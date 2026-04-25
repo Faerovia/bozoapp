@@ -6,8 +6,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Download, QrCode, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, Download, QrCode, ExternalLink, Upload } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { useTableSort } from "@/lib/use-table-sort";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import type { Revision, Plant, DeviceType } from "@/types/api";
 import { DEVICE_TYPE_LABELS } from "@/types/api";
 import { Header } from "@/components/layout/header";
@@ -16,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
+import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { cn } from "@/lib/utils";
 
 // ── Konstanty ────────────────────────────────────────────────────────────────
@@ -195,6 +198,7 @@ export default function RevisionsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("");
   const [editRevision, setEditRevision] = useState<Revision | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const { data: plants = [] } = useQuery<Plant[]>({
@@ -208,10 +212,14 @@ export default function RevisionsPage() {
     typeFilter  && `device_type=${typeFilter}`,
   ].filter(Boolean).join("&");
 
-  const { data: revisions = [], isLoading } = useQuery<Revision[]>({
+  const { data: revisionsRaw = [], isLoading } = useQuery<Revision[]>({
     queryKey: ["revisions", dueFilter, plantFilter, typeFilter],
     queryFn: () => api.get(`/revisions${queryStr ? `?${queryStr}` : ""}`),
   });
+  const {
+    sortedItems: revisions,
+    sortKey, sortDir, toggleSort,
+  } = useTableSort<Revision>(revisionsRaw, "next_revision_at");
 
   const createMutation = useMutation({
     mutationFn: (data: FormData) => api.post("/revisions", data),
@@ -241,10 +249,16 @@ export default function RevisionsPage() {
       <Header
         title="Revize"
         actions={
-          <Button onClick={() => { setServerError(null); setCreateOpen(true); }} size="sm">
-            <Plus className="h-4 w-4 mr-1.5" />
-            Přidat zařízení
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)} size="sm">
+              <Upload className="h-4 w-4 mr-1.5" />
+              Import CSV
+            </Button>
+            <Button onClick={() => { setServerError(null); setCreateOpen(true); }} size="sm">
+              <Plus className="h-4 w-4 mr-1.5" />
+              Přidat zařízení
+            </Button>
+          </div>
         }
       />
 
@@ -319,12 +333,12 @@ export default function RevisionsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Zařízení</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Provozovna</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Typ</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Posl. revize</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Další revize</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Stav</th>
+                      <SortableHeader sortKey="title" current={sortKey} dir={sortDir} onSort={toggleSort}>Zařízení</SortableHeader>
+                      <SortableHeader sortKey="plant_name" current={sortKey} dir={sortDir} onSort={toggleSort}>Provozovna</SortableHeader>
+                      <SortableHeader sortKey="device_type" current={sortKey} dir={sortDir} onSort={toggleSort}>Typ</SortableHeader>
+                      <SortableHeader sortKey="last_revised_at" current={sortKey} dir={sortDir} onSort={toggleSort}>Posl. revize</SortableHeader>
+                      <SortableHeader sortKey="next_revision_at" current={sortKey} dir={sortDir} onSort={toggleSort}>Další revize</SortableHeader>
+                      <SortableHeader sortKey="due_status" current={sortKey} dir={sortDir} onSort={toggleSort}>Stav</SortableHeader>
                       <th className="py-3 px-4" />
                     </tr>
                   </thead>
@@ -448,6 +462,27 @@ export default function RevisionsPage() {
           />
         )}
       </Dialog>
+
+      <CsvImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => qc.invalidateQueries({ queryKey: ["revisions"] })}
+        title="Import zařízení z CSV"
+        templateUrl="/api/v1/revisions/import/template"
+        uploadEndpoint="/revisions/import"
+        requirements={
+          <div className="space-y-1">
+            <p className="font-medium">Požadavky na soubor:</p>
+            <ul className="list-disc list-inside space-y-0.5 pl-2">
+              <li>Formát .csv (UTF-8, oddělovač čárka nebo středník)</li>
+              <li>Povinné: <code className="bg-gray-100 px-1 rounded">title</code>, <code className="bg-gray-100 px-1 rounded">plant_name</code>, <code className="bg-gray-100 px-1 rounded">device_type</code>, <code className="bg-gray-100 px-1 rounded">valid_months</code></li>
+              <li>Provozovna — přesný název, musí už existovat</li>
+              <li>device_type: elektro / hromosvody / plyn / kotle / tlakove_nadoby / vytahy / spalinove_cesty</li>
+              <li>Datum ve formátu YYYY-MM-DD</li>
+            </ul>
+          </div>
+        }
+      />
     </div>
   );
 }

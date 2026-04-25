@@ -111,6 +111,63 @@ def save_rfa_factor_pdf(
     return rel_path
 
 
+def save_accident_signed_document(
+    tenant_id: uuid.UUID,
+    accident_id: uuid.UUID,
+    content: bytes,
+    filename: str,
+) -> str:
+    """
+    Uloží podepsaný papírový záznam o úrazu (PDF nebo obrázek skenu).
+    Per úraz může existovat pouze jeden — předchozí přepíše.
+    """
+    if len(content) > MAX_REVISION_FILE_BYTES:
+        raise ValueError(
+            f"Soubor je příliš velký (max {MAX_REVISION_FILE_BYTES // 1024 // 1024} MB)"
+        )
+
+    ext = Path(filename).suffix.lower()
+    if ext == ".pdf":
+        if not content.startswith(b"%PDF"):
+            raise ValueError("Soubor má příponu .pdf ale není platné PDF")
+    elif ext not in _ALLOWED_IMAGE_EXTENSIONS:
+        raise ValueError(
+            "Nepodporovaný formát (povoleno: PDF, PNG, JPG, JPEG, WEBP, HEIC)"
+        )
+
+    rel_path = f"accidents/{tenant_id}/{accident_id}/signed_document{ext}"
+    full = _safe_join(rel_path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_bytes(content)
+    return rel_path
+
+
+def save_accident_photo(
+    tenant_id: uuid.UUID,
+    accident_id: uuid.UUID,
+    photo_id: uuid.UUID,
+    content: bytes,
+    filename: str,
+) -> str:
+    """Uloží fotku úrazu (max 5 MB, image/* extension). Vrací relativní cestu."""
+    if len(content) > MAX_REVISION_FILE_BYTES:
+        raise ValueError(
+            f"Fotka je příliš velká (max {MAX_REVISION_FILE_BYTES // 1024 // 1024} MB)"
+        )
+
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+        raise ValueError(
+            "Nepodporovaný formát fotky (povoleno: PNG, JPG, JPEG, WEBP, HEIC)"
+        )
+
+    rel_path = f"accidents/{tenant_id}/{accident_id}/{photo_id}{ext}"
+    full = _safe_join(rel_path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_bytes(content)
+    return rel_path
+
+
 def save_revision_record_file(
     tenant_id: uuid.UUID,
     revision_id: uuid.UUID,

@@ -90,15 +90,45 @@ class _ReportPDF(FPDF):
         self.ln(1)
 
     def signature_block(self, label: str, name: str | None, signed_at: date | None) -> None:
+        """
+        Vykreslí blok pro podpis s velkým prostorem (~22 mm na výšku).
+        Layout:
+          [Role:           ] [Jméno:                       ] [Datum: DD.MM.RRRR]
+          .................................................................. ← podpisová linka
+          (prostor ~16 mm pro vlastní rukopisný podpis)
+        """
+        # Pokud by se nový blok rozdělil přes konec stránky, nejdřív přejdi na novou
+        if self.get_y() + 28 > self.h - self.b_margin:
+            self.add_page()
+
+        # Hlavička bloku — role, jméno, datum
         self.set_font(self.FONT, style="B", size=9)
         self.cell(55, 6, label + ":", new_x="RIGHT", new_y="TOP")
         self.set_font(self.FONT, style="", size=9)
         self.cell(85, 6, name or "—", new_x="RIGHT", new_y="TOP")
-        self.cell(40, 6, _fmt_date(signed_at), new_x="LMARGIN", new_y="NEXT")
-        # Podpisová čára
-        self.cell(55, 1, "", new_x="RIGHT", new_y="TOP")
-        self.cell(85, 1, "_" * 38, new_x="LMARGIN", new_y="NEXT")
-        self.ln(4)
+        self.cell(40, 6, "Datum: " + _fmt_date(signed_at), new_x="LMARGIN", new_y="NEXT")
+
+        # Prázdný prostor pro podpis (~16 mm)
+        sig_top = self.get_y() + 1
+        self.ln(16)
+
+        # Podpisová linka přes celou šířku obsahu
+        x1 = self.l_margin
+        x2 = self.l_margin + self.PAGE_W
+        line_y = self.get_y()
+        self.set_draw_color(80, 80, 80)
+        self.line(x1, line_y, x2, line_y)
+
+        # Popisek pod čarou
+        self.set_font(self.FONT, style="", size=7)
+        self.set_text_color(120, 120, 120)
+        self.ln(0.5)
+        self.cell(self.PAGE_W, 4, "Podpis", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.set_text_color(0, 0, 0)
+        # Padding mezi bloky
+        self.ln(3)
+        # sig_top je deklarován pro budoucí rozšíření (např. razítko)
+        _ = sig_top
 
 
 def generate_accident_report_pdf(report: AccidentReport, tenant_name: str) -> bytes:
@@ -192,6 +222,11 @@ def generate_accident_report_pdf(report: AccidentReport, tenant_name: str) -> by
     pdf.field_row("Test na alkohol proveden", _fmt_bool(report.alcohol_test_performed))
     if report.alcohol_test_performed:
         pdf.field_row("Výsledek testu na alkohol", _fmt_test_result(report.alcohol_test_result))
+        if report.alcohol_test_result == "positive" and report.alcohol_test_value is not None:
+            pdf.field_row(
+                "Naměřená hodnota alkoholu",
+                f"{report.alcohol_test_value} ‰",
+            )
     pdf.field_row("Test na návykové látky proveden", _fmt_bool(report.drug_test_performed))
     if report.drug_test_performed:
         pdf.field_row("Výsledek testu na návykové látky", _fmt_test_result(report.drug_test_result))

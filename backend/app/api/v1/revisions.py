@@ -13,6 +13,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -423,4 +424,65 @@ async def set_responsibilities(
     return EmployeeResponsibilitiesResponse(
         employee_id=employee_id,
         plant_ids=plant_ids,
+    )
+
+
+# ── CSV import zařízení ─────────────────────────────────────────────────────
+
+
+class RevisionImportRowResponse(BaseModel):
+    row_index: int
+    success: bool
+    revision_id: uuid.UUID | None = None
+    title: str | None = None
+    error: str | None = None
+
+
+class RevisionImportResponse(BaseModel):
+    total_rows: int
+    created_count: int
+    failed_count: int
+    rows: list[RevisionImportRowResponse]
+
+
+@router.get("/revisions/import/template")
+async def revision_import_template(
+    _current_user: User = Depends(require_role("ozo", "hr_manager")),
+) -> Response:
+    from app.services.revision_import import generate_template_csv
+    return Response(
+        content=generate_template_csv(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="revize_sablona.csv"',
+        },
+    )
+
+
+@router.post("/revisions/import", response_model=RevisionImportResponse)
+async def revision_import(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> RevisionImportResponse:
+    from app.services.revision_import import import_from_csv
+
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    summary = await import_from_csv(
+        db, content, current_user.tenant_id, current_user.id,
+    )
+    return RevisionImportResponse(
+        total_rows=summary.total_rows,
+        created_count=summary.created_count,
+        failed_count=summary.failed_count,
+        rows=[
+            RevisionImportRowResponse(
+                row_index=r.row_index,
+                success=r.success,
+                revision_id=r.revision_id,
+                title=r.title,
+                error=r.error,
+            )
+            for r in summary.rows
+        ],
     )

@@ -411,23 +411,58 @@ export interface MedicalExam {
 
 // ── Accident Reports ──────────────────────────────────────────────────────────
 
+export type AccidentTestResult = "negative" | "positive";
+
+export interface AccidentWitness {
+  name: string;
+  signed_at: string | null;
+}
+
 export interface AccidentReport {
   id: string;
-  title: string;
-  accident_date: string;
-  accident_time: string | null;
-  location: string | null;
-  description: string | null;
+  tenant_id: string;
+
   employee_id: string | null;
-  employee_name: string | null;
+  employee_name: string;
+  workplace: string;
+
+  accident_date: string;
+  accident_time: string;
+  shift_start_time: string | null;
+
+  injury_type: string;
+  injured_body_part: string;
+  injury_source: string;
+  injury_cause: string;
   injured_count: number;
   is_fatal: boolean;
-  work_absence_days: number | null;
+  has_other_injuries: boolean;
+
+  description: string;
+
+  blood_pathogen_exposure: boolean;
+  blood_pathogen_persons: string | null;
+
+  violated_regulations: string | null;
+
+  alcohol_test_performed: boolean;
+  alcohol_test_result: AccidentTestResult | null;
+  alcohol_test_value: string | number | null;  // promile (Decimal serializovaný jako string)
+  drug_test_performed: boolean;
+  drug_test_result: AccidentTestResult | null;
+
+  injured_signed_at: string | null;
+  witnesses: AccidentWitness[];
+  supervisor_name: string | null;
+  supervisor_signed_at: string | null;
+
+  risk_id: string | null;
   risk_review_required: boolean;
   risk_review_completed_at: string | null;
-  witnesses: { name: string; contact?: string }[];
+
   status: "draft" | "final" | "archived";
-  created_at: string;
+  signed_document_path: string | null;
+  created_by: string;
 }
 
 // ── OOPP (NV 390/2021 Sb. — Příloha č. 2) ────────────────────────────────────

@@ -101,6 +101,7 @@ async def create_accident_report(
         violated_regulations=data.violated_regulations,
         alcohol_test_performed=data.alcohol_test_performed,
         alcohol_test_result=data.alcohol_test_result,
+        alcohol_test_value=data.alcohol_test_value,
         drug_test_performed=data.drug_test_performed,
         drug_test_result=data.drug_test_result,
         injured_signed_at=data.injured_signed_at,
@@ -154,9 +155,10 @@ async def update_accident_report(
 
 
 async def finalize_accident_report(
-    db: AsyncSession, report: AccidentReport
+    db: AsyncSession, report: AccidentReport, *, created_by: uuid.UUID | None = None,
 ) -> AccidentReport:
-    """Draft → final. Nastaví risk_review_required = True."""
+    """Draft → final. Nastaví risk_review_required = True a vytvoří
+    výchozí položku akčního plánu „Revize a případná změna rizik"."""
     if report.status != "draft":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -165,6 +167,12 @@ async def finalize_accident_report(
     report.status = "final"
     report.risk_review_required = True
     await db.flush()
+
+    # Vytvoř default action item — živý dokument pro OZO
+    if created_by is not None:
+        from app.services.accident_action import ensure_default_item
+        await ensure_default_item(db, report, created_by)
+
     return report
 
 

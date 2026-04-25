@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -46,6 +47,7 @@ class AccidentReportCreateRequest(BaseModel):
     # Testy
     alcohol_test_performed: bool = False
     alcohol_test_result: TestResult | None = None
+    alcohol_test_value: Decimal | None = Field(None, ge=0, le=99)  # promile
     drug_test_performed: bool = False
     drug_test_result: TestResult | None = None
 
@@ -64,6 +66,13 @@ class AccidentReportCreateRequest(BaseModel):
             raise ValueError("alcohol_test_result musí být vyplněn pokud byl test proveden")
         if not self.alcohol_test_performed:
             self.alcohol_test_result = None
+            self.alcohol_test_value = None
+        if self.alcohol_test_result == "positive" and self.alcohol_test_value is None:
+            raise ValueError(
+                "Při pozitivním výsledku testu alkoholu uveďte naměřené promile",
+            )
+        if self.alcohol_test_result != "positive":
+            self.alcohol_test_value = None
         if self.drug_test_performed and self.drug_test_result is None:
             raise ValueError("drug_test_result musí být vyplněn pokud byl test proveden")
         if not self.drug_test_performed:
@@ -92,6 +101,7 @@ class AccidentReportUpdateRequest(BaseModel):
     violated_regulations: str | None = None
     alcohol_test_performed: bool | None = None
     alcohol_test_result: TestResult | None = None
+    alcohol_test_value: Decimal | None = Field(None, ge=0, le=99)
     drug_test_performed: bool | None = None
     drug_test_result: TestResult | None = None
     injured_signed_at: date | None = None
@@ -130,6 +140,7 @@ class AccidentReportResponse(BaseModel):
 
     alcohol_test_performed: bool
     alcohol_test_result: str | None
+    alcohol_test_value: Decimal | None
     drug_test_performed: bool
     drug_test_result: str | None
 
@@ -143,6 +154,7 @@ class AccidentReportResponse(BaseModel):
     risk_review_completed_at: datetime | None
 
     status: str
+    signed_document_path: str | None
     created_by: uuid.UUID
 
     model_config = {"from_attributes": True}

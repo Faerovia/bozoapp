@@ -7,6 +7,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { UserPlus, Pencil, UserX, Download, RefreshCw, Copy, Upload, FileText } from "lucide-react";
 import { api, ApiError, uploadFile } from "@/lib/api";
+import { useTableSort } from "@/lib/use-table-sort";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import type { Employee, EmploymentType, JobPosition, Plant, Workplace } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -814,10 +816,14 @@ export default function EmployeesPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [passwordModal, setPasswordModal] = useState<{ password: string; email: string | null } | null>(null);
 
-  const { data: employees = [], isLoading } = useQuery<Employee[]>({
+  const { data: employeesRaw = [], isLoading } = useQuery<Employee[]>({
     queryKey: ["employees", statusFilter],
     queryFn: () => api.get(`/employees${statusFilter ? `?emp_status=${statusFilter}` : ""}`),
   });
+  const {
+    sortedItems: employees,
+    sortKey, sortDir, toggleSort,
+  } = useTableSort<Employee>(employeesRaw, "last_name");
 
   const { data: jobPositions = [] } = useQuery<JobPosition[]>({
     queryKey: ["job-positions"],
@@ -946,12 +952,12 @@ export default function EmployeesPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Jméno</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Os. č.</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Úvazek</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Status</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Email</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Nástup</th>
+                      <SortableHeader sortKey="last_name" current={sortKey} dir={sortDir} onSort={toggleSort}>Jméno</SortableHeader>
+                      <SortableHeader sortKey="personal_number" current={sortKey} dir={sortDir} onSort={toggleSort}>Os. č.</SortableHeader>
+                      <SortableHeader sortKey="employment_type" current={sortKey} dir={sortDir} onSort={toggleSort}>Úvazek</SortableHeader>
+                      <SortableHeader sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort}>Status</SortableHeader>
+                      <SortableHeader sortKey="email" current={sortKey} dir={sortDir} onSort={toggleSort}>Email</SortableHeader>
+                      <SortableHeader sortKey="hired_at" current={sortKey} dir={sortDir} onSort={toggleSort}>Nástup</SortableHeader>
                       <th className="py-3 px-4" />
                     </tr>
                   </thead>

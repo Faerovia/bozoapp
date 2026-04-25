@@ -15,6 +15,8 @@ import {
   Plus, Pencil, Trash2, ShieldAlert, Boxes, ClipboardList, Save,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { useTableSort } from "@/lib/use-table-sort";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import type {
   Employee, JobPosition, OoppCatalog, OoppItem, OoppIssue, RiskGrid,
 } from "@/types/api";
@@ -602,10 +604,14 @@ function IssuesTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { data: issues = [] } = useQuery<OoppIssue[]>({
+  const { data: issuesRaw = [] } = useQuery<OoppIssue[]>({
     queryKey: ["oopp-issues"],
     queryFn: () => api.get("/oopp/issues?issue_status=active"),
   });
+  const {
+    sortedItems: issues,
+    sortKey, sortDir, toggleSort,
+  } = useTableSort<OoppIssue>(issuesRaw, "valid_until", "asc");
 
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["employees", "active"],
@@ -677,11 +683,11 @@ function IssuesTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Zaměstnanec</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">OOPP</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Posl. výdej</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Další výdej</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Stav</th>
+                  <SortableHeader sortKey="employee_name" current={sortKey} dir={sortDir} onSort={toggleSort}>Zaměstnanec</SortableHeader>
+                  <SortableHeader sortKey="item_name" current={sortKey} dir={sortDir} onSort={toggleSort}>OOPP</SortableHeader>
+                  <SortableHeader sortKey="issued_at" current={sortKey} dir={sortDir} onSort={toggleSort}>Posl. výdej</SortableHeader>
+                  <SortableHeader sortKey="valid_until" current={sortKey} dir={sortDir} onSort={toggleSort}>Další výdej</SortableHeader>
+                  <SortableHeader sortKey="validity_status" current={sortKey} dir={sortDir} onSort={toggleSort}>Stav</SortableHeader>
                   <th className="py-3 px-4" />
                 </tr>
               </thead>

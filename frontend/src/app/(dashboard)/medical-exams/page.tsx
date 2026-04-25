@@ -7,6 +7,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Plus, Pencil, Trash2, Download } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { useTableSort } from "@/lib/use-table-sort";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import type { MedicalExam, Employee } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -179,10 +181,14 @@ export default function MedicalExamsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const { data: exams = [], isLoading } = useQuery<MedicalExam[]>({
+  const { data: examsRaw = [], isLoading } = useQuery<MedicalExam[]>({
     queryKey: ["medical-exams", validityFilter],
     queryFn: () => api.get(`/medical-exams${validityFilter ? `?validity_status=${validityFilter}` : ""}`),
   });
+  const {
+    sortedItems: exams,
+    sortKey, sortDir, toggleSort,
+  } = useTableSort<MedicalExam>(examsRaw, "valid_until", "asc");
 
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["employees"],
@@ -282,12 +288,12 @@ export default function MedicalExamsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Zaměstnanec</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Typ</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Datum</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Výsledek</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Platnost do</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-500">Stav</th>
+                      <SortableHeader sortKey="employee_name" current={sortKey} dir={sortDir} onSort={toggleSort}>Zaměstnanec</SortableHeader>
+                      <SortableHeader sortKey="exam_type" current={sortKey} dir={sortDir} onSort={toggleSort}>Typ</SortableHeader>
+                      <SortableHeader sortKey="exam_date" current={sortKey} dir={sortDir} onSort={toggleSort}>Datum</SortableHeader>
+                      <SortableHeader sortKey="result" current={sortKey} dir={sortDir} onSort={toggleSort}>Výsledek</SortableHeader>
+                      <SortableHeader sortKey="valid_until" current={sortKey} dir={sortDir} onSort={toggleSort}>Platnost do</SortableHeader>
+                      <SortableHeader sortKey="validity_status" current={sortKey} dir={sortDir} onSort={toggleSort}>Stav</SortableHeader>
                       <th className="py-3 px-4" />
                     </tr>
                   </thead>
