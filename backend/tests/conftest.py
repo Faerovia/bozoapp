@@ -22,6 +22,11 @@ os.environ["ENVIRONMENT"] = "test"
 _test_upload_dir = tempfile.mkdtemp(prefix="bozoapp_test_uploads_")
 os.environ["UPLOAD_DIR"] = _test_upload_dir
 
+# Vyřazení Anthropic API v testech: i kdyby host měl klíč v .env,
+# testy ho nepoužívají (offline, deterministicky). AI generátory v testech
+# musí vrátit 503.
+os.environ["ANTHROPIC_API_KEY"] = ""
+
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402

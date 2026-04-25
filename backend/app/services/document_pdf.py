@@ -143,36 +143,63 @@ def _render_list_item(pdf: FPDF, text: str, ordered: bool, idx: int) -> None:
     pdf.set_x(x)
 
 
+def _calc_col_widths(headers: list[str], rows: list[list[str]],
+                     total_width: float) -> list[float]:
+    """Heuristika: šířka sloupce úměrná průměrné délce obsahu (clamped 8-50%)."""
+    n = len(headers)
+    if n == 0:
+        return []
+
+    # Spočítej max délku obsahu per column
+    col_max: list[int] = []
+    for col_idx in range(n):
+        max_len = len(headers[col_idx])
+        for row in rows:
+            if col_idx < len(row):
+                max_len = max(max_len, len(str(row[col_idx])))
+        col_max.append(max(max_len, 5))  # min 5 chars
+
+    total = sum(col_max)
+    # Proporcionálně + clamp aby žádný sloupec nebyl extrémně úzký/široký
+    min_pct = 0.08
+    max_pct = 0.50
+    widths = []
+    for ml in col_max:
+        pct = ml / total
+        pct = max(min_pct, min(max_pct, pct))
+        widths.append(pct)
+    # Re-normalize na 1.0
+    s = sum(widths)
+    return [(w / s) * total_width for w in widths]
+
+
 def _render_table(pdf: FPDF, headers: list[str], rows: list[list[str]]) -> None:
     if not headers:
         return
     pdf.ln(2)
-    page_width = pdf.w - 2 * pdf.l_margin
-    col_width = page_width / len(headers)
+    total_width = pdf.w - pdf.l_margin - pdf.r_margin
+    col_widths = _calc_col_widths(headers, rows, total_width)
 
-    # Header
-    pdf.set_font(FONT, "B", 9)
-    pdf.set_fill_color(230, 235, 245)
-    pdf.set_text_color(0, 0, 100)
-    for h in headers:
-        pdf.cell(col_width, 7, _strip_inline(h)[:60], border=1, align="L", fill=True)
-    pdf.ln()
-    pdf.set_text_color(0, 0, 0)
+    # Použij nativní fpdf2 table API (text wrap automaticky přes multi_cell)
+    pdf.set_font(FONT, "", 8)
+    with pdf.table(
+        col_widths=tuple(col_widths),
+        text_align="LEFT",
+        line_height=5,
+        padding=1.5,
+        # Manuálně necháme styling header v každé buňce, fpdf2 to dělá auto
+    ) as table:
+        # Header row
+        header_row = table.row()
+        for h in headers:
+            header_row.cell(_strip_inline(h))
 
-    # Rows
-    pdf.set_font(FONT, "", 9)
-    for i, row in enumerate(rows):
-        # Pad row pokud chybí buňky
-        cells = list(row) + [""] * max(0, len(headers) - len(row))
-        if i % 2 == 1:
-            pdf.set_fill_color(248, 248, 252)
-            fill = True
-        else:
-            fill = False
-        for c in cells[: len(headers)]:
-            pdf.cell(col_width, 6, _strip_inline(str(c))[:60],
-                     border=1, align="L", fill=fill)
-        pdf.ln()
+        # Data rows
+        for r in rows:
+            cells = list(r) + [""] * max(0, len(headers) - len(r))
+            row = table.row()
+            for c in cells[: len(headers)]:
+                row.cell(_strip_inline(str(c)) if c is not None else "—")
     pdf.ln(2)
 
 
