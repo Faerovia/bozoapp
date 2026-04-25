@@ -13,19 +13,19 @@ from app.core.validation import assert_in_tenant
 from app.models.employee import Employee
 from app.models.job_position import JobPosition
 from app.models.oopp import (
-    VALID_BODY_PARTS,
-    VALID_RISK_COLS,
     EmployeeOoppIssue,
     PositionOoppItem,
     PositionRiskGrid,
+    VALID_BODY_PARTS,
+    VALID_RISK_COLS,
 )
 from app.schemas.oopp import (
+    _add_months,
     IssueCreateRequest,
     IssueUpdateRequest,
     OoppItemCreateRequest,
     OoppItemUpdateRequest,
     RiskGridUpdateRequest,
-    _add_months,
 )
 
 

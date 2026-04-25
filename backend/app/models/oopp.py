@@ -12,7 +12,12 @@ import uuid
 from datetime import UTC, date, datetime
 
 from sqlalchemy import (
-    CheckConstraint, Date, ForeignKey, SmallInteger, String, Text,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    SmallInteger,
+    String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
