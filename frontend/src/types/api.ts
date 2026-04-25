@@ -490,6 +490,53 @@ export interface OoppIssue {
   created_by: string;
 }
 
+// ── Documents (generátor BOZP/PO) ────────────────────────────────────────────
+
+export type DocumentType =
+  | "bozp_directive"
+  | "training_outline"
+  | "revision_schedule"
+  | "risk_categorization";
+
+export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  bozp_directive: "Směrnice BOZP",
+  training_outline: "Osnova školení BOZP (per pozice)",
+  revision_schedule: "Harmonogram revizí",
+  risk_categorization: "Kategorizace prací (RFA)",
+};
+
+export const DOCUMENT_TYPE_DESC: Record<DocumentType, string> = {
+  bozp_directive:
+    "Kompletní směrnice BOZP firmy generovaná AI z dat tenantu (cca 10 stran).",
+  training_outline:
+    "Osnova vstupního školení BOZP pro konkrétní pracovní pozici. Generuje AI z RFA.",
+  revision_schedule:
+    "Tabulkový přehled všech revizí s termíny. Bez AI — čistá data.",
+  risk_categorization:
+    "Tabulka kategorií prací dle NV 361/2007. Z RFA, bez AI.",
+};
+
+export interface GeneratedDocumentListItem {
+  id: string;
+  document_type: DocumentType;
+  title: string;
+  ai_input_tokens: number | null;
+  ai_output_tokens: number | null;
+  created_by: string;
+}
+
+export interface GeneratedDocument {
+  id: string;
+  tenant_id: string;
+  document_type: DocumentType;
+  title: string;
+  content_md: string;
+  params: Record<string, unknown>;
+  ai_input_tokens: number | null;
+  ai_output_tokens: number | null;
+  created_by: string;
+}
+
 // ── Generický API error ───────────────────────────────────────────────────────
 
 export interface ApiError {

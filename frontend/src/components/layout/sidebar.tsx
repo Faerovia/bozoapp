@@ -14,6 +14,7 @@ import {
   Stethoscope,
   LogOut,
   Briefcase,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, logout } from "@/lib/api";
@@ -100,6 +101,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Lékařské prohlídky",
     icon: Stethoscope,
     roles: ALL_TENANT,
+  },
+  {
+    href: "/documents",
+    label: "Dokumenty",
+    icon: FileText,
+    roles: MANAGERS,
   },
 ];
 
