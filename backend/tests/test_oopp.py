@@ -1,23 +1,20 @@
 """
-Testy pro OOPP evidenci (Evidence osobních ochranných pracovních prostředků).
+Testy nového OOPP modulu (NV 390/2021 Sb. Příloha č. 2).
 
-Ověřujeme:
-- CRUD operace
-- Správný výpočet valid_until z issued_at + valid_months
-- validity_status computed property
-- Filtrování (employee, typ, validity_status)
-- Archivace (ne fyzické smazání)
-- Tenant izolace (OZO A nevidí záznamy OZO B)
-- PDF export
+Pokrýváme:
+- /oopp/catalog (statický seznam body parts + risk columns)
+- Risk grid PUT/GET per pozice
+- OOPP items CRUD per pozice (multi-item per body part)
+- Issues create (valid_until dopočítané z item.valid_months)
+- Tenant izolace
 """
-
 from datetime import date, timedelta
 
 import pytest
 from httpx import AsyncClient
 
 
-async def _ozo_headers(client: AsyncClient, suffix: str) -> tuple[dict, str]:
+async def _ozo_headers(client: AsyncClient, suffix: str) -> dict:
     resp = await client.post(
         "/api/v1/auth/register",
         json={
@@ -26,221 +23,324 @@ async def _ozo_headers(client: AsyncClient, suffix: str) -> tuple[dict, str]:
             "tenant_name": f"OOPP Firma {suffix}",
         },
     )
-    token = resp.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
-    me = await client.get("/api/v1/users/me", headers=headers)
-    return headers, me.json()["id"]
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-def _oopp_payload(employee_name: str = "Jan Novák", **overrides: object) -> dict:
-    base = {
-        "employee_name": employee_name,
-        "item_name": "Bezpečnostní přilba",
-        "oopp_type": "head_protection",
-        "issued_at": "2025-01-01",
-        "quantity": 1,
-    }
-    base.update(overrides)
-    return base
+async def _create_position(
+    client: AsyncClient, headers: dict, name: str = "Soustružník"
+) -> str:
+    """Vytvoří plant + workplace + position a vrátí position id."""
+    plant = await client.post(
+        "/api/v1/plants", json={"name": "Provozovna T"}, headers=headers
+    )
+    plant_id = plant.json()["id"]
+    wp = await client.post(
+        "/api/v1/workplaces",
+        json={"plant_id": plant_id, "name": "Pracoviště T"},
+        headers=headers,
+    )
+    wp_id = wp.json()["id"]
+    pos = await client.post(
+        "/api/v1/job-positions",
+        json={"name": name, "workplace_id": wp_id},
+        headers=headers,
+    )
+    assert pos.status_code == 201, pos.text
+    return pos.json()["id"]
 
 
-# ── Základní CRUD ─────────────────────────────────────────────────────────────
+async def _create_employee(
+    client: AsyncClient, headers: dict, suffix: str = "1"
+) -> str:
+    resp = await client.post(
+        "/api/v1/employees",
+        json={
+            "first_name": "Jan",
+            "last_name": f"Novák{suffix}",
+            "employment_type": "hpp",
+            "email": f"emp{suffix}@oopp.cz",
+            "create_user_account": True,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+# ── Catalog ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_create_oopp(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o1")
-    resp = await client.post("/api/v1/oopp", json=_oopp_payload(), headers=headers)
-    assert resp.status_code == 201
+async def test_catalog_returns_full_table(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "c1")
+    resp = await client.get("/api/v1/oopp/catalog", headers=headers)
+    assert resp.status_code == 200
     data = resp.json()
-    assert data["item_name"] == "Bezpečnostní přilba"
-    assert data["oopp_type"] == "head_protection"
-    assert data["status"] == "active"
-    assert data["validity_status"] == "no_expiry"  # valid_months=None → no_expiry
+    assert len(data["body_parts"]) == 14
+    assert len(data["risk_columns"]) == 26
+    assert data["body_parts"][0]["key"] == "A"
+    assert data["risk_columns"][0]["col"] == 1
+    assert data["risk_columns"][0]["group"] == "fyzikální"
+
+
+# ── Risk grid ────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_set_and_get_grid(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "g1")
+    pos_id = await _create_position(client, headers)
+
+    put = await client.put(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid",
+        json={"grid": {"G": [1, 6], "I": [3]}},
+        headers=headers,
+    )
+    assert put.status_code == 200, put.text
+    body = put.json()
+    assert body["grid"] == {"G": [1, 6], "I": [3]}
+    assert body["has_any_risk"] is True
+
+    get = await client.get(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid", headers=headers
+    )
+    assert get.status_code == 200
+    assert get.json()["grid"] == {"G": [1, 6], "I": [3]}
 
 
 @pytest.mark.asyncio
-async def test_valid_until_computed_from_valid_months(client: AsyncClient) -> None:
-    """valid_until = issued_at + valid_months (automatický výpočet)."""
-    headers, _ = await _ozo_headers(client, "o2")
+async def test_grid_rejects_invalid_body_part(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "g2")
+    pos_id = await _create_position(client, headers)
+    resp = await client.put(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid",
+        json={"grid": {"Z": [1]}},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_grid_rejects_invalid_risk_col(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "g3")
+    pos_id = await _create_position(client, headers)
+    resp = await client.put(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid",
+        json={"grid": {"A": [99]}},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_empty_grid_persists_as_empty(client: AsyncClient) -> None:
+    """Replace strategy: posláním {} se grid vyčistí."""
+    headers = await _ozo_headers(client, "g4")
+    pos_id = await _create_position(client, headers)
+    await client.put(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid",
+        json={"grid": {"G": [1]}},
+        headers=headers,
+    )
+    await client.put(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid",
+        json={"grid": {}},
+        headers=headers,
+    )
+    g = await client.get(f"/api/v1/job-positions/{pos_id}/oopp-grid", headers=headers)
+    assert g.json()["has_any_risk"] is False
+
+
+# ── Positions with grid ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_positions_with_grid_lists_only_filled(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "p1")
+    pos_a = await _create_position(client, headers, "Svářeč")
+    pos_b = await _create_position(client, headers, "Skladník")
+    await client.put(
+        f"/api/v1/job-positions/{pos_a}/oopp-grid",
+        json={"grid": {"G": [1]}},
+        headers=headers,
+    )
+
+    resp = await client.get("/api/v1/oopp/positions", headers=headers)
+    ids = [p["id"] for p in resp.json()]
+    assert pos_a in ids
+    assert pos_b not in ids
+
+
+# ── OOPP items ───────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_create_oopp_item(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "i1")
+    pos_id = await _create_position(client, headers)
     resp = await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(issued_at="2025-01-15", valid_months=12),
+        "/api/v1/oopp/items",
+        json={
+            "job_position_id": pos_id,
+            "body_part": "G",
+            "name": "Pracovní rukavice",
+            "valid_months": 12,
+        },
         headers=headers,
     )
-    assert resp.status_code == 201
-    assert resp.json()["valid_until"] == "2026-01-15"
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["body_part"] == "G"
+    assert body["valid_months"] == 12
 
 
 @pytest.mark.asyncio
-async def test_explicit_valid_until_overrides_months(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o3")
+async def test_multiple_items_per_body_part(client: AsyncClient) -> None:
+    """Ke stejné body part lze přidat libovolný počet OOPP."""
+    headers = await _ozo_headers(client, "i2")
+    pos_id = await _create_position(client, headers)
+    for name in ["Rukavice", "Manžety", "Chrániče prstů"]:
+        await client.post(
+            "/api/v1/oopp/items",
+            json={"job_position_id": pos_id, "body_part": "G", "name": name},
+            headers=headers,
+        )
+    resp = await client.get(
+        f"/api/v1/oopp/items?job_position_id={pos_id}", headers=headers
+    )
+    items = resp.json()
+    assert len(items) == 3
+    assert {i["name"] for i in items} == {"Rukavice", "Manžety", "Chrániče prstů"}
+
+
+@pytest.mark.asyncio
+async def test_item_invalid_body_part_rejected(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "i3")
+    pos_id = await _create_position(client, headers)
     resp = await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(issued_at="2025-01-01", valid_months=12, valid_until="2026-06-30"),
+        "/api/v1/oopp/items",
+        json={"job_position_id": pos_id, "body_part": "Z", "name": "Test"},
         headers=headers,
     )
-    assert resp.status_code == 201
-    assert resp.json()["valid_until"] == "2026-06-30"
+    assert resp.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_get_oopp_by_id(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o4")
-    create = await client.post("/api/v1/oopp", json=_oopp_payload(), headers=headers)
-    aid = create.json()["id"]
-    resp = await client.get(f"/api/v1/oopp/{aid}", headers=headers)
-    assert resp.status_code == 200
-    assert resp.json()["id"] == aid
-
+# ── Issues ───────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_update_oopp(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o5")
-    create = await client.post("/api/v1/oopp", json=_oopp_payload(), headers=headers)
-    aid = create.json()["id"]
-    resp = await client.patch(
-        f"/api/v1/oopp/{aid}",
-        json={"item_name": "Přilba XL", "quantity": 2},
+async def test_issue_valid_until_from_item_period(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "is1")
+    pos_id = await _create_position(client, headers)
+    emp_id = await _create_employee(client, headers, "1")
+
+    item = await client.post(
+        "/api/v1/oopp/items",
+        json={
+            "job_position_id": pos_id,
+            "body_part": "G",
+            "name": "Rukavice",
+            "valid_months": 6,
+        },
         headers=headers,
     )
-    assert resp.status_code == 200
-    assert resp.json()["item_name"] == "Přilba XL"
-    assert resp.json()["quantity"] == 2
+    item_id = item.json()["id"]
 
-
-@pytest.mark.asyncio
-async def test_archive_oopp(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o6")
-    create = await client.post("/api/v1/oopp", json=_oopp_payload(), headers=headers)
-    aid = create.json()["id"]
-
-    del_resp = await client.delete(f"/api/v1/oopp/{aid}", headers=headers)
-    assert del_resp.status_code == 204
-
-    # Záznam stále existuje, status=archived
-    get_resp = await client.get(f"/api/v1/oopp/{aid}", headers=headers)
-    assert get_resp.status_code == 200
-    assert get_resp.json()["status"] == "archived"
-
-
-# ── validity_status ───────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_validity_status_expired(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o7")
-    resp = await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(issued_at="2020-01-01", valid_until="2021-01-01"),
+    issue = await client.post(
+        "/api/v1/oopp/issues",
+        json={
+            "employee_id": emp_id,
+            "position_oopp_item_id": item_id,
+            "issued_at": "2026-01-15",
+        },
         headers=headers,
     )
-    assert resp.json()["validity_status"] == "expired"
+    assert issue.status_code == 201, issue.text
+    assert issue.json()["valid_until"] == "2026-07-15"
+    assert issue.json()["item_name"] == "Rukavice"
+    assert issue.json()["body_part"] == "G"
 
 
 @pytest.mark.asyncio
-async def test_validity_status_expiring_soon(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o8")
-    soon = (date.today() + timedelta(days=10)).isoformat()
-    resp = await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(issued_at="2020-01-01", valid_until=soon),
+async def test_issue_validity_status(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "is2")
+    pos_id = await _create_position(client, headers)
+    emp_id = await _create_employee(client, headers, "2")
+    item = await client.post(
+        "/api/v1/oopp/items",
+        json={"job_position_id": pos_id, "body_part": "G", "name": "X"},
         headers=headers,
     )
-    assert resp.json()["validity_status"] == "expiring_soon"
+    item_id = item.json()["id"]
+
+    expired = await client.post(
+        "/api/v1/oopp/issues",
+        json={
+            "employee_id": emp_id,
+            "position_oopp_item_id": item_id,
+            "issued_at": "2024-01-01",
+            "valid_until": "2024-12-31",
+        },
+        headers=headers,
+    )
+    assert expired.json()["validity_status"] == "expired"
+
+    soon = (date.today() + timedelta(days=15)).isoformat()
+    expiring = await client.post(
+        "/api/v1/oopp/issues",
+        json={
+            "employee_id": emp_id,
+            "position_oopp_item_id": item_id,
+            "issued_at": date.today().isoformat(),
+            "valid_until": soon,
+        },
+        headers=headers,
+    )
+    assert expiring.json()["validity_status"] == "expiring_soon"
 
 
 @pytest.mark.asyncio
-async def test_validity_status_valid(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o9")
-    far = (date.today() + timedelta(days=90)).isoformat()
-    resp = await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(issued_at="2024-01-01", valid_until=far),
+async def test_list_issues_filters_by_employee(client: AsyncClient) -> None:
+    headers = await _ozo_headers(client, "is3")
+    pos_id = await _create_position(client, headers)
+    emp1 = await _create_employee(client, headers, "1")
+    emp2 = await _create_employee(client, headers, "2")
+    item = await client.post(
+        "/api/v1/oopp/items",
+        json={"job_position_id": pos_id, "body_part": "G", "name": "X"},
         headers=headers,
     )
-    assert resp.json()["validity_status"] == "valid"
+    item_id = item.json()["id"]
 
+    for emp_id in (emp1, emp2):
+        await client.post(
+            "/api/v1/oopp/issues",
+            json={
+                "employee_id": emp_id,
+                "position_oopp_item_id": item_id,
+                "issued_at": "2026-01-15",
+            },
+            headers=headers,
+        )
 
-# ── Filtrování ────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_filter_by_validity_status(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o10")
-
-    # Prošlý záznam
-    await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(valid_until="2020-01-01"),
-        headers=headers,
+    resp = await client.get(
+        f"/api/v1/oopp/issues?employee_id={emp1}", headers=headers
     )
-    # Platný záznam
-    far = (date.today() + timedelta(days=90)).isoformat()
-    await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(employee_name="Pavel Novák", item_name="Rukavice", valid_until=far),
-        headers=headers,
-    )
-
-    expired = await client.get("/api/v1/oopp?validity_status=expired", headers=headers)
-    assert len(expired.json()) == 1
-
-    valid = await client.get("/api/v1/oopp?validity_status=valid", headers=headers)
-    assert len(valid.json()) == 1
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["employee_id"] == emp1
 
 
-@pytest.mark.asyncio
-async def test_filter_by_oopp_type(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o11")
-    await client.post("/api/v1/oopp", json=_oopp_payload(oopp_type="hand_protection"), headers=headers)
-    await client.post("/api/v1/oopp", json=_oopp_payload(oopp_type="foot_protection"), headers=headers)
-
-    resp = await client.get("/api/v1/oopp?oopp_type=hand_protection", headers=headers)
-    assert len(resp.json()) == 1
-    assert resp.json()[0]["oopp_type"] == "hand_protection"
-
-
-# ── Tenant izolace ────────────────────────────────────────────────────────────
+# ── Tenant izolace ──────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_tenant_isolation(client: AsyncClient) -> None:
-    headers_a, _ = await _ozo_headers(client, "o12a")
-    headers_b, _ = await _ozo_headers(client, "o12b")
+    headers_a = await _ozo_headers(client, "ta")
+    headers_b = await _ozo_headers(client, "tb")
+    pos_a = await _create_position(client, headers_a)
 
-    await client.post("/api/v1/oopp", json=_oopp_payload(), headers=headers_a)
-
-    resp_b = await client.get("/api/v1/oopp", headers=headers_b)
-    assert resp_b.json() == []
-
-
-# ── PDF export ────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_export_oopp_pdf_empty(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o13")
-    resp = await client.get("/api/v1/oopp/export/pdf", headers=headers)
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/pdf"
-    assert len(resp.content) > 500
-
-
-@pytest.mark.asyncio
-async def test_export_oopp_pdf_with_data(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o14")
-    await client.post(
-        "/api/v1/oopp",
-        json=_oopp_payload(item_name="Reflexní vesta", oopp_type="visibility", valid_months=24),
-        headers=headers,
+    await client.put(
+        f"/api/v1/job-positions/{pos_a}/oopp-grid",
+        json={"grid": {"G": [1]}},
+        headers=headers_a,
     )
-    resp = await client.get("/api/v1/oopp/export/pdf", headers=headers)
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/pdf"
-    disposition = resp.headers["content-disposition"]
-    assert disposition.startswith("inline")
-    assert len(resp.content) > 500
 
-
-@pytest.mark.asyncio
-async def test_export_oopp_pdf_download(client: AsyncClient) -> None:
-    headers, _ = await _ozo_headers(client, "o15")
-    resp = await client.get("/api/v1/oopp/export/pdf?download=true", headers=headers)
-    assert resp.status_code == 200
-    assert resp.headers["content-disposition"].startswith("attachment")
+    resp = await client.get(
+        f"/api/v1/job-positions/{pos_a}/oopp-grid", headers=headers_b
+    )
+    assert resp.status_code == 404

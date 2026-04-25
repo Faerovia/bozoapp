@@ -27,7 +27,7 @@ from app.models.audit_log import AuditLog
 from app.models.employee import Employee
 from app.models.job_position import JobPosition
 from app.models.medical_exam import MedicalExam
-from app.models.oopp import OOPPAssignment
+from app.models.oopp import EmployeeOoppIssue, PositionOoppItem, PositionRiskGrid
 from app.models.revision import Revision
 from app.models.risk import Risk
 from app.models.risk_factor_assessment import RiskFactorAssessment
@@ -49,7 +49,9 @@ _EXPORT_MODELS: list[tuple[str, Any]] = [
     ("medical_exams", MedicalExam),
     ("revisions", Revision),
     ("accident_reports", AccidentReport),
-    ("oopp_assignments", OOPPAssignment),
+    ("position_risk_grids", PositionRiskGrid),
+    ("position_oopp_items", PositionOoppItem),
+    ("employee_oopp_issues", EmployeeOoppIssue),
     ("audit_log", AuditLog),
 ]
 

@@ -1,3 +1,12 @@
+"""
+Schémata pro OOPP modul (NV 390/2021 Sb.).
+
+Struktura:
+  PositionRiskGrid    — vyhodnocení rizik per pozice (matrix 14×26)
+  PositionOoppItem    — co je pozice povinná dostat
+  EmployeeOoppIssue   — záznam výdeje
+"""
+
 import calendar
 import uuid
 from datetime import date
@@ -5,88 +14,141 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-OOPPType = Literal[
-    "head_protection",          # ochrana hlavy (přilby, čepice)
-    "eye_protection",           # ochrana očí a obličeje
-    "hearing_protection",       # ochrana sluchu
-    "respiratory_protection",   # ochrana dýchacích cest
-    "hand_protection",          # ochrana rukou (rukavice)
-    "foot_protection",          # ochrana nohou (obuv, kamaše)
-    "fall_protection",          # ochrana proti pádu (postroje, lana)
-    "body_protection",          # ochrana trupu (vesty, pláště)
-    "skin_protection",          # ochrana kůže (krémy, štíty)
-    "visibility",               # výstražné prostředky (reflexní vesty)
-    "other",
-]
-
-OOPPStatus = Literal["active", "archived"]
-ValidityStatus = Literal["no_expiry", "valid", "expiring_soon", "expired"]
+# ── Risk grid ────────────────────────────────────────────────────────────────
 
 
-class OOPPCreateRequest(BaseModel):
-    employee_id: uuid.UUID | None = None
-    employee_name: str = Field(..., min_length=1, max_length=255)
-
-    item_name: str = Field(..., min_length=1, max_length=255)
-    oopp_type: OOPPType = "other"
-
-    issued_at: date
-    quantity: int = Field(1, gt=0)
-    size_spec: str | None = Field(None, max_length=50)
-    serial_number: str | None = Field(None, max_length=100)
-
-    valid_months: int | None = Field(None, gt=0, le=600)
-    valid_until: date | None = None
-
-    notes: str | None = None
-
-    @model_validator(mode="after")
-    def resolve_valid_until(self) -> "OOPPCreateRequest":
-        """
-        Pokud valid_until není zadán, vypočítá se z issued_at + valid_months.
-        Explicitní valid_until má přednost.
-        """
-        if self.valid_until is None and self.valid_months is not None:
-            month = self.issued_at.month + self.valid_months
-            year = self.issued_at.year + (month - 1) // 12
-            month = ((month - 1) % 12) + 1
-            last_day = calendar.monthrange(year, month)[1]
-            day = min(self.issued_at.day, last_day)
-            self.valid_until = date(year, month, day)
-        return self
+class RiskGridUpdateRequest(BaseModel):
+    """Replace strategie: client posílá kompletní novou matrix."""
+    grid: dict[str, list[int]] = Field(default_factory=dict)
 
 
-class OOPPUpdateRequest(BaseModel):
-    employee_id: uuid.UUID | None = None
-    employee_name: str | None = Field(None, min_length=1, max_length=255)
-    item_name: str | None = Field(None, min_length=1, max_length=255)
-    oopp_type: OOPPType | None = None
-    issued_at: date | None = None
-    quantity: int | None = Field(None, gt=0)
-    size_spec: str | None = Field(None, max_length=50)
-    serial_number: str | None = Field(None, max_length=100)
-    valid_months: int | None = Field(None, gt=0, le=600)
-    valid_until: date | None = None
-    notes: str | None = None
-    status: OOPPStatus | None = None
-
-
-class OOPPResponse(BaseModel):
+class RiskGridResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    employee_id: uuid.UUID | None
-    employee_name: str
-    item_name: str
-    oopp_type: str
-    issued_at: date
-    quantity: int
-    size_spec: str | None
-    serial_number: str | None
+    job_position_id: uuid.UUID
+    grid: dict[str, list[int]]
+    has_any_risk: bool
+    created_by: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+# ── Position OOPP item ───────────────────────────────────────────────────────
+
+BodyPartLetter = Literal[
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N",
+]
+
+
+class OoppItemCreateRequest(BaseModel):
+    job_position_id: uuid.UUID
+    body_part: BodyPartLetter
+    name: str = Field(..., min_length=1, max_length=255)
+    valid_months: int | None = Field(None, gt=0, le=600)
+    notes: str | None = None
+
+
+class OoppItemUpdateRequest(BaseModel):
+    body_part: BodyPartLetter | None = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    valid_months: int | None = Field(None, gt=0, le=600)
+    notes: str | None = None
+    status: Literal["active", "archived"] | None = None
+
+
+class OoppItemResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    job_position_id: uuid.UUID
+    body_part: str
+    name: str
     valid_months: int | None
-    valid_until: date | None
-    validity_status: str  # no_expiry | valid | expiring_soon | expired
     notes: str | None
     status: str
     created_by: uuid.UUID
 
     model_config = {"from_attributes": True}
+
+
+# ── Employee OOPP issue ──────────────────────────────────────────────────────
+
+ValidityStatus = Literal["no_expiry", "valid", "expiring_soon", "expired"]
+
+
+class IssueCreateRequest(BaseModel):
+    employee_id: uuid.UUID
+    position_oopp_item_id: uuid.UUID
+
+    issued_at: date
+    valid_until: date | None = None
+    quantity: int = Field(1, gt=0)
+    size_spec: str | None = Field(None, max_length=50)
+    serial_number: str | None = Field(None, max_length=100)
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def resolve_valid_until(self) -> "IssueCreateRequest":
+        # Server dopočítá valid_until z item.valid_months v service vrstvě
+        # (potřebujeme přístup k DB). Tady jen necháme zadanou hodnotu.
+        return self
+
+
+class IssueUpdateRequest(BaseModel):
+    issued_at: date | None = None
+    valid_until: date | None = None
+    quantity: int | None = Field(None, gt=0)
+    size_spec: str | None = Field(None, max_length=50)
+    serial_number: str | None = Field(None, max_length=100)
+    notes: str | None = None
+    status: Literal["active", "returned", "discarded"] | None = None
+
+
+class IssueResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    employee_id: uuid.UUID
+    employee_name: str | None = None        # JOIN pro UI
+    position_oopp_item_id: uuid.UUID
+    item_name: str | None = None            # JOIN: position_oopp_item.name
+    body_part: str | None = None            # JOIN: position_oopp_item.body_part
+    issued_at: date
+    valid_until: date | None
+    validity_status: str
+    quantity: int
+    size_spec: str | None
+    serial_number: str | None
+    notes: str | None
+    status: str
+    created_by: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+# ── Konstanty ekvivalentní backend modelu — exporty pro UI ──────────────────
+
+class BodyPartInfo(BaseModel):
+    key: str
+    label: str
+    group: str | None
+
+
+class RiskColumnInfo(BaseModel):
+    col: int
+    label: str
+    subgroup: str | None
+    group: str
+
+
+class OoppCatalogResponse(BaseModel):
+    """Statický popis tabulky NV 390/2021 — UI je z toho vykreslí."""
+    body_parts: list[BodyPartInfo]
+    risk_columns: list[RiskColumnInfo]
+
+
+def _add_months(d: date, months: int) -> date:
+    month = d.month + months
+    year = d.year + (month - 1) // 12
+    month = ((month - 1) % 12) + 1
+    last_day = calendar.monthrange(year, month)[1]
+    day = min(d.day, last_day)
+    return date(year, month, day)

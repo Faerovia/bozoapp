@@ -1,44 +1,220 @@
+"""
+OOPP modul (NV 390/2021 Sb. Příloha č. 2).
+
+Endpoint mapa:
+  Catalog (statický popis tabulky NV 390/2021):
+    GET /oopp/catalog
+  Risk grid per pozice:
+    GET /job-positions/{id}/oopp-grid
+    PUT /job-positions/{id}/oopp-grid
+  Pozice s vyplněným gridem (UI list):
+    GET /oopp/positions
+  OOPP items (co pozice musí dostat):
+    GET    /oopp/items?job_position_id=...
+    POST   /oopp/items
+    PATCH  /oopp/items/{id}
+    DELETE /oopp/items/{id}  (archivuje)
+  Issues (záznam výdeje):
+    GET    /oopp/issues?employee_id=...
+    POST   /oopp/issues
+    PATCH  /oopp/issues/{id}
+    DELETE /oopp/issues/{id}  (archivuje)
+"""
 import uuid
-from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.permissions import require_role
-from app.models.tenant import Tenant
+from app.models.oopp import BODY_PARTS, RISK_COLUMNS
 from app.models.user import User
-from app.schemas.oopp import OOPPCreateRequest, OOPPResponse, OOPPUpdateRequest
+from app.schemas.oopp import (
+    BodyPartInfo,
+    IssueCreateRequest,
+    IssueResponse,
+    IssueUpdateRequest,
+    OoppCatalogResponse,
+    OoppItemCreateRequest,
+    OoppItemResponse,
+    OoppItemUpdateRequest,
+    RiskColumnInfo,
+    RiskGridResponse,
+    RiskGridUpdateRequest,
+)
 from app.services.employees import get_employee_by_user_id
-from app.services.export_pdf import generate_oopp_pdf
 from app.services.oopp import (
-    create_oopp_assignment,
-    get_oopp_assignments,
-    get_oopp_by_id,
-    update_oopp_assignment,
+    create_issue,
+    create_oopp_item,
+    get_issue_by_id,
+    get_issues,
+    get_oopp_item_by_id,
+    get_oopp_items,
+    get_positions_with_grid,
+    get_risk_grid,
+    issue_to_response_dict,
+    update_issue,
+    update_oopp_item,
+    upsert_risk_grid,
 )
 
 router = APIRouter()
 
 
-@router.get("/oopp", response_model=list[OOPPResponse])
-async def list_oopp(
-    employee_id: uuid.UUID | None = Query(None),
-    oopp_type: str | None = Query(None),
-    status: str | None = Query(None, pattern="^(active|archived)$"),
-    validity_status: str | None = Query(
-        None, pattern="^(no_expiry|valid|expiring_soon|expired)$"
-    ),
-    current_user: User = Depends(get_current_user),
+# ── Catalog (statický popis tabulky NV 390/2021) ────────────────────────────
+
+
+@router.get("/oopp/catalog", response_model=OoppCatalogResponse)
+async def get_oopp_catalog(
+    _current_user: User = Depends(get_current_user),
+) -> OoppCatalogResponse:
+    """Vrátí seznam body parts (řádky) a risk columns (sloupce) tabulky."""
+    return OoppCatalogResponse(
+        body_parts=[
+            BodyPartInfo(key=k, label=lbl, group=grp)
+            for (k, lbl, grp) in BODY_PARTS
+        ],
+        risk_columns=[
+            RiskColumnInfo(col=c, label=lbl, subgroup=sub, group=grp)
+            for (c, lbl, sub, grp) in RISK_COLUMNS
+        ],
+    )
+
+
+# ── Risk grid per pozice ────────────────────────────────────────────────────
+
+
+@router.get(
+    "/job-positions/{position_id}/oopp-grid",
+    response_model=RiskGridResponse,
+)
+async def get_grid_endpoint(
+    position_id: uuid.UUID,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    grid = await get_risk_grid(db, position_id, current_user.tenant_id)
+    if grid is None:
+        # Vrátíme prázdný grid jako "ještě nezahájeno" — UI to vykreslí jako pristnou matrix.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Grid není nastaven"
+        )
+    return grid
+
+
+@router.put(
+    "/job-positions/{position_id}/oopp-grid",
+    response_model=RiskGridResponse,
+)
+async def set_grid_endpoint(
+    position_id: uuid.UUID,
+    data: RiskGridUpdateRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    try:
+        return await upsert_risk_grid(
+            db, position_id, data, current_user.tenant_id, current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
+        ) from e
+
+
+# ── Pozice s vyplněným gridem ────────────────────────────────────────────────
+
+
+@router.get("/oopp/positions")
+async def list_positions_with_grid(
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Pozice, kde je v gridu zaškrtnuto alespoň jedno riziko."""
+    positions = await get_positions_with_grid(db, current_user.tenant_id)
+    return [
+        {
+            "id": jp.id,
+            "name": jp.name,
+            "workplace_id": jp.workplace_id,
+        }
+        for jp in positions
+    ]
+
+
+# ── OOPP items per pozice ────────────────────────────────────────────────────
+
+
+@router.get("/oopp/items", response_model=list[OoppItemResponse])
+async def list_oopp_items(
+    job_position_id: uuid.UUID | None = Query(None),
+    body_part: str | None = Query(None, max_length=2),
+    item_status: str | None = Query(None, pattern="^(active|archived)$"),
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
+    return await get_oopp_items(
+        db, current_user.tenant_id,
+        job_position_id=job_position_id,
+        body_part=body_part,
+        status=item_status,
+    )
+
+
+@router.post(
+    "/oopp/items",
+    response_model=OoppItemResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_oopp_item_endpoint(
+    data: OoppItemCreateRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    return await create_oopp_item(db, data, current_user.tenant_id, current_user.id)
+
+
+@router.patch("/oopp/items/{item_id}", response_model=OoppItemResponse)
+async def update_oopp_item_endpoint(
+    item_id: uuid.UUID,
+    data: OoppItemUpdateRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    item = await get_oopp_item_by_id(db, item_id, current_user.tenant_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Položka nenalezena")
+    return await update_oopp_item(db, item, data)
+
+
+@router.delete("/oopp/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def archive_oopp_item(
+    item_id: uuid.UUID,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    item = await get_oopp_item_by_id(db, item_id, current_user.tenant_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Položka nenalezena")
+    item.status = "archived"
+    await db.flush()
+
+
+# ── Issues (záznam výdeje OOPP zaměstnanci) ─────────────────────────────────
+
+
+@router.get("/oopp/issues", response_model=list[IssueResponse])
+async def list_issues(
+    employee_id: uuid.UUID | None = Query(None),
+    item_id: uuid.UUID | None = Query(None),
+    issue_status: str | None = Query(None, pattern="^(active|returned|discarded)$"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
     """
-    Vrátí evidenci OOPP.
-    Employee vidí pouze vlastní záznamy.
-    Filtry: ?employee_id=, ?oopp_type=, ?status=, ?validity_status=
+    Výdejní záznamy. Zaměstnanec vidí pouze vlastní (filtr aplikujeme automaticky).
     """
     if current_user.role == "employee":
         emp = await get_employee_by_user_id(db, current_user.id, current_user.tenant_id)
@@ -46,110 +222,56 @@ async def list_oopp(
             return []
         employee_id = emp.id
 
-    return await get_oopp_assignments(
-        db,
-        current_user.tenant_id,
-        employee_id=employee_id,
-        oopp_type=oopp_type,
-        status=status,
-        validity_status=validity_status,
-    )
-
-
-@router.post("/oopp", response_model=OOPPResponse, status_code=status.HTTP_201_CREATED)
-async def create_oopp_endpoint(
-    data: OOPPCreateRequest,
-    current_user: User = Depends(require_role("ozo", "hr_manager")),
-    db: AsyncSession = Depends(get_db),
-) -> object:
-    """Zaznamená výdej OOPP zaměstnanci. Přístup: ozo, manager."""
-    return await create_oopp_assignment(db, data, current_user.tenant_id, current_user.id)
-
-
-# DŮLEŽITÉ: /oopp/export/pdf musí být před /oopp/{assignment_id}
-@router.get("/oopp/export/pdf")
-async def export_oopp_pdf(
-    oopp_type: str | None = Query(None),
-    oopp_status: str | None = Query(None, pattern="^(active|archived)$"),
-    validity_status: str | None = Query(
-        None, pattern="^(no_expiry|valid|expiring_soon|expired)$"
-    ),
-    download: bool = Query(False),
-    current_user: User = Depends(require_role("ozo", "hr_manager")),
-    db: AsyncSession = Depends(get_db),
-) -> Response:
-    """
-    Exportuje evidenci OOPP jako PDF.
-    Filtry: ?oopp_type=, ?oopp_status=, ?validity_status=
-    """
-    tenant = (
-        await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
-    ).scalar_one_or_none()
-    tenant_name = tenant.name if tenant else str(current_user.tenant_id)
-
-    records = await get_oopp_assignments(
+    issues = await get_issues(
         db, current_user.tenant_id,
-        oopp_type=oopp_type,
-        status=oopp_status,
-        validity_status=validity_status,
+        employee_id=employee_id,
+        item_id=item_id,
+        status=issue_status,
     )
-    pdf_bytes = generate_oopp_pdf(records, tenant_name)
-
-    disposition = "attachment" if download else "inline"
-    filename = f"evidence_oopp_{date.today()}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
-    )
+    return [await issue_to_response_dict(db, i) for i in issues]
 
 
-@router.get("/oopp/{assignment_id}", response_model=OOPPResponse)
-async def get_oopp(
-    assignment_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> object:
-    """
-    Vrátí detail záznamu OOPP.
-    Employee vidí pouze vlastní záznamy.
-    """
-    assignment = await get_oopp_by_id(db, assignment_id, current_user.tenant_id)
-    if assignment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen")
-    if current_user.role == "employee":
-        emp = await get_employee_by_user_id(db, current_user.id, current_user.tenant_id)
-        if emp is None or assignment.employee_id != emp.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Přístup odepřen")
-    return assignment
-
-
-@router.patch("/oopp/{assignment_id}", response_model=OOPPResponse)
-async def update_oopp_endpoint(
-    assignment_id: uuid.UUID,
-    data: OOPPUpdateRequest,
+@router.post(
+    "/oopp/issues",
+    response_model=IssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_issue_endpoint(
+    data: IssueCreateRequest,
     current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
-) -> object:
-    """Aktualizuje záznam OOPP. Přístup: ozo, manager."""
-    assignment = await get_oopp_by_id(db, assignment_id, current_user.tenant_id)
-    if assignment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen")
-    return await update_oopp_assignment(db, assignment, data)
+) -> dict[str, Any]:
+    try:
+        issue = await create_issue(db, data, current_user.tenant_id, current_user.id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
+        ) from e
+    return await issue_to_response_dict(db, issue)
 
 
-@router.delete("/oopp/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def archive_oopp(
-    assignment_id: uuid.UUID,
+@router.patch("/oopp/issues/{issue_id}", response_model=IssueResponse)
+async def update_issue_endpoint(
+    issue_id: uuid.UUID,
+    data: IssueUpdateRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    issue = await get_issue_by_id(db, issue_id, current_user.tenant_id)
+    if issue is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Výdej nenalezen")
+    updated = await update_issue(db, issue, data)
+    return await issue_to_response_dict(db, updated)
+
+
+@router.delete("/oopp/issues/{issue_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def archive_issue(
+    issue_id: uuid.UUID,
     current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """
-    Archivuje záznam OOPP (status=archived). Fyzické smazání není povoleno –
-    evidence výdeje OOPP je součástí BOZP dokumentace.
-    """
-    assignment = await get_oopp_by_id(db, assignment_id, current_user.tenant_id)
-    if assignment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen")
-    assignment.status = "archived"
+    issue = await get_issue_by_id(db, issue_id, current_user.tenant_id)
+    if issue is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Výdej nenalezen")
+    issue.status = "discarded"
     await db.flush()

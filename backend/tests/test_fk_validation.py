@@ -98,17 +98,39 @@ async def test_medical_exam_rejects_cross_tenant_employee(client: AsyncClient) -
 
 @pytest.mark.asyncio
 async def test_oopp_rejects_cross_tenant_employee(client: AsyncClient) -> None:
+    """V novém OOPP modelu (NV 390/2021) se výdej váže na employee_id +
+    position_oopp_item_id. Cross-tenant employee musí být rejectnutý."""
     h_a, _, _ = await _register_tenant(client, "fk3a")
     h_b, _, _ = await _register_tenant(client, "fk3b")
 
     emp_b = await _create_employee(client, h_b, "B")
 
+    # Vytvoř pozici + OOPP item pod tenantem A
+    plant_a = (await client.post(
+        "/api/v1/plants", json={"name": "P-A"}, headers=h_a
+    )).json()
+    wp_a = (await client.post(
+        "/api/v1/workplaces",
+        json={"plant_id": plant_a["id"], "name": "W-A"},
+        headers=h_a,
+    )).json()
+    pos_a = (await client.post(
+        "/api/v1/job-positions",
+        json={"name": "Pozice A", "workplace_id": wp_a["id"]},
+        headers=h_a,
+    )).json()
+    item_a = (await client.post(
+        "/api/v1/oopp/items",
+        json={"job_position_id": pos_a["id"], "body_part": "G", "name": "Rukavice"},
+        headers=h_a,
+    )).json()
+
+    # Pokus pod h_a vytvořit issue s emp_b z tenantu B → 422
     resp = await client.post(
-        "/api/v1/oopp",
+        "/api/v1/oopp/issues",
         json={
             "employee_id": emp_b,
-            "employee_name": "Fake",
-            "item_name": "Helma",
+            "position_oopp_item_id": item_a["id"],
             "issued_at": str(date.today()),
         },
         headers=h_a,

@@ -22,7 +22,6 @@ from fpdf import FPDF
 if TYPE_CHECKING:
     from app.models.accident_report import AccidentReport
     from app.models.medical_exam import MedicalExam
-    from app.models.oopp import OOPPAssignment
     from app.models.revision import Revision
     from app.models.risk import Risk
     from app.models.risk_factor_assessment import RiskFactorAssessment
@@ -336,21 +335,8 @@ def generate_accident_log_pdf(reports: Sequence[AccidentReport], tenant_name: st
     return bytes(pdf.output())
 
 
-# ── 5. Evidence OOPP ──────────────────────────────────────────────────────────
-
-OOPP_TYPE_CS = {
-    "head_protection": "Ochrana hlavy",
-    "eye_protection": "Ochrana očí",
-    "hearing_protection": "Ochrana sluchu",
-    "respiratory_protection": "Ochrana dýchání",
-    "hand_protection": "Ochrana rukou",
-    "foot_protection": "Ochrana nohou",
-    "fall_protection": "Ochrana pádu",
-    "body_protection": "Ochrana trupu",
-    "skin_protection": "Ochrana kůže",
-    "visibility": "Výstražné",
-    "other": "Ostatní",
-}
+# Pozn.: OOPP PDF export byl odstraněn po refaktoru 025 — bude doplněn
+# v dalším commitu s novou strukturou (risk grid + per-position items).
 
 
 def generate_medical_exams_pdf(exams: Sequence[MedicalExam], tenant_name: str) -> bytes:
@@ -544,41 +530,6 @@ def generate_risk_factor_list_pdf(
     return bytes(pdf.output())
 
 
-def generate_oopp_pdf(assignments: Sequence[OOPPAssignment], tenant_name: str) -> bytes:
-    pdf = _ExportPDF("EVIDENCE OSOBNÍCH OCHRANNÝCH PRACOVNÍCH PROSTŘEDKŮ", tenant_name)
-
-    cols = [
-        ("Zaměstnanec", 50),
-        ("Název OOPP", 55),
-        ("Kategorie", 30),
-        ("Datum vydání", 24),
-        ("Počet ks", 14),
-        ("Velikost", 18),
-        ("Platnost do", 24),
-        ("Stav platnosti", 28),
-        ("Výr. číslo", 24),
-        ("Status", 10),
-    ]
-    pdf.table_header(cols)
-
-    for i, a in enumerate(assignments):
-        pdf.table_row([
-            (a.employee_name, 50),
-            (a.item_name, 55),
-            (OOPP_TYPE_CS.get(a.oopp_type, a.oopp_type), 30),
-            (_fmt_date(a.issued_at), 24),
-            (str(a.quantity), 14),
-            (a.size_spec or "—", 18),
-            (_fmt_date(a.valid_until), 24),
-            (VALIDITY_CS.get(a.validity_status, a.validity_status), 28),
-            (a.serial_number or "—", 24),
-            ("Akt." if a.status == "active" else "Arch.", 10),
-        ], shade=i % 2 == 1)
-
-    expired_count = sum(1 for a in assignments if a.validity_status == "expired")
-    expiring_count = sum(1 for a in assignments if a.validity_status == "expiring_soon")
-    pdf.section_note(
-        f"Celkem výdejů: {len(assignments)}   |   "
-        f"Prošlé: {expired_count}   |   Brzy vyprší: {expiring_count}"
-    )
-    return bytes(pdf.output())
+# Pozn.: PDF export pro OOPP modul byl po refaktoru 025 dočasně odstraněn
+# (struktura tabulky se zásadně změnila — risk grid + per-position items).
+# Nový export se přidá v dalším commitu.
