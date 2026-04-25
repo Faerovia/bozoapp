@@ -16,7 +16,6 @@ from app.models.accident_report import AccidentReport
 from app.models.medical_exam import MedicalExam
 from app.models.oopp import EmployeeOoppIssue
 from app.models.revision import Revision
-from app.models.tenant import Tenant
 from app.models.training import TrainingAssignment
 from app.services.memberships import get_user_memberships
 

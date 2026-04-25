@@ -29,6 +29,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import get_settings
 from app.core.security import hash_password
+
+# Registrace všech modelů do SQLAlchemy metadata (FK targets — bez toho
+# `flush` selže na NoReferencedTableError, např. accident_reports.risk_id).
+from app.models import (  # noqa: F401
+    audit_log,
+    password_reset_token,
+    recovery_code,
+    refresh_token,
+    risk,
+)
 from app.models.accident_report import AccidentReport
 from app.models.employee import Employee
 from app.models.job_position import JobPosition
@@ -45,16 +55,6 @@ from app.models.tenant import Tenant
 from app.models.training import Training, TrainingAssignment
 from app.models.user import User
 from app.models.workplace import Plant, Workplace
-
-# Registrace zbylých modelů do SQLAlchemy metadata (FK target tabulky:
-# accident_reports.risk_id → risks.id atd.). Bez toho `flush` selže.
-from app.models import (  # noqa: F401, E402
-    audit_log,
-    password_reset_token,
-    recovery_code,
-    refresh_token,
-    risk,
-)
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("seed_demo")
