@@ -31,3 +31,11 @@ class Tenant(Base, TimestampMixin):
         String(3), default="CZK", nullable=False,
     )
     billing_note: Mapped[str | None] = mapped_column(Text)
+    # Fakturační údaje příjemce — povinné pro vystavení faktury. Migrace 039.
+    billing_company_name: Mapped[str | None] = mapped_column(String(255))
+    billing_ico: Mapped[str | None] = mapped_column(String(20))
+    billing_dic: Mapped[str | None] = mapped_column(String(20))
+    billing_address_street: Mapped[str | None] = mapped_column(String(255))
+    billing_address_city: Mapped[str | None] = mapped_column(String(100))
+    billing_address_zip: Mapped[str | None] = mapped_column(String(10))
+    billing_email: Mapped[str | None] = mapped_column(String(255))

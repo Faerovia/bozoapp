@@ -70,6 +70,14 @@ class TenantPatchRequest(BaseModel):
     billing_amount: float | None = Field(None, ge=0)
     billing_currency: str | None = Field(None, min_length=3, max_length=3)
     billing_note: str | None = None
+    # Fakturační údaje příjemce (migrace 039)
+    billing_company_name: str | None = None
+    billing_ico: str | None = None
+    billing_dic: str | None = None
+    billing_address_street: str | None = None
+    billing_address_city: str | None = None
+    billing_address_zip: str | None = None
+    billing_email: str | None = None
 
 
 @router.post(
@@ -162,6 +170,14 @@ class TenantOverviewItem(BaseModel):
     billing_amount: float | None = None
     billing_currency: str = "CZK"
     billing_note: str | None = None
+    # Fakturační údaje příjemce
+    billing_company_name: str | None = None
+    billing_ico: str | None = None
+    billing_dic: str | None = None
+    billing_address_street: str | None = None
+    billing_address_city: str | None = None
+    billing_address_zip: str | None = None
+    billing_email: str | None = None
 
 
 class TenantOverviewResponse(BaseModel):
@@ -234,6 +250,13 @@ async def admin_tenant_overview(
             ),
             billing_currency=getattr(t, "billing_currency", "CZK") or "CZK",
             billing_note=getattr(t, "billing_note", None),
+            billing_company_name=t.billing_company_name,
+            billing_ico=t.billing_ico,
+            billing_dic=t.billing_dic,
+            billing_address_street=t.billing_address_street,
+            billing_address_city=t.billing_address_city,
+            billing_address_zip=t.billing_address_zip,
+            billing_email=t.billing_email,
         )
         for t in tenants
     ]

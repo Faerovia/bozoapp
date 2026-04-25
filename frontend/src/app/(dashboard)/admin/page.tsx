@@ -5,7 +5,7 @@
  * Klik na řádek = expand s formulářem pro typ platby a fakturovanou částku.
  */
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -324,9 +324,8 @@ export default function AdminPage() {
                     {data.tenants.map(t => {
                       const expanded = expandedTenantId === t.id;
                       return (
-                        <>
+                        <Fragment key={t.id}>
                           <tr
-                            key={t.id}
                             className={cn(
                               "hover:bg-gray-50 cursor-pointer",
                               expanded && "bg-blue-50/40",
@@ -376,13 +375,13 @@ export default function AdminPage() {
                             </td>
                           </tr>
                           {expanded && (
-                            <tr key={`${t.id}-expand`}>
+                            <tr>
                               <td colSpan={8} className="p-0">
                                 <BillingEditor tenant={t} />
                               </td>
                             </tr>
                           )}
-                        </>
+                        </Fragment>
                       );
                     })}
                   </tbody>

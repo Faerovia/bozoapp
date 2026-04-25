@@ -26,11 +26,19 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class EmailAttachment:
+    filename: str
+    content: bytes
+    mime_type: str = "application/octet-stream"
+
+
+@dataclass
 class EmailMessage:
     to: str
     subject: str
     body_text: str
     body_html: str | None = None
+    attachments: list[EmailAttachment] | None = None
 
 
 class EmailSender(Protocol):
@@ -97,6 +105,15 @@ class SmtpEmailSender:
             msg.set_content(message.body_text)
             if message.body_html:
                 msg.add_alternative(message.body_html, subtype="html")
+            if message.attachments:
+                for att in message.attachments:
+                    maintype, _, subtype = att.mime_type.partition("/")
+                    msg.add_attachment(
+                        att.content,
+                        maintype=maintype or "application",
+                        subtype=subtype or "octet-stream",
+                        filename=att.filename,
+                    )
 
             context = ssl.create_default_context()
 

@@ -19,6 +19,8 @@ from app.api.v1 import (
     employees,
     global_trainings,
     health,
+    invoices,
+    invoices_admin,
     job_positions,
     medical_exams,
     oopp,
@@ -206,3 +208,5 @@ app.include_router(ozo_overview.router, prefix="/api/v1", tags=["ozo-overview"])
 app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
 app.include_router(document_folders.router, prefix="/api/v1", tags=["document-folders"])
 app.include_router(global_trainings.router, prefix="/api/v1", tags=["global-trainings"])
+app.include_router(invoices_admin.router, prefix="/api/v1", tags=["invoices-admin"])
+app.include_router(invoices.router, prefix="/api/v1", tags=["invoices"])
