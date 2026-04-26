@@ -541,6 +541,165 @@ function TrainingContentSigner({
   );
 }
 
+// ── Volba metody podpisu pro zaměstnance po dokončení školení (#105) ─────
+//
+// Po dokončení školení (mark-read nebo úspěšný test) má zaměstnanec dvě
+// volby:
+// 1) Canvas + email/SMS OTP (stávající legacy flow přes TrainingSignContent)
+// 2) Univerzální digitální podpis přes heslo/SMS (nový, s hash chain
+//    + RFC 3161 TSA kotvou)
+//
+// Pokud zaměstnanec zvolí univerzální cestu, otevře se SignatureDialog
+// s docType='training_attempt', doc_id=assignment.id. Po úspěchu volá
+// POST /trainings/assignments/{id}/attach-signature pro napojení na
+// universal_signature_id sloupec assignment.
+
+function TrainingSignChoice({
+  assignment,
+  onCancel,
+  onSigned,
+}: {
+  assignment: TrainingAssignment;
+  onCancel: () => void;
+  onSigned: () => void;
+}) {
+  const [method, setMethod] = useState<"canvas" | "universal" | null>(null);
+
+  if (method === "canvas") {
+    return (
+      <TrainingSignContent
+        assignmentId={assignment.id}
+        requiresQes={!!assignment.training_requires_qes}
+        onCancel={() => setMethod(null)}
+        onSigned={onSigned}
+      />
+    );
+  }
+
+  if (method === "universal") {
+    return (
+      <UniversalAttemptSigner
+        assignment={assignment}
+        onClose={() => setMethod(null)}
+        onSigned={onSigned}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-600 dark:text-gray-300">
+        Vyber způsob, jakým chceš podepsat absolvování školení.
+      </p>
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setMethod("canvas")}
+          className="w-full text-left rounded-md border-2 border-gray-200 dark:border-gray-700 p-3 hover:border-blue-400 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Pencil className="h-5 w-5 text-blue-600" />
+            <div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">
+                Vlastnoruční podpis (canvas)
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                Nakreslíš podpis prstem nebo myší, volitelně OTP přes email/SMS.
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMethod("universal")}
+          className="w-full text-left rounded-md border-2 border-gray-200 dark:border-gray-700 p-3 hover:border-emerald-400 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">
+                Heslo nebo SMS kód
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                Ověř identitu heslem do aplikace nebo 6místným SMS kódem.
+                Tamper-evident podpis (hash chain).
+              </div>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-gray-700">
+        <Button variant="outline" onClick={onCancel}>Zpět</Button>
+      </div>
+    </div>
+  );
+}
+
+function UniversalAttemptSigner({
+  assignment,
+  onClose,
+  onSigned,
+}: {
+  assignment: TrainingAssignment;
+  onClose: () => void;
+  onSigned: () => void;
+}) {
+  const { data: meEmp, isLoading } = useQuery<{
+    employee_id: string | null;
+    full_name: string;
+    has_login_account: boolean;
+    has_phone: boolean;
+  }>({
+    queryKey: ["me-employee"],
+    queryFn: () => api.get("/auth/me/employee"),
+  });
+
+  if (isLoading || !meEmp) {
+    return <div className="py-8 text-center text-sm text-gray-400">Načítám…</div>;
+  }
+
+  if (!meEmp.employee_id) {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 px-3 py-3 text-sm text-amber-800 dark:text-amber-200">
+          Tvůj uživatelský účet nemá napojený záznam zaměstnance. Pro
+          digitální podpis přes heslo/SMS musí být účet napojen — kontaktuj
+          OZO. Mezitím použij vlastnoruční podpis.
+        </div>
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Zpět</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <SignatureDialog
+      open
+      onClose={onClose}
+      docType="training_attempt"
+      docId={assignment.id}
+      employeeId={meEmp.employee_id}
+      employeeName={meEmp.full_name}
+      hasLoginAccount={meEmp.has_login_account}
+      title={`Podpis školení: ${assignment.training_title ?? ""}`}
+      onSigned={async (sig) => {
+        try {
+          await api.post(`/trainings/assignments/${assignment.id}/attach-signature`, {
+            signature_id: sig.id,
+          });
+          onSigned();
+        } catch (err) {
+          alert(err instanceof ApiError ? err.detail : "Připojení podpisu selhalo");
+        }
+      }}
+    />
+  );
+}
+
 // ── Formulář pro šablonu ─────────────────────────────────────────────────────
 
 function TrainingForm({
@@ -1430,9 +1589,8 @@ function TrainingRunFlow({
 
   if (step === "sign") {
     return (
-      <TrainingSignContent
-        assignmentId={assignment.id}
-        requiresQes={!!assignment.training_requires_qes}
+      <TrainingSignChoice
+        assignment={assignment}
         onCancel={() => setStep("info")}
         onSigned={() => {
           invalidate();
