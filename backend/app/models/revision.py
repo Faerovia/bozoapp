@@ -18,6 +18,7 @@ DEVICE_TYPES = (
     "tlakove_nadoby",   # tlakové nádoby (NV 26/2003)
     "vytahy",           # zdvihací zařízení — výtahy, jeřáby, zdvihadla (NV 378/2001)
     "spalinove_cesty",  # spalinové cesty (vyhl. 34/2016)
+    "regaly",           # regálové systémy (ČSN EN 15635 — povinná inspekce min. 1× ročně)
 )
 
 

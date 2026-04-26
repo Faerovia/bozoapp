@@ -6,12 +6,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Download, QrCode, ExternalLink, Upload } from "lucide-react";
+import { Plus, Pencil, Trash2, Download, QrCode, ExternalLink, Upload, Info } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import type { Revision, Plant, DeviceType } from "@/types/api";
-import { DEVICE_TYPE_LABELS } from "@/types/api";
+import { DEVICE_TYPE_LABELS, DEVICE_TYPE_PERIODICITY_INFO } from "@/types/api";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ const schema = z.object({
   title:             z.string().min(1, "Název je povinný"),
   plant_id:          z.string().min(1, "Provozovna je povinná"),
   device_type:       z.enum(
-    ["elektro","hromosvody","plyn","kotle","tlakove_nadoby","vytahy","spalinove_cesty"],
+    ["elektro","hromosvody","plyn","kotle","tlakove_nadoby","vytahy","spalinove_cesty","regaly"],
     { errorMap: () => ({ message: "Vyber typ zařízení" }) }
   ),
   device_code:       z.string().optional().transform(v => v || null),
@@ -84,10 +85,14 @@ function RevisionForm({
   isSubmitting: boolean;
   serverError: string | null;
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: defaultValues ?? {},
   });
+  const selectedDeviceType = watch("device_type") as DeviceType | undefined;
+  const periodicityInfo = selectedDeviceType
+    ? DEVICE_TYPE_PERIODICITY_INFO[selectedDeviceType]
+    : "Vyber typ zařízení v poli „Typ zařízení“ — zobrazí se legislativní lhůty pro tento typ.";
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -136,10 +141,20 @@ function RevisionForm({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="valid_months">Periodicita (měsíce) *</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="valid_months">Periodicita (měsíce) *</Label>
+            <Tooltip label={periodicityInfo}>
+              <Info className="h-3.5 w-3.5 text-blue-500 cursor-help" aria-label="Legislativní požadavky" />
+            </Tooltip>
+          </div>
           <Input id="valid_months" type="number" min="1" {...register("valid_months")} placeholder="60" />
           {errors.valid_months && <p className="text-xs text-red-600">{errors.valid_months.message}</p>}
-          <p className="text-xs text-gray-400">Např. elektro = 60 měsíců (5 let)</p>
+          <p className="text-xs text-gray-400">
+            {selectedDeviceType === "regaly" ? "Doporučeno: 12 měsíců (ČSN EN 15635)" :
+             selectedDeviceType === "elektro" ? "Doporučeno: 60 měsíců (5 let, běžné prostory)" :
+             selectedDeviceType === "hromosvody" ? "Doporučeno: 24–48 měsíců (dle hladiny ochrany)" :
+             "Najeď na ⓘ vedle pole pro legislativní lhůty."}
+          </p>
         </div>
       </div>
 

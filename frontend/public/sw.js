@@ -1,5 +1,5 @@
 /**
- * BOZOapp service worker.
+ * OZODigi service worker.
  *
  * Strategie:
  * - /_next/static/*  → cache-first (immutable bundles, hash v URL)

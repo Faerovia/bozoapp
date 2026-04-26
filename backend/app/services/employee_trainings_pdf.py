@@ -130,10 +130,13 @@ def render_employee_trainings_pdf(
                 assignment.signed_at.strftime("%d.%m.%Y")
                 if assignment.signed_at else "—"
             )
-            trainer_name = (
-                (trainer.full_name or trainer.email) if trainer else "—"
-            )
-            pdf.cell(col_widths[0], 7, training.title[:60],
+            # Trainer může mít obě pole NULL (legacy data) → použij "—"
+            if trainer is not None:
+                trainer_name = trainer.full_name or trainer.email or "—"
+            else:
+                trainer_name = "—"
+            title_text = (training.title or "")[:60]
+            pdf.cell(col_widths[0], 7, title_text,
                      border=1, new_x="RIGHT", new_y="TOP")
             pdf.cell(col_widths[1], 7, date_str,
                      border=1, align="C", new_x="RIGHT", new_y="TOP")

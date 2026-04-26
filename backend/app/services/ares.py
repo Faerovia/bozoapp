@@ -92,7 +92,7 @@ def fetch_company_info(ico: str) -> AresCompanyInfo:
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "BOZOapp/1.0 (+https://bozoapp.cz)",
+            "User-Agent": "OZODigi/1.0 (+https://bozoapp.cz)",
         },
     )
     try:

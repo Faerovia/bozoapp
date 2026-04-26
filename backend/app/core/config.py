@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # App
-    app_name: str = "BOZOapp"
+    app_name: str = "OZODigi"
     environment: str = "development"
     debug: bool = False
 
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""
 
     # Self-signup: povoluje POST /auth/register anonymním uživatelům. V produkci
-    # BOZOapp je workflow: admin vytvoří tenant přes POST /admin/tenants.
+    # OZODigi je workflow: admin vytvoří tenant přes POST /admin/tenants.
     # Dev/test env potřebuje self-signup zapnutý pro pytest fixture.
     allow_self_signup: bool = True
 
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # Provider: "smartsms" (CZ) | "console" (dev — log only) | "" (default)
     sms_provider: str = ""
     sms_api_token: str = ""
-    sms_sender_id: str = "BOZOapp"
+    sms_sender_id: str = "OZODigi"
 
     # Fernet key pro encryption-at-rest citlivých polí (personal_id atd.).
     # Generuj:

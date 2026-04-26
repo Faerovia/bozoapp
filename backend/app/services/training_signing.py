@@ -162,18 +162,18 @@ async def request_otp(
     # Pošli kód podle kanálu
     body_text = (
         f"Váš kód pro podpis školení: {code} "
-        f"(platí {OTP_LIFETIME_MINUTES} min). BOZOapp"
+        f"(platí {OTP_LIFETIME_MINUTES} min). OZODigi"
     )
     if channel == "email":
         await get_email_sender().send(EmailMessage(
             to=sent_to,
-            subject="BOZOapp — kód pro podpis školení",
+            subject="OZODigi — kód pro podpis školení",
             body_text=(
                 f"Dobrý den,\n\n"
                 f"váš kód pro podpis školení je:  {code}\n\n"
                 f"Kód platí {OTP_LIFETIME_MINUTES} minut. Pokud jste podpis "
                 f"nezahájili, ignorujte tento email.\n\n"
-                f"BOZOapp"
+                f"OZODigi"
             ),
         ))
     else:  # sms

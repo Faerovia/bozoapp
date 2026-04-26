@@ -6,6 +6,7 @@ PDF endpointy:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -23,6 +24,8 @@ from app.models.training import Training, TrainingAssignment
 from app.models.user import User
 from app.services.employee_trainings_pdf import render_employee_trainings_pdf
 from app.services.training_attendance_pdf import render_attendance_list_pdf
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -93,14 +96,19 @@ async def employee_trainings_pdf(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     employee = (await db.execute(
-        select(Employee).where(Employee.id == employee_id)
+        select(Employee).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == user.tenant_id,
+        )
     )).scalar_one_or_none()
     if employee is None:
         raise HTTPException(status_code=404, detail="Zaměstnanec nenalezen")
 
     tenant = (await db.execute(
         select(Tenant).where(Tenant.id == user.tenant_id)
-    )).scalar_one()
+    )).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant nenalezen")
 
     # Načti podepsané assignmenty + Training + trainer (User)
     rows_db = (await db.execute(
@@ -121,13 +129,24 @@ async def employee_trainings_pdf(
             )).scalar_one_or_none()
         rows.append((assignment, training, trainer_cache[training.created_by]))
 
-    pdf_bytes = render_employee_trainings_pdf(
-        employee=employee,
-        tenant=tenant,
-        rows=rows,
-        issued_by=user,
-        issued_at=datetime.now(UTC),
-    )
+    try:
+        pdf_bytes = render_employee_trainings_pdf(
+            employee=employee,
+            tenant=tenant,
+            rows=rows,
+            issued_by=user,
+            issued_at=datetime.now(UTC),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.exception(
+            "Failed to render employee trainings PDF (employee_id=%s)",
+            employee_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Generování souhrnu selhalo: {type(e).__name__}: {e}",
+        ) from e
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

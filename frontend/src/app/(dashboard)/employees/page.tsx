@@ -1101,7 +1101,12 @@ export default function EmployeesPage() {
                                   `/api/v1/employees/${emp.id}/trainings.pdf`,
                                 );
                                 if (!resp.ok) {
-                                  alert("Stažení souhrnu školení selhalo");
+                                  let detail = `HTTP ${resp.status}`;
+                                  try {
+                                    const j = await resp.json();
+                                    if (typeof j.detail === "string") detail = j.detail;
+                                  } catch { /* not JSON */ }
+                                  alert(`Generování souhrnu školení selhalo:\n${detail}`);
                                   return;
                                 }
                                 const blob = await resp.blob();

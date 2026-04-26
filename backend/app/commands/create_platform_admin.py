@@ -13,7 +13,7 @@ Usage:
     docker compose exec \\
       -e ADMIN_EMAIL=admin@bozoapp.cz \\
       -e ADMIN_PASSWORD='...' \\
-      -e ADMIN_TENANT_NAME='BOZOapp Internal' \\
+      -e ADMIN_TENANT_NAME='OZODigi Internal' \\
       backend \\
       python -m app.commands.create_platform_admin --non-interactive
 
@@ -37,7 +37,7 @@ from app.core.security import hash_password
 from app.models.tenant import Tenant
 from app.models.user import User
 
-SERVICE_TENANT_NAME = "BOZOapp Platform"
+SERVICE_TENANT_NAME = "OZODigi Platform"
 SERVICE_TENANT_SLUG = "bozoapp-platform"
 
 

@@ -347,7 +347,8 @@ export type DeviceType =
   | "kotle"
   | "tlakove_nadoby"
   | "vytahy"
-  | "spalinove_cesty";
+  | "spalinove_cesty"
+  | "regaly";
 
 export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
   elektro: "Elektrická zařízení",
@@ -357,6 +358,40 @@ export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
   tlakove_nadoby: "Tlakové nádoby",
   vytahy: "Zdvihací zařízení",
   spalinove_cesty: "Spalinové cesty",
+  regaly: "Regálové systémy",
+};
+
+/**
+ * Legislativní požadavky pro periodicitu revizí per device_type.
+ * Zobrazuje se v info-tooltipu vedle pole "Periodicita".
+ */
+export const DEVICE_TYPE_PERIODICITY_INFO: Record<DeviceType, string> = {
+  elektro:
+    "Vyhl. 73/2010 Sb. + ČSN 33 1500: lhůty dle prostředí — běžné prostory 5 let, " +
+    "vlhké/horké/prašné 3 roky, mokré/výbušné 1–2 roky. Drobné spotřebiče dle ČSN 33 1600 " +
+    "(6 měs. – 2 roky).",
+  hromosvody:
+    "ČSN EN 62305-3: hladina ochrany I/II — 2 roky, hladina III/IV — 4 roky. " +
+    "Po každém přímém úderu blesku mimořádná revize.",
+  plyn:
+    "Vyhl. 85/1978 Sb.: provozní revize 1× ročně, kontrola 1× za 3 roky. " +
+    "Domácí plynové spotřebiče: kontrola dle TPG 704 01 (1–3 roky).",
+  kotle:
+    "Zákon 406/2000 Sb. + vyhl. 194/2013 Sb.: kontrola účinnosti 2–10 let dle výkonu " +
+    "(plyn 4–10 let, pevná paliva 2–5 let). Kotle nad 100 kW evidované.",
+  tlakove_nadoby:
+    "ČSN 69 0012 + NV 192/2022 Sb.: provozní revize ročně, vnitřní revize 5 let, " +
+    "tlaková zkouška 9 let. Pojistné ventily ročně.",
+  vytahy:
+    "ČSN 27 4002 / 27 4007: provozní prohlídka 14 dní – 3 měs., odborná prohlídka 3–6 měs., " +
+    "odborná zkouška 3 roky, inspekční prohlídka 6 let. Jeřáby NV 378/2001 ročně.",
+  spalinove_cesty:
+    "Vyhl. 34/2016 Sb. + NV 91/2010 Sb.: čištění komínů 1–3× ročně dle paliva, " +
+    "kontrola 1× ročně, revize při změně paliva / po požáru.",
+  regaly:
+    "ČSN EN 15635: vizuální inspekce min. 1× ročně osobou pověřenou (PRRS — " +
+    "Person Responsible for Rack Safety). Provozní kontroly týdně/měsíčně. " +
+    "Po každém poškození mimořádná inspekce.",
 };
 
 export interface Revision {

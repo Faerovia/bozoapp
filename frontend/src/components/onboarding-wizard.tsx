@@ -154,7 +154,7 @@ export function OnboardingWizard() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                Vítejte v BOZOapp
+                Vítejte v OZODigi
               </h2>
               <p className="text-sm text-gray-600">
                 Krok {step === "company" ? "1" : step === "plant" ? "2" : "—"} ze 2 —

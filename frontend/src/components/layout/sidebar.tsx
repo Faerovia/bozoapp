@@ -227,7 +227,7 @@ export function Sidebar() {
     <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
       {/* Logo */}
       <div className="flex h-14 items-center border-b border-gray-200 px-5">
-        <span className="text-lg font-bold text-blue-600">BOZOapp</span>
+        <span className="text-lg font-bold text-blue-600">OZODigi</span>
         <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600">
           beta
         </span>

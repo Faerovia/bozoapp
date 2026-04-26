@@ -28,7 +28,7 @@ from app.models.recovery_code import RecoveryCode
 from app.models.user import User
 
 # Issuer ukazovaný v autentikátoru (Google Authenticator, 1Password, atd.)
-TOTP_ISSUER = "BOZOapp"
+TOTP_ISSUER = "OZODigi"
 RECOVERY_CODE_COUNT = 10
 # Délka jednoho recovery kódu (bytes před hex). 8 bytes → 16 hex chars.
 RECOVERY_CODE_BYTES = 8

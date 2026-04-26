@@ -47,11 +47,11 @@ def build_email_body(items: list[ReminderItem], tenant_name: str) -> tuple[str, 
 
     if overdue_count > 0:
         subject = (
-            f"BOZOapp: {overdue_count} po termínu, "
+            f"OZODigi: {overdue_count} po termínu, "
             f"{upcoming_count} blížící se ({tenant_name})"
         )
     else:
-        subject = f"BOZOapp: {upcoming_count} blížících se expirací ({tenant_name})"
+        subject = f"OZODigi: {upcoming_count} blížících se expirací ({tenant_name})"
 
     by_module: dict[ReminderModule, list[ReminderItem]] = defaultdict(list)
     for it in items:
@@ -81,11 +81,11 @@ def build_email_body(items: list[ReminderItem], tenant_name: str) -> tuple[str, 
         lines.append("")
 
     lines.extend([
-        "Pro správu otevři BOZOapp:",
+        "Pro správu otevři OZODigi:",
         "  https://app.bozoapp.cz",
         "",
         "—",
-        "Tento email je generován automaticky systémem BOZOapp.",
+        "Tento email je generován automaticky systémem OZODigi.",
         "Nastavení reminderů: /admin/settings/reminders",
     ])
 
