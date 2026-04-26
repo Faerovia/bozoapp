@@ -28,6 +28,8 @@ from app.core.storage import (
     save_accident_photo,
     save_accident_signed_document,
 )
+from app.models.employee import Employee
+from app.models.signature import DOC_TYPE_ACCIDENT_REPORT, Signature
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.accident_reports import (
@@ -120,6 +122,91 @@ async def _one_report_response(
     from app.services.accident_reports import hydrate_signed_count, to_response_dict
     counts = await hydrate_signed_count(db, [report])
     return to_response_dict(report, counts.get(report.id, 0))
+
+
+@router.get("/accident-reports/{report_id}/signers")
+async def list_required_signers(
+    report_id: uuid.UUID,
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Vrátí seznam zaměstnanců, kteří musí (a kdo už) podepsat úraz.
+
+    Pro každý signer:
+    - employee_id, full_name, role_label (postižený/svědek/vedoucí)
+    - has_login_account (bool) — pokud false, nutno použít SMS
+    - has_phone (bool) — pokud false a no login, signer nemůže podepsat
+    - signed (bool), signed_at (ISO), signature_id
+    """
+    report = await get_accident_report_by_id(db, report_id, current_user.tenant_id)
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen",
+        )
+
+    if not report.signature_required:
+        return []
+
+    required_ids: list[str] = report.required_signer_employee_ids or []
+    if not required_ids:
+        return []
+
+    # Načti zaměstnance
+    emp_rows = (await db.execute(
+        select(Employee).where(
+            Employee.id.in_([uuid.UUID(rid) for rid in required_ids]),
+        ),
+    )).scalars().all()
+    emps_by_id = {str(e.id): e for e in emp_rows}
+
+    # Načti podpisy pro tento dokument
+    sig_rows = (await db.execute(
+        select(Signature).where(
+            Signature.tenant_id == current_user.tenant_id,
+            Signature.doc_type == DOC_TYPE_ACCIDENT_REPORT,
+            Signature.doc_id == report_id,
+        ),
+    )).scalars().all()
+    sigs_by_emp: dict[str, Signature] = {
+        str(s.employee_id): s for s in sig_rows
+    }
+
+    # Sestav role label per employee_id
+    role_labels: dict[str, str] = {}
+    if report.employee_id:
+        role_labels[str(report.employee_id)] = "Postižený"
+    for w in (report.witnesses or []):
+        emp_id = w.get("employee_id")
+        if emp_id:
+            existing = role_labels.get(str(emp_id))
+            role_labels[str(emp_id)] = (
+                f"{existing} + Svědek" if existing else "Svědek"
+            )
+    if report.supervisor_employee_id:
+        sid = str(report.supervisor_employee_id)
+        existing = role_labels.get(sid)
+        role_labels[sid] = (
+            f"{existing} + Vedoucí" if existing else "Vedoucí"
+        )
+
+    result: list[dict[str, Any]] = []
+    for rid in required_ids:
+        emp = emps_by_id.get(rid)
+        if emp is None:
+            # Zaměstnanec smazán — preskip
+            continue
+        sig = sigs_by_emp.get(rid)
+        result.append({
+            "employee_id": rid,
+            "full_name": emp.full_name,
+            "role_label": role_labels.get(rid, "Účastník"),
+            "has_login_account": emp.user_id is not None,
+            "has_phone": bool(emp.phone),
+            "signed": sig is not None,
+            "signed_at": sig.signed_at.isoformat() if sig else None,
+            "signature_id": str(sig.id) if sig else None,
+        })
+    return result
 
 
 @router.post(

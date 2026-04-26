@@ -6,8 +6,9 @@ import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
-  AlertTriangle, Plus, Pencil, FileText, CheckCircle, ListTodo, Trash2,
+  AlertTriangle, Plus, Pencil, FileText, CheckCircle, ListTodo, Trash2, PenLine,
 } from "lucide-react";
+import { MultiSignerPanel } from "@/components/signature/multi-signer-panel";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
@@ -584,6 +585,7 @@ export default function AccidentReportsPage() {
   const [detailReport, setDetailReport] = useState<AccidentReport | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [signingReport, setSigningReport] = useState<AccidentReport | null>(null);
 
   const { data: reportsRaw = [], isLoading } = useQuery<AccidentReport[]>({
     queryKey: ["accident-reports", statusFilter, signedFilter],
@@ -796,6 +798,19 @@ export default function AccidentReportsPage() {
                                 <FileText className="h-3.5 w-3.5" />
                               </button>
                             </Tooltip>
+                            {report.status === "final"
+                              && report.signature_required
+                              && !report.is_fully_signed && (
+                              <Tooltip label="Digitální podpisy účastníků">
+                                <button
+                                  onClick={() => setSigningReport(report)}
+                                  className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors"
+                                  aria-label="Podepsat"
+                                >
+                                  <PenLine className="h-3.5 w-3.5" />
+                                </button>
+                              </Tooltip>
+                            )}
                             {report.status === "draft" && (
                               <Tooltip label="Finalizovat (uzamknout úpravy)">
                                 <button
@@ -821,6 +836,20 @@ export default function AccidentReportsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Multi-signer panel pro digitální podpis úrazu */}
+      {signingReport && (
+        <MultiSignerPanel
+          open={!!signingReport}
+          onClose={() => setSigningReport(null)}
+          docType="accident_report"
+          docId={signingReport.id}
+          title={`Podpisy: ${signingReport.employee_name} — ${formatDate(signingReport.accident_date)}`}
+          onCompleted={() => {
+            qc.invalidateQueries({ queryKey: ["accident-reports"] });
+          }}
+        />
+      )}
 
       {/* Dialog: Nová nehoda */}
       <Dialog
