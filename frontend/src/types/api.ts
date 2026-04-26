@@ -742,6 +742,34 @@ export interface OoppIssue {
   notes: string | null;
   status: "active" | "returned" | "discarded";
   created_by: string;
+  signature_id: string | null;
+  is_signed: boolean;
+}
+
+// ── Univerzální digitální podpis (migrace 057) ──────────────────────────────
+
+export type SignatureDocType = "oopp_issue" | "accident_report" | "training_attempt";
+export type SignatureAuthMethod = "password" | "sms_otp";
+
+export interface SignatureRecord {
+  id: string;
+  doc_type: SignatureDocType;
+  doc_id: string;
+  employee_id: string;
+  employee_full_name_snapshot: string;
+  auth_method: SignatureAuthMethod;
+  payload_hash: string;
+  seq: number;
+  chain_hash: string;
+  signed_at: string;
+}
+
+export interface SignatureInitiateResponse {
+  ok: boolean;
+  auth_method: SignatureAuthMethod;
+  sms_sent_to: string | null;
+  expires_in_seconds: number | null;
+  message: string;
 }
 
 // ── Tenant-level role (assignovatelné OZO/HR při tvorbě zaměstnance) ─────────

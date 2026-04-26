@@ -32,6 +32,7 @@ from app.api.v1 import (
     reminders_admin,
     revisions,
     risks,
+    signatures,
     tenant,
     totp,
     training_pdf,
@@ -219,6 +220,7 @@ app.include_router(invoices_admin.router, prefix="/api/v1", tags=["invoices-admi
 app.include_router(invoices.router, prefix="/api/v1", tags=["invoices"])
 app.include_router(reminders_admin.router, prefix="/api/v1", tags=["reminders-admin"])
 app.include_router(training_signing.router, prefix="/api/v1", tags=["training-signing"])
+app.include_router(signatures.router, prefix="/api/v1", tags=["signatures"])
 app.include_router(training_pdf.router, prefix="/api/v1", tags=["training-pdf"])
 app.include_router(onboarding.router, prefix="/api/v1", tags=["onboarding"])
 app.include_router(periodic_checks.router, prefix="/api/v1", tags=["periodic-checks"])

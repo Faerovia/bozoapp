@@ -120,6 +120,10 @@ class IssueResponse(BaseModel):
     notes: str | None
     status: str
     created_by: uuid.UUID
+    # Univerzální digitální podpis (migrace 057). is_signed je computed
+    # z přítomnosti signature_id — frontend ho používá pro UI badge.
+    signature_id: uuid.UUID | None = None
+    is_signed: bool = False
 
     model_config = {"from_attributes": True}
 

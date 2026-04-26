@@ -13,7 +13,10 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Pencil, Trash2, ShieldAlert, Boxes, ClipboardList, Save, Download,
+  PenLine, BadgeCheck,
 } from "lucide-react";
+import { SignatureDialog } from "@/components/signature/signature-dialog";
+import type { SignatureRecord } from "@/types/api";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
@@ -700,6 +703,7 @@ function IssuesTab() {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [signingIssue, setSigningIssue] = useState<OoppIssue | null>(null);
 
   const { data: issuesRaw = [] } = useQuery<OoppIssue[]>({
     queryKey: ["oopp-issues"],
@@ -831,15 +835,35 @@ function IssuesTab() {
                       </span>
                     </td>
                     <td className="py-2.5 px-4">
-                      <button
-                        onClick={() => {
-                          if (confirm("Vyřadit výdej?")) archiveIssue.mutate(issue.id);
-                        }}
-                        className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
-                        title="Vyřadit"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {issue.is_signed ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium"
+                            title="Výdej je elektronicky podepsán zaměstnancem"
+                          >
+                            <BadgeCheck className="h-3.5 w-3.5" />
+                            Podepsáno
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setSigningIssue(issue)}
+                            className="inline-flex items-center gap-1 rounded-md border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 px-2 py-1 text-xs font-medium"
+                            title="Vydat a nechat podepsat zaměstnancem"
+                          >
+                            <PenLine className="h-3.5 w-3.5" />
+                            Výdej
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            if (confirm("Vyřadit výdej?")) archiveIssue.mutate(issue.id);
+                          }}
+                          className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                          title="Vyřadit"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -949,6 +973,33 @@ function IssuesTab() {
           </div>
         </form>
       </Dialog>
+
+      {/* Univerzální signature dialog */}
+      {signingIssue && (
+        <SignatureDialog
+          open={!!signingIssue}
+          onClose={() => setSigningIssue(null)}
+          docType="oopp_issue"
+          docId={signingIssue.id}
+          employeeId={signingIssue.employee_id}
+          employeeName={signingIssue.employee_name || "Zaměstnanec"}
+          hasLoginAccount={
+            (employees.find((e) => e.id === signingIssue.employee_id)?.user_id ?? null) !== null
+          }
+          title={`Výdej OOPP — podpis zaměstnance: ${signingIssue.item_name}`}
+          onSigned={async (sig: SignatureRecord) => {
+            try {
+              await api.post(`/oopp/issues/${signingIssue.id}/attach-signature`, {
+                signature_id: sig.id,
+              });
+              qc.invalidateQueries({ queryKey: ["oopp-issues"] });
+            } catch (err) {
+              console.error("attach-signature failed", err);
+            }
+            setSigningIssue(null);
+          }}
+        />
+      )}
     </Card>
   );
 }

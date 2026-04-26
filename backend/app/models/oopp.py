@@ -194,6 +194,12 @@ class EmployeeOoppIssue(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
 
+    # Univerzální digitální podpis (migrace 057). Pokud je nastaven, výdej
+    # byl zaměstnancem potvrzen přes /signatures/verify (heslo nebo SMS OTP).
+    signature_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("signatures.id", ondelete="SET NULL")
+    )
+
     # Pozn.: TimestampMixin už dodává created_at/updated_at TIMESTAMPTZ.
     # Tady redefinujeme jen pro kompatibilitu s dříve používaným vzorem
     # (dovolíme dát explicit TZ-aware default, byť mixin to umí).

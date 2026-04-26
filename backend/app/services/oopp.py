@@ -269,6 +269,10 @@ async def issue_to_response_dict(
         "notes": issue.notes,
         "status": issue.status,
         "created_by": issue.created_by,
+        # Universal signature linkage (migrace 057). signature_id je
+        # populovaný po /signatures/verify s doc_type='oopp_issue'.
+        "signature_id": getattr(issue, "signature_id", None),
+        "is_signed": getattr(issue, "signature_id", None) is not None,
     }
 
 

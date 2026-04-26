@@ -20,10 +20,14 @@ Endpoint mapa:
     PATCH  /oopp/issues/{id}
     DELETE /oopp/issues/{id}  (archivuje)
 """
+import calendar
 import uuid
+from datetime import UTC, date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -366,3 +370,91 @@ async def archive_issue(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Výdej nenalezen")
     issue.status = "discarded"
     await db.flush()
+
+
+# ── Signature linking ──────────────────────────────────────────────────────
+# Po úspěšném /signatures/verify s doc_type='oopp_issue' frontend zavolá
+# tento endpoint, aby se signature_id uložilo na issue. Drží to oba zápisy
+# konzistentní (issue.signature_id ↔ signature row).
+
+
+class IssueAttachSignatureRequest(BaseModel):
+    signature_id: uuid.UUID
+
+
+@router.post(
+    "/oopp/issues/{issue_id}/attach-signature",
+    response_model=IssueResponse,
+)
+async def attach_signature_to_issue(
+    issue_id: uuid.UUID,
+    data: IssueAttachSignatureRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Připojí dříve vytvořený signature záznam k OOPP výdeji.
+
+    Validace: signature musí existovat ve stejném tenantu, mít doc_type=
+    'oopp_issue' a doc_id == issue_id. Issue.signature_id musí být zatím
+    None (jeden výdej = jeden podpis).
+    """
+    from app.models.signature import DOC_TYPE_OOPP_ISSUE, Signature
+
+    issue = await get_issue_by_id(db, issue_id, current_user.tenant_id)
+    if issue is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Výdej nenalezen",
+        )
+    if issue.signature_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Výdej je již podepsán a nelze jej podepsat znovu.",
+        )
+
+    sig_row = (
+        await db.execute(
+            select(Signature).where(
+                Signature.id == data.signature_id,
+                Signature.tenant_id == current_user.tenant_id,
+                Signature.doc_type == DOC_TYPE_OOPP_ISSUE,
+                Signature.doc_id == issue_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if sig_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Podpis pro tento výdej nenalezen",
+        )
+    if sig_row.employee_id != issue.employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Podpis je od jiného zaměstnance než výdej",
+        )
+
+    issue.signature_id = sig_row.id
+
+    # Aktualizuj issued_at na datum podpisu (= reálné převzetí OOPP
+    # potvrzené zaměstnancem). Pokud má OOPP item validity_months,
+    # přepočítej valid_until od nového data.
+    new_issued_at = datetime.now(UTC).date()
+    issue.issued_at = new_issued_at
+    item = await get_oopp_item_by_id(
+        db, issue.position_oopp_item_id, current_user.tenant_id,
+    )
+    if item is not None and item.valid_months is not None:
+        issue.valid_until = _add_months_local(new_issued_at, item.valid_months)
+
+    await db.flush()
+    return await issue_to_response_dict(db, issue)
+
+
+def _add_months_local(d: date, months: int) -> date:
+    """Přidá `months` k datu, ošetří přetečení do dalšího roku a zkrátí den
+    na poslední validní den měsíce (např. 31.1. + 1 měsíc → 28./29.2.).
+    """
+    total = d.month - 1 + months
+    year = d.year + total // 12
+    month = total % 12 + 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
