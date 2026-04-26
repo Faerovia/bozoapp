@@ -28,6 +28,11 @@ class TrainingCreateRequest(BaseModel):
     valid_months: int = Field(..., gt=0, le=600)
     # test_questions a pass_percentage se nastavují samostatně přes upload_test_csv
     notes: str | None = None
+    # Migrace 041 — pro prezenční listinu a podpisy
+    outline_text: str | None = None
+    duration_hours: float | None = Field(None, ge=0, le=999)
+    requires_qes: bool = False
+    knowledge_test_required: bool = False
 
 
 class TrainingUpdateRequest(BaseModel):
@@ -37,11 +42,15 @@ class TrainingUpdateRequest(BaseModel):
     valid_months: int | None = Field(None, gt=0, le=600)
     pass_percentage: int | None = Field(None, ge=0, le=100)
     notes: str | None = None
+    outline_text: str | None = None
+    duration_hours: float | None = Field(None, ge=0, le=999)
+    requires_qes: bool | None = None
+    knowledge_test_required: bool | None = None
 
 
 class TrainingResponse(BaseModel):
     id: uuid.UUID
-    tenant_id: uuid.UUID
+    tenant_id: uuid.UUID | None
     title: str
     training_type: str
     trainer_kind: str
@@ -52,6 +61,10 @@ class TrainingResponse(BaseModel):
     question_count: int
     pass_percentage: int | None
     notes: str | None
+    outline_text: str | None = None
+    duration_hours: float | None = None
+    requires_qes: bool = False
+    knowledge_test_required: bool = False
     created_by: uuid.UUID
     created_at: datetime
 

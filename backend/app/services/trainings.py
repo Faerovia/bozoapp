@@ -95,6 +95,10 @@ async def create_training(
         trainer_kind=data.trainer_kind,
         valid_months=data.valid_months,
         notes=data.notes,
+        outline_text=data.outline_text,
+        duration_hours=data.duration_hours,
+        requires_qes=data.requires_qes,
+        knowledge_test_required=data.knowledge_test_required,
         created_by=created_by,
     )
     db.add(training)

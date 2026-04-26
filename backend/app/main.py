@@ -30,6 +30,7 @@ from app.api.v1 import (
     risks,
     tenant,
     totp,
+    training_signing,
     trainings,
     users,
     workplaces,
@@ -212,3 +213,4 @@ app.include_router(global_trainings.router, prefix="/api/v1", tags=["global-trai
 app.include_router(invoices_admin.router, prefix="/api/v1", tags=["invoices-admin"])
 app.include_router(invoices.router, prefix="/api/v1", tags=["invoices"])
 app.include_router(reminders_admin.router, prefix="/api/v1", tags=["reminders-admin"])
+app.include_router(training_signing.router, prefix="/api/v1", tags=["training-signing"])

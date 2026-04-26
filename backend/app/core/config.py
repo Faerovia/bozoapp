@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@bozoapp.cz"
     smtp_tls: bool = True  # STARTTLS (True) / implicit TLS (False) / plaintext
 
+    # SMS sender pro ZES OTP — když zaměstnanec nemá email.
+    # Provider: "smartsms" (CZ) | "console" (dev — log only) | "" (default)
+    sms_provider: str = ""
+    sms_api_token: str = ""
+    sms_sender_id: str = "BOZOapp"
+
     # Fernet key pro encryption-at-rest citlivých polí (personal_id atd.).
     # Generuj:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

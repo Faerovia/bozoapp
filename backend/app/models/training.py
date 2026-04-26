@@ -13,7 +13,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,6 +60,16 @@ class Training(Base, TimestampMixin):
 
     notes: Mapped[str | None] = mapped_column(Text)
 
+    # Osnova školení — manuálně vyplňuje OZO. Použito v hlavičce prezenční
+    # listiny. Migrace 041.
+    outline_text: Mapped[str | None] = mapped_column(Text)
+    # Délka školení v hodinách (např. 2.5). Manuálně zadané, info na prezenčce.
+    duration_hours: Mapped[float | None] = mapped_column(Numeric(4, 1))
+    # Pokud True → podpis vyžaduje email OTP před canvas (eIDAS ZES level).
+    requires_qes: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Pokud True → na prezenčce zobrazit "Znalosti ověřeny testem".
+    knowledge_test_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
@@ -105,6 +115,19 @@ class TrainingAssignment(Base, TimestampMixin):
     assigned_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
+
+    # Podpis zaměstnance — base64 PNG z canvasu. Migrace 041.
+    # Bez podpisu školení NENÍ platné a nezobrazí se na prezenční listině.
+    signature_image: Mapped[str | None] = mapped_column(Text)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Metoda podpisu: 'simple' = canvas only, 'qes' = canvas + email OTP
+    signature_method: Mapped[str | None] = mapped_column(String(10))
+    # Audit metadata: IP, user agent, OTP timestamp, server-side signed_at
+    signature_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    @property
+    def is_signed(self) -> bool:
+        return bool(self.signature_image and self.signed_at)
 
     @property
     def validity_status(self) -> str:
