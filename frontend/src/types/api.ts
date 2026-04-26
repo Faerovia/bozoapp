@@ -270,6 +270,8 @@ export type TrainerKind = "ozo_bozp" | "ozo_po" | "employer";
 export type ValidityStatus = "no_expiry" | "valid" | "expiring_soon" | "expired";
 export type AssignmentStatus = "pending" | "completed" | "expired" | "revoked";
 
+export type TrainingStatus = "active" | "pending_approval" | "archived";
+
 export interface Training {
   id: string;
   tenant_id: string | null;
@@ -288,6 +290,13 @@ export interface Training {
   knowledge_test_required: boolean;
   created_by: string;
   created_at: string;
+  // Approval workflow + autor/OZO podpis obsahu (#105)
+  status: TrainingStatus;
+  requires_ozo_approval: boolean;
+  author_signature_id: string | null;
+  ozo_approval_signature_id: string | null;
+  approved_at: string | null;
+  approved_by_user_id: string | null;
 }
 
 export interface TrainingAssignment {
@@ -758,7 +767,11 @@ export interface OoppIssue {
 
 // ── Univerzální digitální podpis (migrace 057) ──────────────────────────────
 
-export type SignatureDocType = "oopp_issue" | "accident_report" | "training_attempt";
+export type SignatureDocType =
+  | "oopp_issue"
+  | "accident_report"
+  | "training_attempt"
+  | "training_content";
 export type SignatureAuthMethod = "password" | "sms_otp";
 
 export interface SignatureRecord {

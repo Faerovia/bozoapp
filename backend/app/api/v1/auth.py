@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select, text
@@ -236,6 +237,35 @@ async def logout(
 @router.get("/auth/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)) -> User:
     return current_user
+
+
+@router.get("/auth/me/employee")
+async def me_employee(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Vrátí Employee record napojený na current_user (přes user_id).
+
+    Slouží pro signature flows — UI potřebuje employee_id pro
+    /signatures/initiate. Pokud user nemá employee record (typicky
+    platform admin nebo HR uživatel bez personálního záznamu), vrátí
+    employee_id=None.
+    """
+    from app.services.employees import get_employee_by_user_id
+    emp = await get_employee_by_user_id(db, current_user.id, current_user.tenant_id)
+    if emp is None:
+        return {
+            "employee_id": None,
+            "full_name": current_user.full_name or current_user.email,
+            "has_login_account": True,
+            "has_phone": False,
+        }
+    return {
+        "employee_id": str(emp.id),
+        "full_name": emp.full_name,
+        "has_login_account": emp.user_id is not None,
+        "has_phone": bool(emp.phone),
+    }
 
 
 # ── Multi-tenant membership endpoints ───────────────────────────────────────

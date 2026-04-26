@@ -26,6 +26,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { TestQuestionsDialog } from "@/components/test-questions-dialog";
+import { SignatureDialog } from "@/components/signature/signature-dialog";
 import { api, ApiError, uploadFile } from "@/lib/api";
 import type {
   AssignmentCreateResponse,
@@ -127,6 +128,10 @@ const trainingSchema = z.object({
   duration_hours: z.coerce.number().min(0).max(999).optional().or(z.literal("")),
   requires_qes: z.boolean().optional(),
   knowledge_test_required: z.boolean().optional(),
+  // Approval workflow (#105). HR manager / lead_worker zaškrtne →
+  // school se vytvoří jako pending_approval a nelze přiřadit zaměstnancům
+  // dokud OZO nenahlédne a nepodepíše.
+  requires_ozo_approval: z.boolean().optional(),
 });
 
 type TrainingFormData = z.infer<typeof trainingSchema>;
@@ -138,6 +143,20 @@ function AdminView() {
   const [assignTraining, setAssignTraining] = useState<Training | null>(null);
   const [testTraining, setTestTraining] = useState<Training | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  // Signing flow pro autora / OZO obsahu školení (#105). Po podpisu
+  // přes SignatureDialog (docType='training_content') musíme zavolat
+  // attach-author-signature nebo approve endpoint.
+  const [signContent, setSignContent] = useState<{
+    training: Training;
+    mode: "author" | "approve";
+  } | null>(null);
+
+  const { data: me } = useQuery<UserResponse>({
+    queryKey: ["me"],
+    queryFn: () => api.get("/auth/me"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const authorIsOzo = me?.role === "ozo";
 
   const { data: trainings = [], isLoading } = useQuery<Training[]>({
     queryKey: ["trainings"],
@@ -210,6 +229,7 @@ function AdminView() {
                     <th className="text-left py-3 px-4 font-medium text-gray-500">Platnost</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-500">Obsah</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-500">Test</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-500">Stav</th>
                     <th className="py-3 px-4" />
                   </tr>
                 </thead>
@@ -243,14 +263,66 @@ function AdminView() {
                         )}
                       </td>
                       <td className="py-3 px-4">
+                        {t.status === "pending_approval" ? (
+                          <span
+                            className="rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs font-medium"
+                            title="Čeká na schválení OZO"
+                          >
+                            ⏳ Schválení
+                          </span>
+                        ) : t.status === "archived" ? (
+                          <span className="rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 text-xs font-medium">
+                            Archiv
+                          </span>
+                        ) : !t.author_signature_id ? (
+                          <span
+                            className="rounded-full bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 text-xs font-medium"
+                            title="Aktivní, ale autor obsahu nepodepsal"
+                          >
+                            ⚠ Bez podpisu
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium">
+                            ✓ Aktivní
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
                         <div className="flex items-center justify-end gap-1">
+                          {t.status === "pending_approval" && authorIsOzo && (
+                            <button
+                              onClick={() => setSignContent({ training: t, mode: "approve" })}
+                              className="rounded-md border border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 px-2 py-1 text-xs font-medium"
+                              title="Schválit školení (OZO podepíše obsah)"
+                            >
+                              Schválit
+                            </button>
+                          )}
+                          {t.status === "active" && !t.author_signature_id && (
+                            <button
+                              onClick={() => setSignContent({ training: t, mode: "author" })}
+                              className="rounded-md border border-blue-300 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 px-2 py-1 text-xs font-medium"
+                              title="Podepsat obsah školení (autor)"
+                            >
+                              Podepsat
+                            </button>
+                          )}
                           <button
                             onClick={() => {
+                              if (t.status !== "active") {
+                                alert(
+                                  t.status === "pending_approval"
+                                    ? "Školení čeká na schválení OZO — nelze přiřadit zaměstnancům."
+                                    : "Školení je archivované.",
+                                );
+                                return;
+                              }
                               setServerError(null);
                               setAssignTraining(t);
                             }}
-                            className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
-                            title="Přidělit zaměstnance"
+                            disabled={t.status !== "active"}
+                            className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                            title={t.status === "active" ? "Přidělit zaměstnance" : "Nelze přiřadit (čeká na schválení / archiv)"}
                           >
                             <Users className="h-4 w-4" />
                           </button>
@@ -328,6 +400,7 @@ function AdminView() {
           onSubmit={(d) => createMutation.mutate(d)}
           isSubmitting={createMutation.isPending}
           serverError={serverError}
+          authorIsOzo={authorIsOzo}
         />
       </Dialog>
 
@@ -343,6 +416,7 @@ function AdminView() {
             onSubmit={(d) => updateMutation.mutate({ id: editTraining.id, data: d })}
             isSubmitting={updateMutation.isPending}
             serverError={serverError}
+            authorIsOzo={authorIsOzo}
           />
         )}
       </Dialog>
@@ -367,7 +441,103 @@ function AdminView() {
         trainingId={testTraining?.id ?? null}
         trainingTitle={testTraining?.title ?? ""}
       />
+
+      {signContent && (
+        <TrainingContentSigner
+          training={signContent.training}
+          mode={signContent.mode}
+          onClose={() => setSignContent(null)}
+          onDone={() => {
+            setSignContent(null);
+            qc.invalidateQueries({ queryKey: ["trainings"] });
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Signing wrapper pro autor / OZO podpis obsahu školení (#105) ────────────
+//
+// Načte employee_id current usera z /auth/me/employee, otevře SignatureDialog
+// s docType='training_content' a po úspěšném podpisu zavolá:
+// - mode='author' → POST /trainings/{id}/attach-author-signature
+// - mode='approve' → POST /trainings/{id}/approve
+
+function TrainingContentSigner({
+  training,
+  mode,
+  onClose,
+  onDone,
+}: {
+  training: Training;
+  mode: "author" | "approve";
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { data: meEmp, isLoading } = useQuery<{
+    employee_id: string | null;
+    full_name: string;
+    has_login_account: boolean;
+    has_phone: boolean;
+  }>({
+    queryKey: ["me-employee"],
+    queryFn: () => api.get("/auth/me/employee"),
+  });
+
+  if (isLoading || !meEmp) return null;
+
+  if (!meEmp.employee_id) {
+    // User nemá employee record — nelze digitálně podepsat
+    return (
+      <Dialog open onClose={onClose} title="Podpis nelze provést" size="md">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Tvůj uživatelský účet nemá napojený záznam zaměstnance v evidenci,
+            proto nelze digitálně podepsat. Doplň si svůj záznam v
+            modulu Zaměstnanci nebo požádej OZO o pomoc.
+          </p>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={onClose}>Zavřít</Button>
+          </div>
+        </div>
+      </Dialog>
+    );
+  }
+
+  return (
+    <SignatureDialog
+      open
+      onClose={onClose}
+      docType="training_content"
+      docId={training.id}
+      employeeId={meEmp.employee_id}
+      employeeName={meEmp.full_name}
+      hasLoginAccount={meEmp.has_login_account}
+      title={
+        mode === "approve"
+          ? `Schválení OZO: ${training.title}`
+          : `Podpis autora obsahu: ${training.title}`
+      }
+      onSigned={async (sig) => {
+        try {
+          if (mode === "approve") {
+            await api.post(`/trainings/${training.id}/approve`, {
+              signature_id: sig.id,
+            });
+          } else {
+            await api.post(`/trainings/${training.id}/attach-author-signature`, {
+              signature_id: sig.id,
+            });
+          }
+          onDone();
+        } catch (err) {
+          alert(
+            err instanceof ApiError ? err.detail : "Připojení podpisu selhalo",
+          );
+        }
+      }}
+    />
   );
 }
 
@@ -378,11 +548,14 @@ function TrainingForm({
   onSubmit,
   isSubmitting,
   serverError,
+  authorIsOzo = false,
 }: {
   defaultValues?: Partial<TrainingFormData>;
   onSubmit: (d: TrainingFormData) => void;
   isSubmitting: boolean;
   serverError: string | null;
+  /** Pokud false, autor není OZO → nabídneme checkbox „Nechat schválit OZO". */
+  authorIsOzo?: boolean;
 }) {
   const {
     register,
@@ -490,6 +663,27 @@ function TrainingForm({
         </p>
       </div>
 
+      {/* Approval workflow — viditelné jen pokud autor není OZO. */}
+      {!authorIsOzo && (
+        <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 px-3 py-2">
+          <Label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              {...register("requires_ozo_approval")}
+              className="rounded border-gray-300"
+            />
+            <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              Nechat schválit OZO
+            </span>
+          </Label>
+          <p className="text-xs text-blue-700 dark:text-blue-200 mt-1 ml-6">
+            Pokud zaškrtnete, školení se uloží ve stavu &bdquo;Čeká na schválení&ldquo;
+            a nelze ho přiřadit zaměstnancům dokud OZO nenahlédne obsah a
+            digitálně ho nepodepíše.
+          </p>
+        </div>
+      )}
+
       <div className="space-y-1.5">
         <Label htmlFor="notes">Interní poznámky</Label>
         <textarea
@@ -522,11 +716,13 @@ function EditTrainingBody({
   onSubmit,
   isSubmitting,
   serverError,
+  authorIsOzo = false,
 }: {
   training: Training;
   onSubmit: (d: TrainingFormData) => void;
   isSubmitting: boolean;
   serverError: string | null;
+  authorIsOzo?: boolean;
 }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["trainings"] });
@@ -577,10 +773,12 @@ function EditTrainingBody({
           trainer_kind: training.trainer_kind,
           valid_months: training.valid_months,
           notes: training.notes ?? "",
+          requires_ozo_approval: training.requires_ozo_approval,
         }}
         onSubmit={onSubmit}
         isSubmitting={isSubmitting}
         serverError={serverError}
+        authorIsOzo={authorIsOzo}
       />
 
       <div className="border-t border-gray-100 pt-4">
