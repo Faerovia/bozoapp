@@ -634,6 +634,8 @@ export type AccidentTestResult = "negative" | "positive";
 
 export interface AccidentWitness {
   name: string;
+  /** Pokud null, svědek je externí (digi podpis nelze). */
+  employee_id: string | null;
   signed_at: string | null;
 }
 
@@ -671,8 +673,10 @@ export interface AccidentReport {
   drug_test_result: AccidentTestResult | null;
 
   injured_signed_at: string | null;
+  injured_external: boolean;
   witnesses: AccidentWitness[];
   supervisor_name: string | null;
+  supervisor_employee_id: string | null;
   supervisor_signed_at: string | null;
 
   risk_id: string | null;
@@ -682,6 +686,12 @@ export interface AccidentReport {
   status: "draft" | "final" | "archived";
   signed_document_path: string | null;
   created_by: string;
+
+  // Univerzální digitální podpis (#105)
+  signature_required: boolean;
+  required_signer_employee_ids: string[];
+  signed_count: number;
+  is_fully_signed: boolean;
 }
 
 // ── OOPP (NV 390/2021 Sb. — Příloha č. 2) ────────────────────────────────────

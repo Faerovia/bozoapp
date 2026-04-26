@@ -41,6 +41,9 @@ const STATUS_COLORS: Record<string, string> = {
 
 const witnessSchema = z.object({
   name: z.string().min(1, "Jméno svědka je povinné").max(255),
+  // Pokud null/empty, svědek je externí (digi podpis nelze).
+  // Pokud nastaven, jde o interního zaměstnance.
+  employee_id: z.string().uuid().or(z.literal("")).optional().nullable(),
   signed_at: z.string().optional().nullable(),
 });
 
@@ -86,8 +89,13 @@ const schema = z.object({
 
   // Podpisy
   injured_signed_at:      z.string().optional(),
+  // True = postižený je externí (brigádník bez evidence) → digi podpis nelze.
+  injured_external:       z.boolean().default(false),
   witnesses:              z.array(witnessSchema).default([]),
   supervisor_name:        z.string().max(255).optional(),
+  // Vedoucí pracovník z evidence (jen z role lead_worker). Pokud None ale
+  // supervisor_name vyplněn → externí vedoucí (digi podpis nelze).
+  supervisor_employee_id: z.string().uuid().or(z.literal("")).optional().nullable(),
   supervisor_signed_at:   z.string().optional(),
 });
 
@@ -123,9 +131,14 @@ function AccidentForm({
       blood_pathogen_exposure: false,
       alcohol_test_performed: false,
       drug_test_performed: false,
+      injured_external: false,
       witnesses: [],
+      supervisor_employee_id: "",
     },
   });
+
+  const injuredExternal = watch("injured_external");
+  const supervisorEmpId = watch("supervisor_employee_id");
 
   const { fields, append, remove } = useFieldArray({ control, name: "witnesses" });
 
@@ -150,31 +163,51 @@ function AccidentForm({
       <fieldset className="space-y-3">
         <legend className="text-sm font-semibold text-gray-700 mb-1">Zraněný zaměstnanec</legend>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="employee_id">Zaměstnanec (volitelné — autodoplnění jména)</Label>
-          <Controller
-            name="employee_id"
-            control={control}
-            render={({ field }) => (
-              <SearchableSelect
-                id="employee_id"
-                placeholder="— Externista / nepřiřazeno —"
-                value={field.value || null}
-                onChange={(v) => handleEmployeeChange(v ?? "")}
-                options={employees.map((e) => ({
-                  value: e.id,
-                  label: `${e.last_name} ${e.first_name}`,
-                  hint: e.personal_number || undefined,
-                }))}
-              />
-            )}
+        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+          <input
+            type="checkbox"
+            {...register("injured_external")}
+            className="h-4 w-4"
+            onChange={(e) => {
+              setValue("injured_external", e.target.checked);
+              if (e.target.checked) setValue("employee_id", "");
+            }}
           />
-        </div>
+          Externí pracovník (brigádník, řidič dodavatele apod. — bez evidence
+          v zaměstnancích; digitální podpis nebude možný)
+        </label>
+
+        {!injuredExternal && (
+          <div className="space-y-1.5">
+            <Label htmlFor="employee_id">Zaměstnanec * <span className="text-xs text-gray-500">(z evidence)</span></Label>
+            <Controller
+              name="employee_id"
+              control={control}
+              render={({ field }) => (
+                <SearchableSelect
+                  id="employee_id"
+                  placeholder="— vyber zaměstnance —"
+                  value={field.value || null}
+                  onChange={(v) => handleEmployeeChange(v ?? "")}
+                  options={employees.map((e) => ({
+                    value: e.id,
+                    label: `${e.last_name} ${e.first_name}`,
+                    hint: e.personal_number || undefined,
+                  }))}
+                />
+              )}
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="employee_name">Jméno zraněného *</Label>
-            <Input id="employee_name" {...register("employee_name")} />
+            <Input
+              id="employee_name"
+              {...register("employee_name")}
+              placeholder={injuredExternal ? "např. Jan Novák (externí)" : ""}
+            />
             {errors.employee_name && <p className="text-xs text-red-600">{errors.employee_name.message}</p>}
           </div>
           <div className="space-y-1.5">
@@ -365,7 +398,7 @@ function AccidentForm({
             <Label>Svědci</Label>
             <Button
               type="button" size="sm" variant="outline"
-              onClick={() => append({ name: "", signed_at: null })}
+              onClick={() => append({ name: "", employee_id: "", signed_at: null })}
             >
               <Plus className="h-3 w-3 mr-1" /> Přidat svědka
             </Button>
@@ -374,40 +407,118 @@ function AccidentForm({
             <p className="text-xs text-gray-400 italic">Žádný svědek</p>
           )}
           {fields.map((field, idx) => (
-            <div key={field.id} className="flex items-end gap-2 rounded-md border border-gray-200 p-2">
-              <div className="flex-1 space-y-1">
-                <Label htmlFor={`witness-${idx}-name`} className="text-xs">Jméno svědka *</Label>
-                <Input id={`witness-${idx}-name`} {...register(`witnesses.${idx}.name`)} />
-                {errors.witnesses?.[idx]?.name && (
-                  <p className="text-xs text-red-600">{errors.witnesses[idx]?.name?.message}</p>
-                )}
+            <div key={field.id} className="rounded-md border border-gray-200 dark:border-gray-700 p-2 space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Svědek (z evidence) — pokud externí, nech prázdné</Label>
+                <Controller
+                  name={`witnesses.${idx}.employee_id` as const}
+                  control={control}
+                  render={({ field: f }) => (
+                    <SearchableSelect
+                      placeholder="— Externí svědek (zadej jméno níže) —"
+                      value={(f.value as string) || null}
+                      onChange={(v) => {
+                        f.onChange(v ?? "");
+                        // Pokud zaměstnanec, autodoplň jméno
+                        if (v) {
+                          const e = employees.find((emp) => emp.id === v);
+                          if (e) {
+                            setValue(
+                              `witnesses.${idx}.name` as const,
+                              `${e.first_name} ${e.last_name}`.trim(),
+                            );
+                          }
+                        }
+                      }}
+                      options={employees.map((e) => ({
+                        value: e.id,
+                        label: `${e.last_name} ${e.first_name}`,
+                      }))}
+                    />
+                  )}
+                />
               </div>
-              <div className="w-40 space-y-1">
-                <Label htmlFor={`witness-${idx}-date`} className="text-xs">Datum podpisu</Label>
-                <Input id={`witness-${idx}-date`} type="date" {...register(`witnesses.${idx}.signed_at`)} />
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor={`witness-${idx}-name`} className="text-xs">Jméno svědka *</Label>
+                  <Input id={`witness-${idx}-name`} {...register(`witnesses.${idx}.name`)} />
+                  {errors.witnesses?.[idx]?.name && (
+                    <p className="text-xs text-red-600">{errors.witnesses[idx]?.name?.message}</p>
+                  )}
+                </div>
+                <div className="w-40 space-y-1">
+                  <Label htmlFor={`witness-${idx}-date`} className="text-xs">Datum podpisu</Label>
+                  <Input id={`witness-${idx}-date`} type="date" {...register(`witnesses.${idx}.signed_at`)} />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => remove(idx)}
+                  className="rounded p-2 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                  title="Odebrat"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => remove(idx)}
-                className="rounded p-2 text-gray-400 hover:text-red-600 hover:bg-red-50"
-                title="Odebrat"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="supervisor_name">Vedoucí pracoviště — jméno</Label>
-            <Input id="supervisor_name" {...register("supervisor_name")} />
+        <div className="space-y-2 rounded-md border border-gray-200 dark:border-gray-700 p-2">
+          <div className="space-y-1">
+            <Label htmlFor="supervisor_employee_id" className="text-xs">
+              Vedoucí pracovník (z evidence) — pokud externí, nech prázdné
+            </Label>
+            <Controller
+              name="supervisor_employee_id"
+              control={control}
+              render={({ field }) => (
+                <SearchableSelect
+                  id="supervisor_employee_id"
+                  placeholder="— Externí vedoucí (zadej jméno níže) —"
+                  value={(field.value as string) || null}
+                  onChange={(v) => {
+                    field.onChange(v ?? "");
+                    if (v) {
+                      const e = employees.find((emp) => emp.id === v);
+                      if (e) {
+                        setValue("supervisor_name", `${e.first_name} ${e.last_name}`.trim());
+                      }
+                    }
+                  }}
+                  options={employees.map((e) => ({
+                    value: e.id,
+                    label: `${e.last_name} ${e.first_name}`,
+                  }))}
+                />
+              )}
+            />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="supervisor_signed_at">Datum podpisu vedoucího</Label>
-            <Input id="supervisor_signed_at" type="date" {...register("supervisor_signed_at")} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="supervisor_name" className="text-xs">Jméno vedoucího</Label>
+              <Input id="supervisor_name" {...register("supervisor_name")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="supervisor_signed_at" className="text-xs">Datum podpisu vedoucího</Label>
+              <Input id="supervisor_signed_at" type="date" {...register("supervisor_signed_at")} />
+            </div>
           </div>
         </div>
+
+        {/* Indikátor digitálního podpisu */}
+        {(injuredExternal
+          || (fields.length > 0 && fields.some((_, idx) => !watch(`witnesses.${idx}.employee_id` as const)))
+          || (watch("supervisor_name") && !supervisorEmpId)) ? (
+          <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+            ⚠ Některý z účastníků je <strong>externí</strong> — digitální podpis nebude
+            možný. Po finalizaci je nutné formulář vytisknout a fyzicky podepsat.
+          </div>
+        ) : (
+          <div className="rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-200">
+            ✓ Všichni účastníci jsou interní zaměstnanci — po finalizaci bude
+            možný <strong>digitální podpis</strong> přes heslo nebo SMS kód.
+          </div>
+        )}
       </fieldset>
 
       {serverError && (
@@ -430,7 +541,8 @@ function cleanFormData(data: FormData): Record<string, unknown> {
   const clean: Record<string, unknown> = { ...data };
   const optionalFields = [
     "employee_id", "shift_start_time", "blood_pathogen_persons",
-    "violated_regulations", "supervisor_name", "supervisor_signed_at",
+    "violated_regulations", "supervisor_name", "supervisor_employee_id",
+    "supervisor_signed_at",
     "injured_signed_at", "alcohol_test_result", "alcohol_test_value", "drug_test_result",
   ];
   for (const f of optionalFields) {
@@ -445,12 +557,19 @@ function cleanFormData(data: FormData): Record<string, unknown> {
   if (clean.alcohol_test_result !== "positive") clean.alcohol_test_value = null;
   if (!clean.drug_test_performed) clean.drug_test_result = null;
   if (!clean.blood_pathogen_exposure) clean.blood_pathogen_persons = null;
-  // Witness signed_at "" → null
+  // Witness signed_at "" → null, employee_id "" → null
   if (Array.isArray(clean.witnesses)) {
-    clean.witnesses = (clean.witnesses as { name: string; signed_at: string | null }[]).map(w => ({
+    clean.witnesses = (
+      clean.witnesses as { name: string; employee_id?: string | null; signed_at: string | null }[]
+    ).map((w) => ({
       name: w.name,
+      employee_id: w.employee_id || null,
       signed_at: w.signed_at === "" ? null : w.signed_at,
     }));
+  }
+  // Pokud postižený = externí, employee_id musí být null
+  if (clean.injured_external) {
+    clean.employee_id = null;
   }
   return clean;
 }
@@ -460,16 +579,21 @@ function cleanFormData(data: FormData): Record<string, unknown> {
 export default function AccidentReportsPage() {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>("draft");
+  const [signedFilter, setSignedFilter] = useState<"" | "signed" | "unsigned">("");
   const [editReport, setEditReport] = useState<AccidentReport | null>(null);
   const [detailReport, setDetailReport] = useState<AccidentReport | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const { data: reportsRaw = [], isLoading } = useQuery<AccidentReport[]>({
-    queryKey: ["accident-reports", statusFilter],
-    queryFn: () => api.get(
-      `/accident-reports${statusFilter ? `?report_status=${statusFilter}` : ""}`,
-    ),
+    queryKey: ["accident-reports", statusFilter, signedFilter],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("report_status", statusFilter);
+      if (signedFilter) params.set("signed", signedFilter);
+      const qs = params.toString();
+      return api.get(`/accident-reports${qs ? `?${qs}` : ""}`);
+    },
   });
   const {
     sortedItems: reports,
@@ -524,22 +648,46 @@ export default function AccidentReportsPage() {
 
       <div className="p-6 space-y-4">
         {/* Filtry */}
-        <div className="flex items-center gap-2">
-          {(["", "draft", "final", "archived"] as const).map(val => (
-            <button
-              key={val}
-              onClick={() => setStatusFilter(val)}
-              className={cn(
-                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                statusFilter === val
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              )}
-            >
-              {val === "" ? "Všechny" : val === "draft" ? "Rozpracované" : val === "final" ? "Finální" : "Archivované"}
-            </button>
-          ))}
-          <span className="ml-auto text-xs text-gray-400">{reports.length} záznamů</span>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400 mr-1 w-16">Stav:</span>
+            {(["", "draft", "final", "archived"] as const).map((val) => (
+              <button
+                key={val}
+                onClick={() => setStatusFilter(val)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  statusFilter === val
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                )}
+              >
+                {val === "" ? "Všechny" : val === "draft" ? "Rozpracované" : val === "final" ? "Finální" : "Archivované"}
+              </button>
+            ))}
+            <span className="ml-auto text-xs text-gray-400">{reports.length} záznamů</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400 mr-1 w-16">Podpis:</span>
+            {([
+              { val: "", label: "Vše" },
+              { val: "signed", label: "Podepsané" },
+              { val: "unsigned", label: "Nepodepsané" },
+            ] as const).map(({ val, label }) => (
+              <button
+                key={val}
+                onClick={() => setSignedFilter(val)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  signedFilter === val
+                    ? "bg-emerald-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Tabulka */}
@@ -588,9 +736,34 @@ export default function AccidentReportsPage() {
                           <div className="text-xs text-gray-400">{report.injured_body_part}</div>
                         </td>
                         <td className="py-3 px-4">
-                          <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", STATUS_COLORS[report.status])}>
-                            {STATUS_LABELS[report.status]}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", STATUS_COLORS[report.status])}>
+                              {STATUS_LABELS[report.status]}
+                            </span>
+                            {/* Indikátor podpisu */}
+                            {!report.signature_required ? (
+                              <span
+                                className="rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-[10px] font-medium"
+                                title="Některý z účastníků je externí — vyžaduje fyzický podpis"
+                              >
+                                Fyz. podpis
+                              </span>
+                            ) : report.is_fully_signed ? (
+                              <span
+                                className="rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[10px] font-medium"
+                                title="Všechny strany podepsaly digitálně"
+                              >
+                                ✓ Podepsáno
+                              </span>
+                            ) : report.required_signer_employee_ids.length > 0 ? (
+                              <span
+                                className="rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-[10px] font-medium"
+                                title="Čeká se na podpisy"
+                              >
+                                {report.signed_count}/{report.required_signer_employee_ids.length} podpisů
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-end gap-1">
@@ -701,8 +874,14 @@ export default function AccidentReportsPage() {
               drug_test_performed:     editReport.drug_test_performed,
               drug_test_result:        editReport.drug_test_result,
               injured_signed_at:       editReport.injured_signed_at ?? "",
-              witnesses:               editReport.witnesses ?? [],
+              injured_external:        editReport.injured_external ?? false,
+              witnesses:               (editReport.witnesses ?? []).map((w) => ({
+                name: w.name,
+                employee_id: w.employee_id ?? "",
+                signed_at: w.signed_at ?? "",
+              })),
               supervisor_name:         editReport.supervisor_name ?? "",
+              supervisor_employee_id:  editReport.supervisor_employee_id ?? "",
               supervisor_signed_at:    editReport.supervisor_signed_at ?? "",
             }}
             onSubmit={(data) => {
