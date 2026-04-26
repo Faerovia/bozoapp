@@ -23,6 +23,7 @@ import {
   Timer,
   BookOpen,
   Receipt,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, logout } from "@/lib/api";
@@ -161,6 +162,11 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     href: "/admin/settings/invoice-issuer",
     label: "Fakturační údaje firmy",
     icon: Building2,
+  },
+  {
+    href: "/admin/settings/reminders",
+    label: "Email reminders",
+    icon: Bell,
   },
   // Skupina: lékařské prohlídky — každé setting jako samostatný item
   {

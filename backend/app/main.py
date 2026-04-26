@@ -25,6 +25,7 @@ from app.api.v1 import (
     medical_exams,
     oopp,
     ozo_overview,
+    reminders_admin,
     revisions,
     risks,
     tenant,
@@ -210,3 +211,4 @@ app.include_router(document_folders.router, prefix="/api/v1", tags=["document-fo
 app.include_router(global_trainings.router, prefix="/api/v1", tags=["global-trainings"])
 app.include_router(invoices_admin.router, prefix="/api/v1", tags=["invoices-admin"])
 app.include_router(invoices.router, prefix="/api/v1", tags=["invoices"])
+app.include_router(reminders_admin.router, prefix="/api/v1", tags=["reminders-admin"])
