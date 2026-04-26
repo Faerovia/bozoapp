@@ -33,6 +33,10 @@ class TrainingCreateRequest(BaseModel):
     duration_hours: float | None = Field(None, ge=0, le=999)
     requires_qes: bool = False
     knowledge_test_required: bool = False
+    # Approval workflow (migrace 060). Pokud autor není OZO a nastaví True,
+    # školení je vytvořeno se status='pending_approval' a OZO musí schválit
+    # předtím než lze přiřadit zaměstnancům.
+    requires_ozo_approval: bool = False
 
 
 class TrainingUpdateRequest(BaseModel):
@@ -46,6 +50,7 @@ class TrainingUpdateRequest(BaseModel):
     duration_hours: float | None = Field(None, ge=0, le=999)
     requires_qes: bool | None = None
     knowledge_test_required: bool | None = None
+    requires_ozo_approval: bool | None = None
 
 
 class TrainingResponse(BaseModel):
@@ -67,6 +72,13 @@ class TrainingResponse(BaseModel):
     knowledge_test_required: bool = False
     created_by: uuid.UUID
     created_at: datetime
+    # Approval workflow (migrace 060)
+    status: str = "active"  # 'active' | 'pending_approval' | 'archived'
+    requires_ozo_approval: bool = False
+    author_signature_id: uuid.UUID | None = None
+    ozo_approval_signature_id: uuid.UUID | None = None
+    approved_at: datetime | None = None
+    approved_by_user_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

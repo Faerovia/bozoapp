@@ -88,6 +88,13 @@ async def create_training(
             detail=f"Školení '{data.title}' již existuje",
         )
 
+    # Approval workflow (migrace 060):
+    # - Pokud autor je OZO/admin → status='active' rovnou.
+    # - Pokud autor není OZO a vyžaduje schválení → status='pending_approval'.
+    # API endpoint nastaví requires_ozo_approval=False pro OZO uživatele,
+    # takže service jen převezme.
+    initial_status = "pending_approval" if data.requires_ozo_approval else "active"
+
     training = Training(
         tenant_id=tenant_id,
         title=data.title,
@@ -100,6 +107,8 @@ async def create_training(
         requires_qes=data.requires_qes,
         knowledge_test_required=data.knowledge_test_required,
         created_by=created_by,
+        status=initial_status,
+        requires_ozo_approval=data.requires_ozo_approval,
     )
     db.add(training)
     await db.flush()
@@ -111,6 +120,16 @@ async def update_training(
 ) -> Training:
     fields = data.model_dump(exclude_unset=True)
     old_valid_months = training.valid_months
+
+    # Pole, jejichž změna vyžaduje opětovný podpis (= obsahové změny).
+    # Při změně se invaliduje author_signature_id a (pokud je vyžadováno
+    # schválení) i ozo_approval_signature_id → status zpět na pending_approval.
+    content_fields = {
+        "title", "training_type", "trainer_kind", "valid_months",
+        "notes", "outline_text", "duration_hours",
+        "knowledge_test_required",
+    }
+    content_changed = any(k in fields for k in content_fields)
 
     for k, v in fields.items():
         setattr(training, k, v)
@@ -124,6 +143,43 @@ async def update_training(
     ):
         await _recompute_valid_until_for_training(db, training)
 
+    # Pokud se změnil obsah, invaliduj podpisy a (případně) reset approval.
+    if content_changed:
+        training.author_signature_id = None
+        if training.requires_ozo_approval:
+            training.status = "pending_approval"
+            training.ozo_approval_signature_id = None
+            training.approved_at = None
+            training.approved_by_user_id = None
+
+    await db.flush()
+    return training
+
+
+async def approve_training(
+    db: AsyncSession,
+    training: Training,
+    *,
+    approved_by_user_id: uuid.UUID,
+    signature_id: uuid.UUID | None = None,
+) -> Training:
+    """OZO schválí školení. Status pending_approval → active.
+
+    Pokud signature_id není None, musí to být universal signature řádek
+    s doc_type='training_content' a doc_id=training.id (validuje API).
+    """
+    from datetime import UTC, datetime
+
+    if training.status != "pending_approval":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Nelze schválit školení ve stavu '{training.status}'",
+        )
+    training.status = "active"
+    training.approved_at = datetime.now(UTC)
+    training.approved_by_user_id = approved_by_user_id
+    if signature_id is not None:
+        training.ozo_approval_signature_id = signature_id
     await db.flush()
     return training
 

@@ -40,10 +40,12 @@ from app.core.database import Base
 DOC_TYPE_OOPP_ISSUE = "oopp_issue"
 DOC_TYPE_ACCIDENT_REPORT = "accident_report"
 DOC_TYPE_TRAINING_ATTEMPT = "training_attempt"
+DOC_TYPE_TRAINING_CONTENT = "training_content"  # autor + OZO podpis obsahu
 ALL_DOC_TYPES = (
     DOC_TYPE_OOPP_ISSUE,
     DOC_TYPE_ACCIDENT_REPORT,
     DOC_TYPE_TRAINING_ATTEMPT,
+    DOC_TYPE_TRAINING_CONTENT,
 )
 
 AUTH_METHOD_PASSWORD = "password"
@@ -57,7 +59,8 @@ class Signature(Base):
     __tablename__ = "signatures"
     __table_args__ = (
         CheckConstraint(
-            "doc_type IN ('oopp_issue', 'accident_report', 'training_attempt')",
+            "doc_type IN ('oopp_issue', 'accident_report', "
+            "'training_attempt', 'training_content')",
             name="ck_sig_doc_type",
         ),
         CheckConstraint(
@@ -134,7 +137,8 @@ class SmsOtpCode(Base):
     __tablename__ = "sms_otp_codes"
     __table_args__ = (
         CheckConstraint(
-            "doc_type IN ('oopp_issue', 'accident_report', 'training_attempt')",
+            "doc_type IN ('oopp_issue', 'accident_report', "
+            "'training_attempt', 'training_content')",
             name="ck_sms_otp_doc_type",
         ),
         Index(

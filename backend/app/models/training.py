@@ -74,6 +74,31 @@ class Training(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
 
+    # Approval workflow (migrace 060). Pokud autor není OZO a zaškrtne
+    # "Nechat schválit OZO", status='pending_approval' a školení nelze
+    # přiřazovat zaměstnancům dokud OZO neschválí.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active",
+    )
+    requires_ozo_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+    )
+    # Podpis autora (kdo školení vytvořil/upravil) — universal signature
+    # s doc_type='training_content', doc_id=training.id.
+    author_signature_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("signatures.id", ondelete="SET NULL"),
+    )
+    # Podpis OZO při schválení (pokud requires_ozo_approval=True).
+    ozo_approval_signature_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("signatures.id", ondelete="SET NULL"),
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+
     @property
     def has_test(self) -> bool:
         return self.test_questions is not None and len(self.test_questions) > 0
