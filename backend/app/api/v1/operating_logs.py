@@ -2,11 +2,13 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.models.user import User
 from app.models.workplace import Plant
@@ -18,6 +20,7 @@ from app.schemas.operating_logs import (
     EntryResponse,
 )
 from app.services import operating_logs as svc
+from app.services.revisions import generate_qr_png
 
 router = APIRouter()
 
@@ -137,7 +140,9 @@ async def list_entries_endpoint(
 async def create_entry_endpoint(
     device_id: uuid.UUID,
     data: EntryCreateRequest,
-    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
+    current_user: User = Depends(require_role(
+        "ozo", "hr_manager", "employee", "equipment_responsible",
+    )),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     device = await svc.get_device(db, device_id, current_user.tenant_id)
@@ -147,8 +152,54 @@ async def create_entry_endpoint(
         return await svc.create_entry(
             db, data, device=device,
             tenant_id=current_user.tenant_id, created_by=current_user.id,
+            current_user=current_user,
         )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
         ) from e
+
+
+# ── QR kód + scan endpoint ──────────────────────────────────────────────────
+
+
+@router.get("/operating-logs/devices/{device_id}/qr.png")
+async def get_device_qr_png(
+    device_id: uuid.UUID,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """PNG s QR kódem odkazujícím na /devices/{qr_token}/operating-log."""
+    device = await svc.get_device(db, device_id, current_user.tenant_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Zařízení nenalezeno")
+    settings = get_settings()
+    base = getattr(settings, "app_public_url", "").rstrip("/") or ""
+    target_url = f"{base}/devices/{device.qr_token}/operating-log"
+    png_bytes = generate_qr_png(target_url)
+    filename = f"qr_oplog_{device.device_code or str(device.id)[:8]}.png"
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Content-Disposition": content_disposition(filename, inline=True)},
+    )
+
+
+@router.get(
+    "/operating-logs/qr/{qr_token}",
+    response_model=DeviceResponse,
+)
+async def get_device_by_qr(
+    qr_token: str,
+    current_user: User = Depends(require_role(
+        "ozo", "hr_manager", "employee", "equipment_responsible",
+    )),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Vrátí zařízení podle qr_token — pro scan flow z mobilu."""
+    device = await svc.get_device_by_qr_token(
+        db, qr_token, current_user.tenant_id,
+    )
+    if device is None:
+        raise HTTPException(status_code=404, detail="Zařízení nenalezeno")
+    return _to_device_response(device)

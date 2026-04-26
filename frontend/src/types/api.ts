@@ -535,6 +535,7 @@ export interface OperatingLogDevice {
   check_items: string[];
   period: OperatingPeriod;
   period_note: string | null;
+  qr_token: string;
   notes: string | null;
   status: "active" | "archived";
   created_by: string;

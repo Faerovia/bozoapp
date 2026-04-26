@@ -1,4 +1,5 @@
 """Modul Provozní deníky — strojní zařízení s denními/týdenními zápisy."""
+import secrets
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
@@ -9,6 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+
+
+def _gen_qr_token() -> str:
+    return secrets.token_urlsafe(48)[:64]
 
 # Kategorie strojního zařízení s doporučenou periodicitou (NV 378/2001 Sb. atd.)
 DEVICE_CATEGORIES = (
@@ -61,6 +66,11 @@ class OperatingLogDevice(Base, TimestampMixin):
     )
     period: Mapped[str] = mapped_column(String(20), default="daily", nullable=False)
     period_note: Mapped[str | None] = mapped_column(String(255))
+
+    # QR token — odkazuje na /devices/{qr_token}/operating-log (zápis na místě)
+    qr_token: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, default=_gen_qr_token,
+    )
 
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)

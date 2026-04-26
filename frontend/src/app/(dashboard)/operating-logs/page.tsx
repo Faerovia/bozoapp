@@ -8,12 +8,12 @@
  *  - Pravý panel: detail zařízení + tabulka záznamů + tlačítko nový zápis
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useFieldArray } from "react-hook-form";
 import {
   Plus, Pencil, Trash2, BookOpenCheck, ClipboardList, Info,
-  CheckCircle2, XCircle, ArrowUp, ArrowDown,
+  CheckCircle2, XCircle, ArrowUp, ArrowDown, QrCode,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -223,6 +223,13 @@ function DeviceForm({
 
 // ── Form: nový zápis (denní kontrola) ──────────────────────────────────────
 
+interface AuthMeResponse {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+}
+
 function EntryForm({
   device, onSubmit, isSubmitting, serverError,
 }: {
@@ -246,6 +253,20 @@ function EntryForm({
   const [overall, setOverall] = useState(true);
   const [notes, setNotes] = useState("");
 
+  // Auto-fill performed_by_name z přihlášeného uživatele (full_name OR email)
+  const { data: me } = useQuery<AuthMeResponse>({
+    queryKey: ["auth", "me"],
+    queryFn: () => api.get("/auth/me"),
+    staleTime: 10 * 60 * 1000,
+  });
+  useEffect(() => {
+    if (me && performedByName === "") {
+      const auto = me.full_name?.trim() || me.email;
+      if (auto) setPerformedByName(auto);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+
   function setItem(i: number, v: boolean) {
     setCapable((arr) => arr.map((x, idx) => (idx === i ? v : x)));
     if (!v) setOverall(false);
@@ -265,6 +286,9 @@ function EntryForm({
       }}
       className="space-y-4"
     >
+      <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-900">
+        ℹ Datum a jméno kontrolora se automaticky vyplnily — můžete je změnit, pokud zapisujete zpětně za jinou osobu.
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="performed_at">Datum kontroly *</Label>
@@ -696,6 +720,18 @@ export default function OperatingLogsPage() {
           {selected ? (
             <div className="space-y-3">
               <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    window.open(
+                      `/api/v1/operating-logs/devices/${selected.id}/qr.png`,
+                      "_blank",
+                    )
+                  }
+                >
+                  <QrCode className="h-3.5 w-3.5 mr-1" /> QR kód
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

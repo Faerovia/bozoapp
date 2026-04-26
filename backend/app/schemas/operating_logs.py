@@ -52,6 +52,7 @@ class DeviceResponse(BaseModel):
     check_items: list[str]
     period: str
     period_note: str | None
+    qr_token: str
     notes: str | None
     status: str
     created_by: uuid.UUID
