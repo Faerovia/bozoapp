@@ -271,7 +271,7 @@ export type AssignmentStatus = "pending" | "completed" | "expired" | "revoked";
 
 export interface Training {
   id: string;
-  tenant_id: string;
+  tenant_id: string | null;
   title: string;
   training_type: TrainingType;
   trainer_kind: TrainerKind;
@@ -281,6 +281,10 @@ export interface Training {
   question_count: number;
   pass_percentage: number | null;
   notes: string | null;
+  outline_text: string | null;
+  duration_hours: number | null;
+  requires_qes: boolean;
+  knowledge_test_required: boolean;
   created_by: string;
   created_at: string;
 }
@@ -291,6 +295,7 @@ export interface TrainingAssignment {
   training_id: string;
   training_title: string | null;
   training_type: string | null;
+  training_requires_qes?: boolean;
   employee_id: string;
   employee_name: string | null;
   assigned_at: string;
@@ -299,6 +304,8 @@ export interface TrainingAssignment {
   valid_until: string | null;
   validity_status: string;
   status: AssignmentStatus;
+  signed_at?: string | null;
+  signature_method?: "simple" | "qes" | null;
 }
 
 export interface TestQuestionForAttempt {

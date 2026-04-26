@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
+import { TrainingSignContent } from "@/components/training-sign-dialog";
 import { cn } from "@/lib/utils";
 
 // ── Konstanty ────────────────────────────────────────────────────────────────
@@ -120,6 +121,10 @@ const trainingSchema = z.object({
   trainer_kind: z.enum(["ozo_bozp", "ozo_po", "employer"]),
   valid_months: z.coerce.number().int().positive().max(600),
   notes: z.string().optional(),
+  outline_text: z.string().optional(),
+  duration_hours: z.coerce.number().min(0).max(999).optional().or(z.literal("")),
+  requires_qes: z.boolean().optional(),
+  knowledge_test_required: z.boolean().optional(),
 });
 
 type TrainingFormData = z.infer<typeof trainingSchema>;
@@ -245,6 +250,28 @@ function AdminView() {
                             title="Přidělit zaměstnance"
                           >
                             <Users className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const resp = await fetch(
+                                `/api/v1/trainings/${t.id}/attendance-list.pdf`,
+                              );
+                              if (!resp.ok) {
+                                alert("Stažení prezenční listiny selhalo");
+                                return;
+                              }
+                              const blob = await resp.blob();
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `prezencni-listina-${t.title.replace(/\W/g, "_")}.pdf`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            }}
+                            className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                            title="Stáhnout prezenční listinu"
+                          >
+                            <Download className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => {
@@ -391,8 +418,63 @@ function TrainingForm({
         )}
       </div>
 
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="duration_hours">Délka školení (hodin)</Label>
+          <Input
+            id="duration_hours"
+            type="number"
+            step="0.5"
+            min="0"
+            max="999"
+            {...register("duration_hours")}
+            placeholder="např. 2"
+          />
+          <p className="text-xs text-gray-400">
+            Zobrazí se na prezenční listině.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-2 cursor-pointer pt-7">
+            <input
+              type="checkbox"
+              {...register("knowledge_test_required")}
+              className="rounded border-gray-300"
+            />
+            <span className="text-sm">Znalosti ověřeny testem</span>
+          </Label>
+        </div>
+      </div>
+
       <div className="space-y-1.5">
-        <Label htmlFor="notes">Poznámky</Label>
+        <Label htmlFor="outline_text">Osnova / náplň školení</Label>
+        <textarea
+          id="outline_text"
+          {...register("outline_text")}
+          rows={4}
+          placeholder="Přehled bodů probíraných ve školení (zobrazí se v hlavičce prezenční listiny)"
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        />
+      </div>
+
+      <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+        <Label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            {...register("requires_qes")}
+            className="rounded border-gray-300"
+          />
+          <span className="text-sm font-medium text-amber-900">
+            Vyžadovat ZES (kvalifikovaný el. podpis)
+          </span>
+        </Label>
+        <p className="text-xs text-amber-700 mt-1 ml-6">
+          Před podpisem zaměstnanec dostane 6místný kód emailem nebo SMS. Doporučeno pro vysoce rizikové provozy.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="notes">Interní poznámky</Label>
         <textarea
           id="notes"
           {...register("notes")}
@@ -998,7 +1080,7 @@ function EmployeeView() {
 
 // ── Run flow: info → PDF → test → výsledek ──────────────────────────────────
 
-type RunStep = "info" | "pdf" | "test" | "result";
+type RunStep = "info" | "pdf" | "test" | "sign" | "result";
 
 function TrainingRunFlow({
   assignment,
@@ -1016,7 +1098,8 @@ function TrainingRunFlow({
       api.post<TrainingAssignment>(`/trainings/assignments/${assignment.id}/mark-read`),
     onSuccess: () => {
       invalidate();
-      setStep("result");
+      // Po mark-read přechod na podpis (povinný pro platnost školení)
+      setStep("sign");
     },
     onError: (err) => {
       // Training má test → přepneme do testu
@@ -1122,9 +1205,24 @@ function TrainingRunFlow({
         assignmentId={assignment.id}
         onDone={() => {
           invalidate();
-          setStep("result");
+          // Po úspěšném testu povinný podpis
+          setStep("sign");
         }}
         onCancel={() => setStep("info")}
+      />
+    );
+  }
+
+  if (step === "sign") {
+    return (
+      <TrainingSignContent
+        assignmentId={assignment.id}
+        requiresQes={!!assignment.training_requires_qes}
+        onCancel={() => setStep("info")}
+        onSigned={() => {
+          invalidate();
+          setStep("result");
+        }}
       />
     );
   }

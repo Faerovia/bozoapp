@@ -91,6 +91,7 @@ class AssignmentResponse(BaseModel):
     training_id: uuid.UUID
     training_title: str | None = None  # join helper, naplněno v service
     training_type: str | None = None
+    training_requires_qes: bool = False  # join helper — pro signing flow
     employee_id: uuid.UUID
     employee_name: str | None = None   # join helper
     assigned_at: datetime
@@ -99,6 +100,8 @@ class AssignmentResponse(BaseModel):
     valid_until: date | None
     validity_status: str
     status: str
+    signed_at: datetime | None = None
+    signature_method: str | None = None
 
     model_config = {"from_attributes": True}
 

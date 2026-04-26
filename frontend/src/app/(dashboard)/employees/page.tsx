@@ -981,6 +981,28 @@ export default function EmployeesPage() {
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-end gap-1">
                             <button
+                              onClick={async () => {
+                                const resp = await fetch(
+                                  `/api/v1/employees/${emp.id}/trainings.pdf`,
+                                );
+                                if (!resp.ok) {
+                                  alert("Stažení souhrnu školení selhalo");
+                                  return;
+                                }
+                                const blob = await resp.blob();
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `skoleni-${emp.last_name}-${emp.first_name}.pdf`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              }}
+                              className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                              title="Souhrn školení (PDF)"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                            </button>
+                            <button
                               onClick={() => { setServerError(null); setEditEmployee(emp); }}
                               className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
                               title="Upravit"

@@ -320,6 +320,17 @@ async def download_certificate(
     a, training, emp = await _load_assignment_for_employee(db, assignment_id, current_user)
     if a.last_completed_at is None:
         raise HTTPException(status_code=422, detail="Školení dosud nebylo splněno")
+    # Bez podpisu školení neplatí — certifikát se nevystavuje (defense in depth;
+    # frontend by měl uživatele přesměrovat na sign step, ale serverová kontrola
+    # zaručí že nikdo certifikát nezíská obejitím UI).
+    if not a.is_signed:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Školení dosud nebylo podepsáno. Bez digitálního podpisu "
+                "není absolvování platné."
+            ),
+        )
 
     tenant = (await db.execute(
         select(Tenant).where(Tenant.id == current_user.tenant_id)

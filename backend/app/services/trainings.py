@@ -533,6 +533,7 @@ async def enrich_assignment(
     if t:
         r.training_title = t.title
         r.training_type = t.training_type
+        r.training_requires_qes = t.requires_qes
     if e:
         r.employee_name = f"{e.first_name} {e.last_name}".strip()
     return r
