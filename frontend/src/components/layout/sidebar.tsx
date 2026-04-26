@@ -26,6 +26,7 @@ import {
   ClipboardCheck,
   Receipt,
   Bell,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, logout } from "@/lib/api";
@@ -141,6 +142,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/billing",
     label: "Fakturace",
     icon: Receipt,
+    roles: MANAGERS,
+  },
+  {
+    href: "/audit",
+    label: "Audit log",
+    icon: Activity,
     roles: MANAGERS,
   },
 ];

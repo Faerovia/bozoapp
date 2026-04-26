@@ -22,6 +22,38 @@
     @apply bg-gray-50 text-gray-900 antialiased;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
+
+  /* Dark mode — tonálně tlumený slate stack pro komfortní noční práci */
+  .dark body {
+    @apply bg-gray-950 text-gray-100;
+  }
+  /* Heuristika pro stránky které ještě nemají kompletní dark: třídy —
+   * většina .bg-white se v darku přebarví na slate-900. Konkrétní komponenty
+   * (Card, Dialog) si pak řeší přesné odstíny s vlastními dark: třídami. */
+  .dark .bg-white {
+    background-color: rgb(17 24 39);  /* gray-900 */
+  }
+  .dark .bg-gray-50 {
+    background-color: rgb(15 23 42);  /* slate-900 trochu tmavší */
+  }
+  .dark .bg-gray-100 {
+    background-color: rgb(31 41 55);  /* gray-800 */
+  }
+  .dark .text-gray-900 {
+    color: rgb(243 244 246);  /* gray-100 */
+  }
+  .dark .text-gray-700,
+  .dark .text-gray-600 {
+    color: rgb(209 213 219);  /* gray-300 */
+  }
+  .dark .text-gray-500,
+  .dark .text-gray-400 {
+    color: rgb(156 163 175);  /* gray-400 */
+  }
+  .dark .border-gray-200,
+  .dark .border-gray-100 {
+    border-color: rgb(55 65 81);  /* gray-700 */
+  }
 }
 
 /* ── Globální tooltip ─────────────────────────────────────────────────────────

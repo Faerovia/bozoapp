@@ -295,6 +295,52 @@ async def create_issue_endpoint(
     return await issue_to_response_dict(db, issue)
 
 
+@router.post(
+    "/oopp/issues/bulk",
+    status_code=status.HTTP_201_CREATED,
+)
+async def bulk_create_issues_endpoint(
+    data: dict[str, Any],
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Hromadný výdej OOPP — pro každého employee_id zkopíruje stejný
+    výdej (item_id, issued_at, valid_until, size, serial_number, notes).
+
+    Request: {
+        "employee_ids": ["...", "..."],
+        "item_id": "...",
+        "issued_at": "2026-04-15",
+        "valid_until": null,
+        "size": null,
+        "notes": null
+    }
+    Response: {created_count, errors}
+    """
+    employee_ids = data.get("employee_ids") or []
+    if not isinstance(employee_ids, list) or not employee_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="employee_ids je povinný neprázdný seznam",
+        )
+
+    created = 0
+    errors: list[dict[str, Any]] = []
+    for emp_id in employee_ids:
+        try:
+            payload = {
+                **{k: v for k, v in data.items() if k != "employee_ids"},
+                "employee_id": emp_id,
+            }
+            issue_req = IssueCreateRequest(**payload)
+            await create_issue(db, issue_req, current_user.tenant_id, current_user.id)
+            created += 1
+        except (ValueError, Exception) as e:  # noqa: BLE001
+            errors.append({"employee_id": str(emp_id), "error": str(e)})
+
+    return {"created_count": created, "errors": errors}
+
+
 @router.patch("/oopp/issues/{issue_id}", response_model=IssueResponse)
 async def update_issue_endpoint(
     issue_id: uuid.UUID,

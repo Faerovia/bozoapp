@@ -12,6 +12,7 @@ from starlette.responses import Response
 from app.api.v1 import (
     accident_reports,
     admin,
+    audit,
     auth,
     dashboard,
     document_folders,
@@ -222,3 +223,4 @@ app.include_router(training_pdf.router, prefix="/api/v1", tags=["training-pdf"])
 app.include_router(onboarding.router, prefix="/api/v1", tags=["onboarding"])
 app.include_router(periodic_checks.router, prefix="/api/v1", tags=["periodic-checks"])
 app.include_router(operating_logs.router, prefix="/api/v1", tags=["operating-logs"])
+app.include_router(audit.router, prefix="/api/v1", tags=["audit"])

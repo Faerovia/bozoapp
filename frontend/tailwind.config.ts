@@ -6,6 +6,8 @@ const config: Config = {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  // Manuální dark mode přes class="dark" na <html>
+  darkMode: "class",
   theme: {
     extend: {
       colors: {

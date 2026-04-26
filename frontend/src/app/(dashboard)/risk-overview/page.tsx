@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
-  Plant, Workplace, JobPosition, RiskFactorAssessment, RiskRating, RiskFactor,
+  Plant, Workplace, JobPosition, RiskRating, RiskFactor,
 } from "@/types/api";
 import { RF_LABELS, RF_ORDER, RISK_RATINGS } from "@/types/api";
 import { Header } from "@/components/layout/header";
@@ -62,60 +62,48 @@ function maxRating(ratings: (string | null | undefined)[]): RiskRating | null {
   return highest;
 }
 
-// ── RFA matrix per pozice ────────────────────────────────────────────────────
+// Pozn.: Per-position RFA matrix byla nahrazena WorkplaceRfaMatrix —
+// hodnocení se nyní dělá per-pracoviště, pozice dědí MAX kategorii.
 
-function PositionRfaMatrix({
-  position,
-  onRatingChange,
+// ── Workplace RFA matrix (per-workplace level) ───────────────────────────────
+
+function WorkplaceRfaMatrix({
+  workplaceId,
+  onCategoryChange,
 }: {
-  position: JobPosition;
-  onRatingChange: (rfa: RiskFactorAssessment | null) => void;
+  workplaceId: string;
+  onCategoryChange: (cat: RiskRating | null) => void;
 }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
-  const { data: rfa, isLoading } = useQuery<RiskFactorAssessment | null>({
-    queryKey: ["rfa", position.id],
-    queryFn: async () => {
-      try {
-        return await api.get<RiskFactorAssessment>(
-          `/job-positions/${position.id}/risk-assessment`,
-        );
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
-        throw err;
-      }
-    },
+  const { data, isLoading } = useQuery<{
+    workplace_id: string;
+    factors: Record<RiskFactor, RiskRating | null>;
+  }>({
+    queryKey: ["workplace-rfa", workplaceId],
+    queryFn: () => api.get(`/workplaces/${workplaceId}/risk-assessment`),
   });
 
   const setRatingMutation = useMutation({
-    mutationFn: async ({ factor, rating }: { factor: RiskFactor; rating: RiskRating | null }) => {
-      if (rfa) {
-        return await api.patch<RiskFactorAssessment>(`/risk-factors/${rfa.id}`, {
-          [factor]: rating,
-        });
-      }
-      // Vytvořit nové RFA s tímto faktorem
-      return await api.post<RiskFactorAssessment>("/risk-factors", {
-        job_position_id: position.id,
-        profese:         position.name,
-        worker_count:    0,
-        women_count:     0,
-        [factor]:        rating,
-      });
-    },
-    onSuccess: (data) => {
-      qc.setQueryData(["rfa", position.id], data);
-      qc.invalidateQueries({ queryKey: ["rfa-summary"] });
-      onRatingChange(data);
+    mutationFn: ({ factor, rating }: { factor: RiskFactor; rating: RiskRating | null }) =>
+      api.put<{
+        workplace_id: string;
+        factors: Record<RiskFactor, RiskRating | null>;
+      }>(`/workplaces/${workplaceId}/risk-assessment`, { factor, rating }),
+    onSuccess: (res) => {
+      qc.setQueryData(["workplace-rfa", workplaceId], res);
+      qc.invalidateQueries({ queryKey: ["rfa"] });
+      qc.invalidateQueries({ queryKey: ["risk-overview-positions"] });
+      const allRatings = RF_ORDER.map(f => res.factors[f]);
+      onCategoryChange(maxRating(allRatings));
       setError(null);
     },
     onError: (err) => setError(err instanceof ApiError ? err.detail : "Chyba serveru"),
   });
 
   function handleClick(factor: RiskFactor, rating: RiskRating) {
-    const current = rfa?.[factor] ?? null;
-    // Toggle — pokud už je toto rating vybráno, smazat (=null)
+    const current = data?.factors?.[factor] ?? null;
     const newValue = current === rating ? null : rating;
     setRatingMutation.mutate({ factor, rating: newValue });
   }
@@ -157,7 +145,7 @@ function PositionRfaMatrix({
           </thead>
           <tbody>
             {RF_ORDER.map((factor, idx) => {
-              const current = rfa?.[factor] ?? null;
+              const current = data?.factors?.[factor] ?? null;
               return (
                 <tr key={factor} className={cn(idx % 2 === 0 ? "bg-white" : "bg-gray-50/50")}>
                   <td className="py-1.5 px-2 text-gray-700 sticky left-0 bg-inherit">
@@ -212,106 +200,48 @@ function PositionRfaMatrix({
         </table>
       </div>
       <p className="text-[10px] text-gray-400 italic">
-        Tip: opětovným kliknutím na již vybranou kategorii ji zrušíte.
-        Sloupec &bdquo;N/A&ldquo; označuje, že faktor se na pozici nevyskytuje.
+        Hodnocení se aplikuje na pracoviště — všechny pozice na něm dědí MAX kategorii.
+        Opětovným kliknutím rating zrušíte.
       </p>
     </div>
   );
 }
 
-// ── Position card ────────────────────────────────────────────────────────────
-
-function PositionCard({
-  position,
-  onCategoryChange,
-}: {
-  position: JobPosition;
-  onCategoryChange: (positionId: string, category: RiskRating | null) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  // Lokální cache pro derived category — aktualizujeme když přijde RFA mutation
-  const [localCategory, setLocalCategory] = useState<RiskRating | null>(
-    (position.effective_category as RiskRating | null) ?? null,
-  );
-
-  function handleRfaChange(rfa: RiskFactorAssessment | null) {
-    if (rfa) {
-      const allFactors = RF_ORDER.map(f => rfa[f]);
-      const max = maxRating(allFactors);
-      setLocalCategory(max);
-      onCategoryChange(position.id, max);
-    }
-  }
-
-  const cat = localCategory;
-
-  return (
-    <div className="rounded-md border border-gray-200 bg-white">
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left"
-      >
-        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
-        <span className="text-sm font-medium text-gray-900 flex-1 truncate">{position.name}</span>
-        {cat ? (
-          <Tooltip label={CATEGORY_DESCRIPTIONS[cat]}>
-            <span className={cn(
-              "shrink-0 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-bold border",
-              CATEGORY_COLORS[cat],
-            )}>
-              kat. {cat}
-            </span>
-          </Tooltip>
-        ) : (
-          <Tooltip label="Žádný rizikový faktor není ohodnocen">
-            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-500 px-2 py-0.5 text-[11px] font-medium border border-gray-300">
-              <AlertTriangle className="h-2.5 w-2.5" /> bez kat.
-            </span>
-          </Tooltip>
-        )}
-      </button>
-      {expanded && (
-        <div className="border-t border-gray-100 p-3">
-          <PositionRfaMatrix position={position} onRatingChange={handleRfaChange} />
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Workplace card ───────────────────────────────────────────────────────────
 
 function WorkplaceCard({
   workplace,
   positions,
-  positionCategories,
+  workplaceCategory,
   onCategoryChange,
 }: {
   workplace: Workplace;
   positions: JobPosition[];
-  positionCategories: Record<string, RiskRating | null>;
-  onCategoryChange: (positionId: string, category: RiskRating | null) => void;
+  workplaceCategory: RiskRating | null;
+  onCategoryChange: (workplaceId: string, category: RiskRating | null) => void;
 }) {
-  const allCats = positions.map(p =>
-    positionCategories[p.id] ?? (p.effective_category as RiskRating | null) ?? null,
-  );
-  const maxCat = maxRating(allCats);
+  const [expanded, setExpanded] = useState(false);
+  const maxCat = workplaceCategory;
 
   return (
-    <div className="rounded-md border border-gray-200 bg-white p-3 space-y-2">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-md border border-gray-200 bg-white">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-start justify-between gap-3 p-3 hover:bg-gray-50 text-left"
+      >
         <div className="flex items-center gap-2 min-w-0">
+          {expanded ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
           <Briefcase className="h-4 w-4 text-blue-600 shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-medium text-gray-900 truncate">{workplace.name}</p>
-            {workplace.notes && (
-              <p className="text-xs text-gray-500 truncate">{workplace.notes}</p>
-            )}
+            <p className="text-xs text-gray-500">
+              {positions.length} {positions.length === 1 ? "pozice" : "pozic"} dědí kategorii
+            </p>
           </div>
         </div>
         {maxCat ? (
-          <Tooltip label={`Maximum napříč pozicemi: ${CATEGORY_DESCRIPTIONS[maxCat]}`}>
+          <Tooltip label={CATEGORY_DESCRIPTIONS[maxCat]}>
             <span className={cn(
               "shrink-0 inline-flex items-center justify-center rounded-full px-2.5 py-1 text-xs font-bold border",
               CATEGORY_COLORS[maxCat],
@@ -320,27 +250,37 @@ function WorkplaceCard({
             </span>
           </Tooltip>
         ) : (
-          <Tooltip label="Žádná pozice nemá ohodnocené rizikové faktory">
+          <Tooltip label="Pracoviště zatím není ohodnocené">
             <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-500 px-2.5 py-1 text-xs font-medium border border-gray-300">
               <AlertTriangle className="h-3 w-3" /> bez kat.
             </span>
           </Tooltip>
         )}
-      </div>
+      </button>
 
-      {positions.length === 0 ? (
-        <p className="text-xs text-gray-400 italic pl-6">
-          Žádné pozice. Přidejte je v modulu Provozovny.
-        </p>
-      ) : (
-        <div className="space-y-1.5">
-          {positions.map(p => (
-            <PositionCard
-              key={p.id}
-              position={p}
-              onCategoryChange={onCategoryChange}
-            />
-          ))}
+      {expanded && (
+        <div className="border-t border-gray-100 p-3 space-y-3">
+          <WorkplaceRfaMatrix
+            workplaceId={workplace.id}
+            onCategoryChange={(cat) => onCategoryChange(workplace.id, cat)}
+          />
+          {positions.length > 0 && (
+            <div className="rounded-md bg-blue-50 border border-blue-200 p-2.5">
+              <p className="text-[11px] font-medium text-blue-800 mb-1.5">
+                Pozice na pracovišti ({positions.length}) — všechny dědí kategorii <strong>{maxCat ?? "—"}</strong>:
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {positions.map(p => (
+                  <span
+                    key={p.id}
+                    className="inline-flex items-center gap-1 rounded bg-white border border-blue-200 px-2 py-0.5 text-[11px] text-gray-700"
+                  >
+                    {p.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -352,8 +292,9 @@ function WorkplaceCard({
 export default function RiskOverviewPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  // Lokální cache pro úpravy kategorií (pro live agregaci bez refetch)
-  const [positionCategories, setPositionCategories] = useState<Record<string, RiskRating | null>>({});
+  // Lokální cache pro úpravy kategorií (pro live agregaci bez refetch).
+  // Klíč = workplace_id, hodnota = MAX kategorie po úpravě v tomto sezení.
+  const [workplaceCategories, setWorkplaceCategories] = useState<Record<string, RiskRating | null>>({});
 
   const { data: plants = [], isLoading: plantsLoading } = useQuery<Plant[]>({
     queryKey: ["plants"],
@@ -386,19 +327,21 @@ export default function RiskOverviewPage() {
     return positions.filter(p => p.workplace_id === workplaceId);
   }
 
-  function handleCategoryChange(positionId: string, category: RiskRating | null) {
-    setPositionCategories(prev => ({ ...prev, [positionId]: category }));
+  function handleWorkplaceCategoryChange(workplaceId: string, category: RiskRating | null) {
+    setWorkplaceCategories(prev => ({ ...prev, [workplaceId]: category }));
   }
 
-  function getEffectiveCategory(p: JobPosition): RiskRating | null {
-    return positionCategories[p.id] ?? (p.effective_category as RiskRating | null) ?? null;
+  function getWorkplaceCategory(w: Workplace): RiskRating | null {
+    // Live cache po editu má přednost; jinak agregát z pozic přes effective_category
+    if (w.id in workplaceCategories) return workplaceCategories[w.id];
+    const cats = positionsFor(w.id).map(p => (p.effective_category as RiskRating | null) ?? null);
+    return maxRating(cats);
   }
 
   // Souhrn
   const summaryCounts = workplaces.reduce(
     (acc, w) => {
-      const cats = positionsFor(w.id).map(getEffectiveCategory);
-      const cat = maxRating(cats);
+      const cat = getWorkplaceCategory(w);
       acc.total++;
       if (cat === "3" || cat === "4") acc.high++;
       else if (cat === null) acc.unset++;
@@ -476,9 +419,7 @@ export default function RiskOverviewPage() {
               const wps = workplacesFor(plant.id);
               const isOpen = expanded[plant.id] ?? true;
               // Plant-level agregace = max všech pracovišť
-              const plantCats = wps.flatMap(w =>
-                positionsFor(w.id).map(getEffectiveCategory),
-              );
+              const plantCats = wps.map(getWorkplaceCategory);
               const plantMax = maxRating(plantCats);
 
               return (
@@ -524,8 +465,8 @@ export default function RiskOverviewPage() {
                                 key={w.id}
                                 workplace={w}
                                 positions={positionsFor(w.id)}
-                                positionCategories={positionCategories}
-                                onCategoryChange={handleCategoryChange}
+                                workplaceCategory={getWorkplaceCategory(w)}
+                                onCategoryChange={handleWorkplaceCategoryChange}
                               />
                             ))}
                           </div>

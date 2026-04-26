@@ -149,7 +149,6 @@ export function SearchableSelect({
         className={TRIGGER_CLS(open, disabled)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-required={required}
       >
         <span className={cn("truncate text-left", !selected && "text-gray-400")}>
           {selected?.label || placeholder}

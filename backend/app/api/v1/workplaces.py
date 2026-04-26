@@ -3,6 +3,7 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,7 @@ from app.schemas.workplaces import (
 )
 from app.services.export_pdf import generate_risk_factor_list_pdf
 from app.services.workplaces import (
+    bulk_update_workplace_rfa,
     clear_rfa_factor_pdf,
     create_plant,
     create_rfa,
@@ -41,6 +43,7 @@ from app.services.workplaces import (
     get_rfa_by_job_position,
     get_rfa_grouped_for_export,
     get_risk_factor_assessments,
+    get_workplace_aggregated_rfa,
     get_workplace_by_id,
     get_workplaces,
     set_rfa_factor_pdf,
@@ -290,6 +293,54 @@ async def get_rfa_by_position_endpoint(
             detail="Hodnocení rizik pro tuto pozici neexistuje",
         )
     return rfa
+
+
+# ── Workplace-level RFA (agregát) ──────────────────────────────────────────
+
+
+@router.get("/workplaces/{workplace_id}/risk-assessment")
+async def get_workplace_rfa_endpoint(
+    workplace_id: uuid.UUID,
+    current_user: User = Depends(require_role("ozo", "hr_manager", "employee")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Agregované RFA pro pracoviště — MAX hodnocení per faktor napříč
+    pozicemi. Slouží pro UI na úrovni pracoviště (zjednodušené hodnocení).
+    """
+    wp = await get_workplace_by_id(db, workplace_id, current_user.tenant_id)
+    if wp is None:
+        raise HTTPException(status_code=404, detail="Pracoviště nenalezeno")
+    factors = await get_workplace_aggregated_rfa(
+        db, workplace_id, current_user.tenant_id,
+    )
+    return {"workplace_id": str(workplace_id), "factors": factors}
+
+
+class WorkplaceRfaUpdateRequest(BaseModel):
+    factor: str
+    rating: str | None = None
+
+
+@router.put("/workplaces/{workplace_id}/risk-assessment")
+async def update_workplace_rfa_endpoint(
+    workplace_id: uuid.UUID,
+    data: "WorkplaceRfaUpdateRequest",
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Bulk-update jednoho rizikového faktoru na všech RFAs daného pracoviště.
+    Pokud pozice nemá RFA, vytvoří se. Vrací aktuální agregát.
+    """
+    try:
+        factors = await bulk_update_workplace_rfa(
+            db, workplace_id, current_user.tenant_id,
+            data.factor, data.rating, current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
+        ) from e
+    return {"workplace_id": str(workplace_id), "factors": factors}
 
 
 # ── PDF per faktor (upload / download / delete) ──────────────────────────────

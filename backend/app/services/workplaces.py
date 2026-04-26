@@ -267,6 +267,99 @@ async def clear_rfa_factor_pdf(
 
 # ── Export helper ─────────────────────────────────────────────────────────────
 
+async def get_workplace_aggregated_rfa(
+    db: AsyncSession,
+    workplace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+) -> dict[str, str | None]:
+    """Vrátí agregované RFA pro pracoviště — MAX kategorie per faktor napříč
+    pozicemi pracoviště. Slouží jako "workplace-level" RFA view.
+
+    Vrací dict {factor_key: rating} (pouze MAX hodnoty; 2R = 2.5 numericky).
+    """
+    from app.models.job_position import JobPosition
+    from app.models.risk_factor_assessment import RF_FIELDS, _rating_numeric
+
+    # Najdi všechny RFAs napříč pozicemi tohoto workplace
+    res = await db.execute(
+        select(RiskFactorAssessment)
+        .join(JobPosition, RiskFactorAssessment.job_position_id == JobPosition.id)
+        .where(
+            JobPosition.workplace_id == workplace_id,
+            RiskFactorAssessment.tenant_id == tenant_id,
+            RiskFactorAssessment.status == "active",
+        )
+    )
+    rfas = list(res.scalars().all())
+
+    out: dict[str, str | None] = {f: None for f in RF_FIELDS}
+    for f in RF_FIELDS:
+        # Kolektuj všechny non-null hodnoty pro daný faktor
+        values = [getattr(rfa, f) for rfa in rfas if getattr(rfa, f) is not None]
+        if not values:
+            continue
+        # Vyber MAX podle numeric rating (2R = 2.5)
+        max_val = max(values, key=_rating_numeric)
+        out[f] = max_val
+    return out
+
+
+async def bulk_update_workplace_rfa(
+    db: AsyncSession,
+    workplace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    factor: str,
+    rating: str | None,
+    created_by: uuid.UUID,
+) -> dict[str, str | None]:
+    """Nastaví hodnotu jednoho rizikového faktoru na všech RFAs daného
+    pracoviště (přes všechny pozice). Pokud pozice nemá RFA, vytvoří ji.
+    """
+    from app.models.job_position import JobPosition
+    from app.models.risk_factor_assessment import RF_FIELDS, VALID_RATINGS
+
+    if factor not in RF_FIELDS:
+        raise ValueError(f"Neplatný factor: {factor}")
+    if rating is not None and rating not in VALID_RATINGS:
+        raise ValueError(f"Neplatný rating: {rating}")
+
+    # Workplace existuje a patří tenantu
+    wp = await get_workplace_by_id(db, workplace_id, tenant_id)
+    if wp is None:
+        raise ValueError(f"Pracoviště {workplace_id} nenalezeno")
+
+    # Všechny aktivní pozice pracoviště
+    pos_res = await db.execute(
+        select(JobPosition).where(
+            JobPosition.workplace_id == workplace_id,
+            JobPosition.tenant_id == tenant_id,
+            JobPosition.status == "active",
+        )
+    )
+    positions = list(pos_res.scalars().all())
+
+    for pos in positions:
+        # Najdi nebo vytvoř RFA pro pozici
+        rfa = await get_rfa_by_job_position(db, pos.id, tenant_id)
+        if rfa is None:
+            rfa = RiskFactorAssessment(
+                tenant_id=tenant_id,
+                workplace_id=workplace_id,
+                job_position_id=pos.id,
+                profese=pos.name,
+                worker_count=0,
+                women_count=0,
+                created_by=created_by,
+            )
+            db.add(rfa)
+            await db.flush()
+        # Nastav daný faktor
+        setattr(rfa, factor, rating)
+
+    await db.flush()
+    return await get_workplace_aggregated_rfa(db, workplace_id, tenant_id)
+
+
 async def get_rfa_grouped_for_export(
     db: AsyncSession,
     tenant_id: uuid.UUID,
