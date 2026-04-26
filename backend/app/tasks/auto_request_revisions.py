@@ -86,7 +86,7 @@ def _build_email_body(
         "Děkujeme.",
         "",
         "—",
-        "Tato zpráva byla odeslána automaticky systémem OZODigi.",
+        "Tato zpráva byla odeslána automaticky systémem DigitalOZO.",
     ])
     return subject, "\n".join(lines)
 

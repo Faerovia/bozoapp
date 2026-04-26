@@ -34,6 +34,7 @@ const TYPE_BADGES: Record<DocumentType, string> = {
   training_outline: "bg-blue-100 text-blue-700",
   revision_schedule: "bg-emerald-100 text-emerald-700",
   risk_categorization: "bg-amber-100 text-amber-700",
+  operating_log_summary: "bg-cyan-100 text-cyan-700",
   imported: "bg-gray-100 text-gray-700",
 };
 

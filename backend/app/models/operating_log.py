@@ -4,12 +4,15 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+
+# 3-way způsobilost zařízení k provozu
+CAPABILITY_VALUES = ("yes", "no", "conditional")
 
 
 def _gen_qr_token() -> str:
@@ -93,12 +96,14 @@ class OperatingLogEntry(Base):
 
     performed_at: Mapped[date] = mapped_column(Date, nullable=False)
     performed_by_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Pole bool paralelní s OperatingLogDevice.check_items
+    # Pole stringů paralelní s OperatingLogDevice.check_items.
+    # Hodnoty per úkon: 'yes' | 'no' | 'conditional'
     capable_items: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, default=list,
     )
-    overall_capable: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True,
+    # Souhrnný stav: 'yes' | 'no' | 'conditional'
+    overall_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="yes",
     )
     notes: Mapped[str | None] = mapped_column(Text)
 

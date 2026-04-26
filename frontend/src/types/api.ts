@@ -541,13 +541,21 @@ export interface OperatingLogDevice {
   created_by: string;
 }
 
+export type CapabilityStatus = "yes" | "no" | "conditional";
+
+export const CAPABILITY_STATUS_LABELS: Record<CapabilityStatus, string> = {
+  yes: "ANO",
+  no: "NE",
+  conditional: "Podmíněný",
+};
+
 export interface OperatingLogEntry {
   id: string;
   device_id: string;
   performed_at: string;
   performed_by_name: string;
-  capable_items: boolean[];
-  overall_capable: boolean;
+  capable_items: CapabilityStatus[];
+  overall_status: CapabilityStatus;
   notes: string | null;
   created_by: string;
 }
@@ -739,6 +747,7 @@ export type DocumentType =
   | "training_outline"
   | "revision_schedule"
   | "risk_categorization"
+  | "operating_log_summary"
   | "imported";
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
@@ -746,6 +755,7 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   training_outline: "Osnova školení BOZP (per pozice)",
   revision_schedule: "Harmonogram revizí",
   risk_categorization: "Kategorizace prací (RFA)",
+  operating_log_summary: "Provozní deníky — souhrn",
   imported: "Importováno",
 };
 
@@ -758,6 +768,9 @@ export const DOCUMENT_TYPE_DESC: Record<DocumentType, string> = {
     "Tabulkový přehled všech revizí s termíny. Bez AI — čistá data.",
   risk_categorization:
     "Tabulka kategorií prací dle NV 361/2007. Z RFA, bez AI.",
+  operating_log_summary:
+    "Souhrn provozních deníků zařízení — kategorie, kontrolní úkony, "
+    + "posledních 5 zápisů per zařízení. Pro audit SÚIP / OIP.",
   imported:
     "Externě nahraný textový dokument (PDF/DOCX/MD/TXT).",
 };

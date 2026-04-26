@@ -93,7 +93,7 @@ function LoginForm() {
     <Card className="w-full max-w-sm">
       <CardHeader className="space-y-1">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-2xl font-bold text-blue-600">OZODigi</span>
+          <span className="text-2xl font-bold text-blue-600">DigitalOZO</span>
         </div>
         <CardTitle>Přihlášení</CardTitle>
         <CardDescription>BOZP a PO management platforma</CardDescription>

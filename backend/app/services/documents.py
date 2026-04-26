@@ -301,6 +301,164 @@ _RF_SHORT_LABELS = {
 }
 
 
+async def _gen_operating_log_summary(
+    db: AsyncSession, tenant_id: uuid.UUID, params: dict[str, Any],
+) -> tuple[str, str]:
+    """Souhrn provozních deníků zařízení tenantu (data-only).
+
+    Pro každé aktivní zařízení (operating_log_devices) vypíše:
+    - kategorii, název, kód, umístění, plant, periodicitu
+    - definované kontrolní úkony (1-20 položek)
+    - posledních 5 zápisů (datum, kontrolor, souhrnný stav, krátká poznámka)
+
+    Cílem je tisknutelný přehled deníků pro audit (SÚIP, OIP, externí audit).
+    """
+    from app.models.operating_log import (
+        OperatingLogDevice,
+        OperatingLogEntry,
+    )
+
+    tenant = await _get_tenant(db, tenant_id)
+    today = datetime.now(UTC).date().isoformat()
+    title = f"Provozní deníky — souhrn — {tenant.name}"
+
+    # Načti všechna aktivní zařízení + plant_name lookup
+    devices_res = await db.execute(
+        select(OperatingLogDevice).where(
+            OperatingLogDevice.tenant_id == tenant_id,
+            OperatingLogDevice.status == "active",
+        ).order_by(OperatingLogDevice.category, OperatingLogDevice.title)
+    )
+    devices = list(devices_res.scalars().all())
+
+    plant_ids = {d.plant_id for d in devices if d.plant_id is not None}
+    plant_names: dict[uuid.UUID, str] = {}
+    if plant_ids:
+        plant_rows = (await db.execute(
+            select(Plant).where(Plant.id.in_(plant_ids))
+        )).scalars().all()
+        plant_names = {p.id: p.name for p in plant_rows}
+
+    # Mapování kategorie → human label
+    cat_labels = {
+        "vzv": "Vysokozdvižné vozíky (VZV)",
+        "kotelna": "Kotelny",
+        "tlakova_nadoba": "Tlakové nádoby (TNS)",
+        "jerab": "Jeřáby a zdvihadla",
+        "eps": "Elektrická požární signalizace (EPS)",
+        "sprinklery": "Stabilní hasicí zařízení (sprinklery)",
+        "cov": "Čističky odpadních vod / Odlučovače",
+        "diesel": "Náhradní zdroje (Dieselagregáty)",
+        "regaly_sklad": "Regálové systémy (sklady)",
+        "vytah": "Výtahy (osobní/nákladní)",
+        "stroje_riziko": "Stroje s vyšším rizikem (lisy, pily)",
+        "other": "Jiné",
+    }
+    period_labels = {
+        "daily": "Denně",
+        "weekly": "Týdně",
+        "monthly": "Měsíčně",
+        "shift": "Před každou směnou",
+        "other": "Jiné",
+    }
+    status_labels = {"yes": "ANO", "no": "NE", "conditional": "Podmíněný"}
+
+    md: list[str] = [
+        "# Provozní deníky technických zařízení — souhrn",
+        "",
+        "_dle NV 168/2002 Sb., NV 378/2001 Sb., vyhl. 91/1993 Sb. atd._",
+        "",
+        f"**Firma:** {tenant.billing_company_name or tenant.name}",
+    ]
+    if tenant.billing_ico:
+        md.append(f"**IČO:** {tenant.billing_ico}")
+    md.append("")
+    md.append(f"_Vystaveno: {today}_  ·  Celkem zařízení: **{len(devices)}**")
+    md.append("")
+    md.append("---")
+    md.append("")
+
+    if not devices:
+        md.append("*Žádné aktivní provozní deníky.*")
+        return title, "\n".join(md)
+
+    # Skupina podle kategorie
+    by_cat: dict[str, list[OperatingLogDevice]] = {}
+    for d in devices:
+        by_cat.setdefault(d.category, []).append(d)
+
+    for cat in sorted(by_cat.keys()):
+        cat_devices = by_cat[cat]
+        md.append(f"## {cat_labels.get(cat, cat)} ({len(cat_devices)})")
+        md.append("")
+        for d in cat_devices:
+            plant_name = plant_names.get(d.plant_id) if d.plant_id else None
+            md.append(f"### {d.title}")
+            meta = []
+            if d.device_code:
+                meta.append(f"Kód: **{d.device_code}**")
+            if plant_name:
+                meta.append(f"Provozovna: **{plant_name}**")
+            if d.location:
+                meta.append(f"Umístění: {d.location}")
+            meta.append(f"Periodicita: **{period_labels.get(d.period, d.period)}**")
+            if d.period_note:
+                meta.append(f"({d.period_note})")
+            md.append(" · ".join(meta))
+            md.append("")
+
+            if d.check_items:
+                md.append("**Kontrolní úkony:**")
+                for i, item in enumerate(d.check_items, 1):
+                    md.append(f"{i}. {item}")
+                md.append("")
+
+            # Posledních 5 zápisů
+            entries_res = await db.execute(
+                select(OperatingLogEntry)
+                .where(
+                    OperatingLogEntry.tenant_id == tenant_id,
+                    OperatingLogEntry.device_id == d.id,
+                )
+                .order_by(OperatingLogEntry.performed_at.desc())
+                .limit(5)
+            )
+            entries = list(entries_res.scalars().all())
+            if entries:
+                md.append("**Poslední zápisy:**")
+                md.append("")
+                rows = []
+                for e in entries:
+                    yes_n = sum(1 for s in e.capable_items if s == "yes")
+                    cond_n = sum(1 for s in e.capable_items if s == "conditional")
+                    no_n = sum(1 for s in e.capable_items if s == "no")
+                    items_summary = (
+                        f"ANO {yes_n}"
+                        + (f" / Podm. {cond_n}" if cond_n else "")
+                        + (f" / NE {no_n}" if no_n else "")
+                    )
+                    rows.append([
+                        e.performed_at.isoformat(),
+                        e.performed_by_name,
+                        status_labels.get(e.overall_status, e.overall_status),
+                        items_summary,
+                        (e.notes or "").replace("\n", " ")[:60] or "—",
+                    ])
+                md.append(_md_table(
+                    ["Datum", "Kontroloval", "Souhrn", "Položky", "Poznámka"],
+                    rows,
+                ))
+                md.append("")
+            else:
+                md.append("_Žádné zápisy v deníku._")
+                md.append("")
+
+            md.append("---")
+            md.append("")
+
+    return title, "\n".join(md)
+
+
 async def _gen_risk_categorization(
     db: AsyncSession, tenant_id: uuid.UUID, params: dict[str, Any],
     created_by: uuid.UUID | None = None,
@@ -705,6 +863,9 @@ async def generate_document(
         title, content, in_tokens, out_tokens = await _gen_training_outline(
             db, tenant_id, params, created_by,
         )
+    elif document_type == "operating_log_summary":
+        title, content = await _gen_operating_log_summary(db, tenant_id, params)
+        in_tokens = out_tokens = None
     else:
         raise ValueError(f"Neznámý typ dokumentu: {document_type}")
 

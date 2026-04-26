@@ -81,7 +81,7 @@ def _build_email_body(
 
     lines.extend([
         "",
-        "Detail revizí a zaznamenání provedené kontroly najdete v aplikaci OZODigi.",
+        "Detail revizí a zaznamenání provedené kontroly najdete v aplikaci DigitalOZO.",
         "",
         "Tato zpráva je automatická — v případě dotazů kontaktujte OZO ve firmě.",
     ])

@@ -1,5 +1,5 @@
 /**
- * OZODigi service worker.
+ * DigitalOZO service worker.
  *
  * Strategie:
  * - /_next/static/*  → cache-first (immutable bundles, hash v URL)

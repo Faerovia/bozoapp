@@ -10,6 +10,7 @@ DocumentType = Literal[
     "training_outline",
     "revision_schedule",
     "risk_categorization",
+    "operating_log_summary",
     "imported",
 ]
 

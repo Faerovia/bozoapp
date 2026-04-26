@@ -11,6 +11,8 @@ DeviceCategory = Literal[
 ]
 Period = Literal["daily", "weekly", "monthly", "shift", "other"]
 DeviceStatus = Literal["active", "archived"]
+# 3-way způsobilost: yes = OK, no = nezpůsobilé, conditional = podmíněně provozovat
+CapabilityStatus = Literal["yes", "no", "conditional"]
 
 
 class DeviceCreateRequest(BaseModel):
@@ -62,10 +64,12 @@ class DeviceResponse(BaseModel):
 
 class EntryCreateRequest(BaseModel):
     performed_at: date
-    performed_by_name: str = Field(..., min_length=1, max_length=255)
-    # Pole bool paralelní s device.check_items. Délka musí odpovídat.
-    capable_items: list[bool] = Field(..., min_length=1, max_length=20)
-    overall_capable: bool = True
+    # Pokud klient pošle prázdné jméno, backend doplní z current_user.
+    performed_by_name: str = Field("", max_length=255)
+    # Pole 3-way per úkon (yes/no/conditional). Délka musí odpovídat
+    # device.check_items.
+    capable_items: list[CapabilityStatus] = Field(..., min_length=1, max_length=20)
+    overall_status: CapabilityStatus = "yes"
     notes: str | None = None
 
 
@@ -74,8 +78,8 @@ class EntryResponse(BaseModel):
     device_id: uuid.UUID
     performed_at: date
     performed_by_name: str
-    capable_items: list[bool]
-    overall_capable: bool
+    capable_items: list[str]
+    overall_status: str
     notes: str | None
     created_by: uuid.UUID
 

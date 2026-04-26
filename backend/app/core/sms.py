@@ -59,7 +59,7 @@ class SmartSmsSender:
     Konfigurace přes env: SMS_API_TOKEN. Číslo se posílá v formátu +420xxx.
     """
 
-    def __init__(self, *, api_token: str, sender_id: str = "OZODigi") -> None:
+    def __init__(self, *, api_token: str, sender_id: str = "DigitalOZO") -> None:
         self.api_token = api_token
         self.sender_id = sender_id
 
@@ -104,7 +104,7 @@ def get_sms_sender() -> SmsSender:
     elif settings.sms_provider == "smartsms" and settings.sms_api_token:
         _sender = SmartSmsSender(
             api_token=settings.sms_api_token,
-            sender_id=settings.sms_sender_id or "OZODigi",
+            sender_id=settings.sms_sender_id or "DigitalOZO",
         )
     else:
         _sender = ConsoleSmsSender()

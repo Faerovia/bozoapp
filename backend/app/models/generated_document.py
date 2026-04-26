@@ -13,11 +13,12 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 
 DOCUMENT_TYPES = [
-    "bozp_directive",       # Směrnice BOZP (AI)
-    "training_outline",     # Osnova školení BOZP per pozice (AI)
-    "revision_schedule",    # Harmonogram revizí (data-only)
-    "risk_categorization",  # Tabulka kategorie rizik (data-only)
-    "imported",             # Nahraný existující dokument (PDF/DOCX/MD/TXT)
+    "bozp_directive",          # Směrnice BOZP (AI)
+    "training_outline",        # Osnova školení BOZP per pozice (AI)
+    "revision_schedule",       # Harmonogram revizí (data-only)
+    "risk_categorization",     # Tabulka kategorie rizik (data-only)
+    "operating_log_summary",   # Souhrn provozních deníků zařízení (data-only)
+    "imported",                # Nahraný existující dokument (PDF/DOCX/MD/TXT)
 ]
 
 
@@ -26,7 +27,8 @@ class GeneratedDocument(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint(
             "document_type IN ('bozp_directive', 'training_outline', "
-            "'revision_schedule', 'risk_categorization', 'imported')",
+            "'revision_schedule', 'risk_categorization', "
+            "'operating_log_summary', 'imported')",
             name="ck_doc_type",
         ),
     )

@@ -61,6 +61,7 @@ const KEYS = [
   "reminders.thresholds.training",
   "reminders.thresholds.medical_exam",
   "reminders.thresholds.accident_followup",
+  "reminders.thresholds.periodic_check",
   "reminders.send_to_managers",
   "reminders.send_to_equipment_responsible",
 ];
@@ -280,6 +281,18 @@ export default function RemindersSettingsPage() {
                       onChange={(e) => setValues({ ...values, "reminders.thresholds.accident_followup": e.target.value })}
                       placeholder="14, 7, 0"
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="th-periodic">Pravidelné kontroly</Label>
+                    <Input
+                      id="th-periodic"
+                      value={values["reminders.thresholds.periodic_check"] ?? ""}
+                      onChange={(e) => setValues({ ...values, "reminders.thresholds.periodic_check": e.target.value })}
+                      placeholder="30, 14, 7"
+                    />
+                    <p className="text-xs text-gray-400">
+                      Sanační sady, záchytné vany, lékárničky.
+                    </p>
                   </div>
                 </div>
               </CardContent>

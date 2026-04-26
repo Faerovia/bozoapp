@@ -612,7 +612,7 @@ async def _seed_accident(
 
 async def seed(db: AsyncSession) -> None:
     log.info("=" * 60)
-    log.info("OZODigi DEMO seed")
+    log.info("DigitalOZO DEMO seed")
     log.info("=" * 60)
 
     await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))

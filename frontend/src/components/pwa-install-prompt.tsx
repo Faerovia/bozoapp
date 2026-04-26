@@ -100,11 +100,11 @@ export function PWAInstallPrompt() {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-blue-900">
-            Nainstalovat OZODigi
+            Nainstalovat DigitalOZO
           </p>
           {deferredPrompt ? (
             <p className="mt-1 text-xs text-blue-800">
-              Přidej si OZODigi na plochu pro rychlejší přístup a podporu offline režimu.
+              Přidej si DigitalOZO na plochu pro rychlejší přístup a podporu offline režimu.
             </p>
           ) : (
             <p className="mt-1 text-xs text-blue-800">

@@ -130,7 +130,7 @@ async def compute_amount_for_tenant(
 
     if tenant.billing_type == "monthly":
         items = [{
-            "description": f"Předplatné OZODigi — {period_label}",
+            "description": f"Předplatné DigitalOZO — {period_label}",
             "quantity": 1,
             "unit": "měsíc",
             "unit_price": float(amount),
@@ -143,7 +143,7 @@ async def compute_amount_for_tenant(
         if tenant.created_at.month != period_from.month:
             return Decimal("0"), []
         items = [{
-            "description": f"Roční předplatné OZODigi — {period_from.year}",
+            "description": f"Roční předplatné DigitalOZO — {period_from.year}",
             "quantity": 1,
             "unit": "rok",
             "unit_price": float(amount),
@@ -160,7 +160,7 @@ async def compute_amount_for_tenant(
         )).scalar_one()
         total = amount * Decimal(count)
         items = [{
-            "description": f"OZODigi za zaměstnance — {period_label}",
+            "description": f"DigitalOZO za zaměstnance — {period_label}",
             "quantity": count,
             "unit": "ks",
             "unit_price": float(amount),
@@ -172,7 +172,7 @@ async def compute_amount_for_tenant(
         items = [{
             "description": (
                 tenant.billing_note
-                or f"Služby OZODigi — {period_label}"
+                or f"Služby DigitalOZO — {period_label}"
             ),
             "quantity": 1,
             "unit": "ks",

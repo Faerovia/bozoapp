@@ -76,7 +76,7 @@ async def request_reset(
     sender = get_email_sender()
     await sender.send(EmailMessage(
         to=user.email,
-        subject="OZODigi – obnova hesla",
+        subject="DigitalOZO – obnova hesla",
         body_text=(
             f"Pro obnovení hesla klikni na následující odkaz:\n\n{reset_url}\n\n"
             f"Odkaz vyprší za {TOKEN_TTL_HOURS} hodinu.\n"

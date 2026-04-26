@@ -74,7 +74,7 @@ if settings.sentry_dsn:
     )
 
 app = FastAPI(
-    title="OZODigi API",
+    title="DigitalOZO API",
     version="0.1.0",
     # Disable docs in production
     docs_url="/api/docs" if not settings.is_production else None,

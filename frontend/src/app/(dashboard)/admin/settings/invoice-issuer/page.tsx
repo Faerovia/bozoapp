@@ -46,7 +46,7 @@ const FIELDS: { section: string; fields: FieldDef[] }[] = [
     section: "Základní údaje",
     fields: [
       { key: "issuer_name",       label: "Název / firma *", type: "text",
-        placeholder: "OZODigi s.r.o.", required: true },
+        placeholder: "DigitalOZO s.r.o.", required: true },
       { key: "issuer_ico",        label: "IČO *", type: "text",
         placeholder: "12345678", required: true,
         hint: "8 číslic, bez mezer." },

@@ -164,8 +164,9 @@ async def create_entry(
     db.add(entry)
     await db.flush()
 
-    # Alert email pokud je zařízení nezpůsobilé (best-effort, neblokuje uložení)
-    if not data.overall_capable:
+    # Alert email pokud zařízení NENÍ plně způsobilé (NO i CONDITIONAL)
+    # — best-effort, neblokuje uložení.
+    if data.overall_status != "yes":
         try:
             await _send_unfit_alert(
                 db, device, entry, tenant_id=tenant_id,
@@ -226,36 +227,63 @@ async def _send_unfit_alert(
     )).scalar_one_or_none()
     plant_name = plant.name if plant else "—"
 
-    # Souhrn nesplněných položek
-    unfit_items = [
-        f"  • {item}"
-        for item, ok in zip(device.check_items, entry.capable_items, strict=False)
-        if not ok
+    # Souhrn položek které nejsou ANO (zahrnuje NE i Podmíněný)
+    def _label(s: str) -> str:
+        return {
+            "no": "NE",
+            "conditional": "Podmíněný",
+            "yes": "ANO",
+        }.get(s, s)
+
+    flagged_items = [
+        f"  • {item} — **{_label(status)}**"
+        for item, status in zip(
+            device.check_items, entry.capable_items, strict=False,
+        )
+        if status != "yes"
     ]
-    unfit_block = (
-        "\n".join(unfit_items) if unfit_items
-        else "  (souhrnná nezpůsobilost — všechny dílčí položky byly potvrzeny ANO)"
+    flagged_block = (
+        "\n".join(flagged_items) if flagged_items
+        else "  (souhrnný stav nesplněn — dílčí položky byly potvrzeny ANO)"
     )
 
-    subject = (
-        f"⚠ Nezpůsobilé zařízení: {device.title} — {plant_name}"
-    )
+    is_conditional = entry.overall_status == "conditional"
+    if is_conditional:
+        subject = (
+            f"⚠ Podmíněně způsobilé zařízení: {device.title} — {plant_name}"
+        )
+        action_text = (
+            "Zařízení LZE PODMÍNĚNĚ PROVOZOVAT — byla zjištěna závada, která "
+            "neznemožňuje provoz, ale vyžaduje urychlenou nápravu. Zajistěte "
+            "opravu v co nejkratším termínu a do té doby provozujte se zvýšenou "
+            "opatrností v souladu s konkrétními omezeními uvedenými v poznámce."
+        )
+        status_label = "PODMÍNĚNĚ ZPŮSOBILÉ"
+    else:
+        subject = (
+            f"⚠ Nezpůsobilé zařízení: {device.title} — {plant_name}"
+        )
+        action_text = (
+            "Prosíme zajistit okamžitou nápravu nebo vyřaďte zařízení z provozu, "
+            "dokud nebude obnovena plná způsobilost."
+        )
+        status_label = "NEZPŮSOBILÉ k provozu"
+
     code = f" (kód {device.device_code})" if device.device_code else ""
     perf_at = entry.performed_at.strftime("%d. %m. %Y") if entry.performed_at else "—"
 
     body = (
         "Dobrý den,\n\n"
         f"při kontrole zařízení **{device.title}**{code} v provozovně "
-        f"„{plant_name}“ bylo zařízení označeno jako NEZPŮSOBILÉ k provozu.\n\n"
+        f"„{plant_name}“ bylo zařízení označeno jako **{status_label}**.\n\n"
         f"Datum kontroly: {perf_at}\n"
         f"Kontroloval: {entry.performed_by_name}\n\n"
-        f"Nesplněné kontrolní úkony:\n{unfit_block}\n\n"
-        f"Poznámky: {entry.notes or '—'}\n\n"
-        "Prosím zařiďte okamžitou nápravu nebo vyřaďte zařízení z provozu, "
-        "dokud nebude obnovena způsobilost. Detail najdete v aplikaci OZODigi → "
-        "Provozní deníky.\n\n"
+        f"Položky vyžadující pozornost:\n{flagged_block}\n\n"
+        f"Poznámky kontrolora: {entry.notes or '—'}\n\n"
+        f"{action_text}\n\n"
+        "Detail najdete v aplikaci DigitalOZO → Provozní deníky.\n\n"
         "—\n"
-        "Tato zpráva byla odeslána automaticky systémem OZODigi.\n"
+        "Tato zpráva byla odeslána automaticky systémem DigitalOZO.\n"
     )
 
     sender = get_email_sender()

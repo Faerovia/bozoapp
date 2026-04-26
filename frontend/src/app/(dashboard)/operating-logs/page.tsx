@@ -13,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useFieldArray } from "react-hook-form";
 import {
   Plus, Pencil, Trash2, BookOpenCheck, ClipboardList, Info,
-  CheckCircle2, XCircle, ArrowUp, ArrowDown, QrCode,
+  CheckCircle2, XCircle, ArrowUp, ArrowDown, QrCode, AlertTriangle,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -230,6 +230,8 @@ interface AuthMeResponse {
   role: string;
 }
 
+type Capability = "yes" | "no" | "conditional";
+
 function EntryForm({
   device, onSubmit, isSubmitting, serverError,
 }: {
@@ -237,8 +239,8 @@ function EntryForm({
   onSubmit: (d: {
     performed_at: string;
     performed_by_name: string;
-    capable_items: boolean[];
-    overall_capable: boolean;
+    capable_items: Capability[];
+    overall_status: Capability;
     notes: string | null;
   }) => void;
   isSubmitting: boolean;
@@ -247,10 +249,10 @@ function EntryForm({
   const today = new Date().toISOString().slice(0, 10);
   const [performedAt, setPerformedAt] = useState(today);
   const [performedByName, setPerformedByName] = useState("");
-  const [capable, setCapable] = useState<boolean[]>(
-    device.check_items.map(() => true),
+  const [capable, setCapable] = useState<Capability[]>(
+    device.check_items.map(() => "yes" as Capability),
   );
-  const [overall, setOverall] = useState(true);
+  const [overall, setOverall] = useState<Capability>("yes");
   const [notes, setNotes] = useState("");
 
   // Auto-fill performed_by_name z přihlášeného uživatele (full_name OR email)
@@ -267,10 +269,26 @@ function EntryForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
 
-  function setItem(i: number, v: boolean) {
+  function setItem(i: number, v: Capability) {
     setCapable((arr) => arr.map((x, idx) => (idx === i ? v : x)));
-    if (!v) setOverall(false);
+    // Auto-bumpneme overall pokud uživatel označil dílčí položku jako horší
+    if (v === "no" && overall !== "no") setOverall("no");
+    else if (v === "conditional" && overall === "yes") setOverall("conditional");
   }
+
+  // Helper render pro 3-way segmented button
+  const itemBtnCls = (active: boolean, color: "green" | "amber" | "red") => cn(
+    "rounded-md px-2.5 py-1 text-xs font-medium border transition-colors",
+    active && color === "green" && "bg-green-100 border-green-300 text-green-700",
+    active && color === "amber" && "bg-amber-100 border-amber-300 text-amber-700",
+    active && color === "red" && "bg-red-100 border-red-300 text-red-700",
+    !active && cn(
+      "bg-white border-gray-200 text-gray-400",
+      color === "green" && "hover:border-green-300",
+      color === "amber" && "hover:border-amber-300",
+      color === "red" && "hover:border-red-300",
+    ),
+  );
 
   return (
     <form
@@ -280,7 +298,7 @@ function EntryForm({
           performed_at: performedAt,
           performed_by_name: performedByName,
           capable_items: capable,
-          overall_capable: overall,
+          overall_status: overall,
           notes: notes || null,
         });
       }}
@@ -313,7 +331,12 @@ function EntryForm({
       </div>
 
       <div className="rounded-md border border-gray-200 p-3 space-y-2">
-        <Label>Kontrolní úkony</Label>
+        <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-1">
+          <Label>Kontrolní úkony</Label>
+          <span className="text-xs font-medium text-gray-500 uppercase">
+            Způsobilý k provozu
+          </span>
+        </div>
         {device.check_items.map((item, i) => (
           <div key={i} className="flex items-center justify-between gap-3 py-1 border-b border-gray-100 last:border-b-0">
             <span className="text-sm text-gray-700 flex-1">
@@ -323,26 +346,25 @@ function EntryForm({
             <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
-                onClick={() => setItem(i, true)}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium border transition-colors",
-                  capable[i]
-                    ? "bg-green-100 border-green-300 text-green-700"
-                    : "bg-white border-gray-200 text-gray-400 hover:border-green-300",
-                )}
+                onClick={() => setItem(i, "yes")}
+                className={itemBtnCls(capable[i] === "yes", "green")}
               >
                 <CheckCircle2 className="h-3.5 w-3.5 inline mr-1" />
                 ANO
               </button>
               <button
                 type="button"
-                onClick={() => setItem(i, false)}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium border transition-colors",
-                  !capable[i]
-                    ? "bg-red-100 border-red-300 text-red-700"
-                    : "bg-white border-gray-200 text-gray-400 hover:border-red-300",
-                )}
+                onClick={() => setItem(i, "conditional")}
+                className={itemBtnCls(capable[i] === "conditional", "amber")}
+                title="Závada, ale lze podmíněně provozovat"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
+                Podmíněný
+              </button>
+              <button
+                type="button"
+                onClick={() => setItem(i, "no")}
+                className={itemBtnCls(capable[i] === "no", "red")}
               >
                 <XCircle className="h-3.5 w-3.5 inline mr-1" />
                 NE
@@ -352,37 +374,60 @@ function EntryForm({
         ))}
       </div>
 
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-amber-900">Souhrnná způsobilost</p>
-          <p className="text-xs text-amber-700">Zařízení je způsobilé k provozu?</p>
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-amber-900">Souhrnná způsobilost k provozu</p>
+            <p className="text-xs text-amber-700 leading-snug mt-0.5">
+              <strong>ANO</strong> = bez závad · <strong>Podmíněný</strong> = drobná závada,
+              lze provozovat se zvýšenou opatrností (pošle alert) ·
+              <strong> NE</strong> = vyřadit z provozu (pošle alert)
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-3">
           <button
             type="button"
-            onClick={() => setOverall(true)}
+            onClick={() => setOverall("yes")}
             className={cn(
-              "rounded-md px-4 py-1.5 text-sm font-medium border",
-              overall
+              "flex-1 rounded-md px-4 py-1.5 text-sm font-medium border",
+              overall === "yes"
                 ? "bg-green-600 text-white border-green-600"
-                : "bg-white border-gray-300 text-gray-600",
+                : "bg-white border-gray-300 text-gray-600 hover:border-green-300",
             )}
           >
             ANO
           </button>
           <button
             type="button"
-            onClick={() => setOverall(false)}
+            onClick={() => setOverall("conditional")}
             className={cn(
-              "rounded-md px-4 py-1.5 text-sm font-medium border",
-              !overall
+              "flex-1 rounded-md px-4 py-1.5 text-sm font-medium border",
+              overall === "conditional"
+                ? "bg-amber-600 text-white border-amber-600"
+                : "bg-white border-gray-300 text-gray-600 hover:border-amber-300",
+            )}
+          >
+            Podmíněný
+          </button>
+          <button
+            type="button"
+            onClick={() => setOverall("no")}
+            className={cn(
+              "flex-1 rounded-md px-4 py-1.5 text-sm font-medium border",
+              overall === "no"
                 ? "bg-red-600 text-white border-red-600"
-                : "bg-white border-gray-300 text-gray-600",
+                : "bg-white border-gray-300 text-gray-600 hover:border-red-300",
             )}
           >
             NE
           </button>
         </div>
+        {overall === "conditional" && (
+          <p className="text-xs text-amber-800 mt-2 italic">
+            ⚠ Do poznámky uveďte konkrétní závadu a omezení provozu.
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -492,28 +537,35 @@ function DeviceDetail({ device }: { device: OperatingLogDevice }) {
                   <tr className="border-b border-gray-100 bg-white">
                     <th className="text-left py-2 px-4 text-xs font-medium text-gray-500">Datum</th>
                     <th className="text-left py-2 px-4 text-xs font-medium text-gray-500">Kontroloval</th>
-                    <th className="text-center py-2 px-4 text-xs font-medium text-gray-500">Způsobilost</th>
-                    <th className="text-left py-2 px-4 text-xs font-medium text-gray-500">Položky (ANO/NE)</th>
+                    <th className="text-center py-2 px-4 text-xs font-medium text-gray-500">Způsobilý k provozu</th>
+                    <th className="text-left py-2 px-4 text-xs font-medium text-gray-500">Položky</th>
                     <th className="text-left py-2 px-4 text-xs font-medium text-gray-500">Poznámky</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {entries.map((e) => {
-                    const passed = e.capable_items.filter(Boolean).length;
-                    const total = e.capable_items.length;
+                    const yesCnt = e.capable_items.filter((s) => s === "yes").length;
+                    const condCnt = e.capable_items.filter((s) => s === "conditional").length;
+                    const noCnt = e.capable_items.filter((s) => s === "no").length;
                     return (
                       <tr key={e.id}>
                         <td className="py-2 px-4 text-gray-700">{fmtDate(e.performed_at)}</td>
                         <td className="py-2 px-4 text-gray-700">{e.performed_by_name}</td>
                         <td className="py-2 px-4 text-center">
-                          {e.overall_capable ? (
+                          {e.overall_status === "yes" && (
                             <span className="rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-xs font-medium">ANO</span>
-                          ) : (
+                          )}
+                          {e.overall_status === "conditional" && (
+                            <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-xs font-medium">Podmíněný</span>
+                          )}
+                          {e.overall_status === "no" && (
                             <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-medium">NE</span>
                           )}
                         </td>
                         <td className="py-2 px-4 text-xs text-gray-600">
-                          {passed}/{total}
+                          <span className="text-green-700">{yesCnt}</span>
+                          {condCnt > 0 && <> · <span className="text-amber-700">{condCnt}</span></>}
+                          {noCnt > 0 && <> · <span className="text-red-700">{noCnt}</span></>}
                         </td>
                         <td className="py-2 px-4 text-xs text-gray-500">{e.notes || "—"}</td>
                       </tr>
