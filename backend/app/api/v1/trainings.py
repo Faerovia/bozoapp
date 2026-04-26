@@ -22,6 +22,7 @@ Endpoint layout:
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import (
@@ -34,6 +35,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +45,7 @@ from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.core.storage import read_file
 from app.models.employee import Employee
+from app.models.signature import DOC_TYPE_TRAINING_CONTENT, Signature
 from app.models.tenant import Tenant
 from app.models.training import TrainingAssignment
 from app.models.user import User
@@ -166,6 +169,7 @@ async def create_assignments_endpoint(
     training = await svc.get_training(db, data.training_id, current_user.tenant_id)
     if training is None:
         raise HTTPException(status_code=404, detail="Školení nenalezeno")
+    _assert_training_assignable(training)
 
     created, skipped, errors = await svc.create_assignments(
         db,
@@ -177,6 +181,27 @@ async def create_assignments_endpoint(
     return AssignmentCreateResponse(
         created_count=created, skipped_existing_count=skipped, errors=errors
     )
+
+
+def _assert_training_assignable(training: Any) -> None:
+    """Gate: nelze přiřazovat školení v pending_approval / archived stavu.
+
+    Pending_approval znamená, že OZO ještě neschválil obsah školení po
+    autorovi (HR manager / lead_worker). Přiřazování zaměstnancům musí
+    být blokované do schválení (OZO odpovídá za odbornou stránku BOZP/PO).
+    """
+    status_val = getattr(training, "status", "active")
+    if status_val == "pending_approval":
+        raise HTTPException(
+            status_code=409,
+            detail="Školení čeká na schválení OZO a nelze ho přiřazovat "
+                   "zaměstnancům. Nech OZO školení schválit.",
+        )
+    if status_val == "archived":
+        raise HTTPException(
+            status_code=409,
+            detail="Školení je archivované a nelze ho přiřazovat.",
+        )
 
 
 @router.post(
@@ -193,6 +218,7 @@ async def group_assign_endpoint(
     training = await svc.get_training(db, data.training_id, current_user.tenant_id)
     if training is None:
         raise HTTPException(status_code=404, detail="Školení nenalezeno")
+    _assert_training_assignable(training)
 
     query = select(Employee).where(Employee.tenant_id == current_user.tenant_id)
     if data.only_active:
@@ -415,6 +441,116 @@ async def delete_training_endpoint(
     if t is None:
         raise HTTPException(status_code=404, detail="Školení nenalezeno")
     await svc.delete_training(db, t)
+
+
+# ── Approval workflow + autor / OZO podpis obsahu (#105 — školení) ─────────
+
+
+class TrainingAttachContentSignatureRequest(BaseModel):
+    signature_id: uuid.UUID
+
+
+@router.post(
+    "/trainings/{training_id}/attach-author-signature",
+    response_model=TrainingResponse,
+)
+async def attach_author_signature(
+    training_id: uuid.UUID,
+    data: TrainingAttachContentSignatureRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Napojí podpis autora obsahu školení.
+
+    Validace: signature musí mít doc_type='training_content',
+    doc_id=training_id, být ve stejném tenantu. training.author_signature_id
+    musí být None (jeden podpis autora per školení; po změně obsahu se
+    invaliduje v update_training a lze podepsat znovu).
+    """
+    t = await svc.get_training(db, training_id, current_user.tenant_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Školení nenalezeno")
+    if t.author_signature_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Školení už má podpis autora. Pro nový podpis nejdřív "
+                   "uprav obsah (tím se podpis automaticky invaliduje).",
+        )
+
+    sig = (await db.execute(
+        select(Signature).where(
+            Signature.id == data.signature_id,
+            Signature.tenant_id == current_user.tenant_id,
+            Signature.doc_type == DOC_TYPE_TRAINING_CONTENT,
+            Signature.doc_id == training_id,
+        ),
+    )).scalar_one_or_none()
+    if sig is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Podpis pro toto školení nenalezen",
+        )
+
+    t.author_signature_id = sig.id
+    await db.flush()
+    return t
+
+
+@router.post(
+    "/trainings/{training_id}/approve",
+    response_model=TrainingResponse,
+)
+async def approve_training(
+    training_id: uuid.UUID,
+    data: TrainingAttachContentSignatureRequest,
+    current_user: User = Depends(require_role("ozo")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """OZO schválí školení čekající na approval.
+
+    Workflow:
+    - Školení musí být ve stavu 'pending_approval'.
+    - OZO musí být OZO role (require_role výše).
+    - Předaný signature_id musí mít doc_type='training_content',
+      doc_id=training_id (OZO podepsal stejný obsah jako autor).
+    - Po schválení: status='active', ozo_approval_signature_id=sig.id,
+      approved_at=now, approved_by_user_id=current_user.id.
+    """
+    t = await svc.get_training(db, training_id, current_user.tenant_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Školení nenalezeno")
+    if t.status != "pending_approval":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Školení není ve stavu pending_approval (status={t.status}).",
+        )
+    if t.author_signature_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Školení nemá podpis autora — autor musí podepsat obsah "
+                   "před schválením OZO.",
+        )
+
+    sig = (await db.execute(
+        select(Signature).where(
+            Signature.id == data.signature_id,
+            Signature.tenant_id == current_user.tenant_id,
+            Signature.doc_type == DOC_TYPE_TRAINING_CONTENT,
+            Signature.doc_id == training_id,
+        ),
+    )).scalar_one_or_none()
+    if sig is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Schvalovací podpis OZO nenalezen",
+        )
+
+    t.ozo_approval_signature_id = sig.id
+    t.approved_at = datetime.now(UTC)
+    t.approved_by_user_id = current_user.id
+    t.status = "active"
+    await db.flush()
+    return t
 
 
 @router.post(
