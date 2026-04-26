@@ -609,6 +609,53 @@ export interface GeneratedDocument {
   created_by: string;
 }
 
+// ── Invoices (Fakturace) ──────────────────────────────────────────────────────
+
+export type InvoiceStatus = "draft" | "sent" | "paid" | "cancelled";
+
+export interface InvoiceItem {
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  total: number;
+}
+
+export interface InvoiceListItem {
+  id: string;
+  tenant_id: string;
+  invoice_number: string;
+  issued_at: string;
+  due_date: string;
+  period_from: string;
+  period_to: string;
+  paid_at: string | null;
+  status: InvoiceStatus;
+  currency: string;
+  total: string; // Decimal as string (Pydantic 2)
+}
+
+export interface Invoice extends InvoiceListItem {
+  sent_at: string | null;
+  subtotal: string;
+  vat_rate: string;
+  vat_amount: string;
+  issuer_snapshot: Record<string, unknown>;
+  recipient_snapshot: Record<string, unknown>;
+  items: InvoiceItem[];
+  notes: string | null;
+  pdf_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
+  draft: "Koncept",
+  sent: "Odeslána",
+  paid: "Zaplaceno",
+  cancelled: "Storno",
+};
+
 // ── Generický API error ───────────────────────────────────────────────────────
 
 export interface ApiError {

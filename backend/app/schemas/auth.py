@@ -51,9 +51,11 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     email: str
+    username: str | None = None
     full_name: str | None
     role: str
     is_active: bool
+    is_platform_admin: bool = False
 
     model_config = {"from_attributes": True}
 

@@ -22,6 +22,7 @@ import {
   GitBranch,
   Timer,
   BookOpen,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, logout } from "@/lib/api";
@@ -121,6 +122,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: FileText,
     roles: MANAGERS,
   },
+  {
+    href: "/billing",
+    label: "Fakturace",
+    icon: Receipt,
+    roles: MANAGERS,
+  },
 ];
 
 
@@ -144,6 +151,16 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     href: "/admin/trainings",
     label: "Globální školení",
     icon: BookOpen,
+  },
+  {
+    href: "/admin/invoices",
+    label: "Faktury",
+    icon: Receipt,
+  },
+  {
+    href: "/admin/settings/invoice-issuer",
+    label: "Fakturační údaje firmy",
+    icon: Building2,
   },
   // Skupina: lékařské prohlídky — každé setting jako samostatný item
   {

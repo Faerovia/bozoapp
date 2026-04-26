@@ -34,6 +34,14 @@ interface TenantOverviewItem {
   billing_amount: number | null;
   billing_currency: string;
   billing_note: string | null;
+  // Fakturační údaje příjemce — povinné pro vystavení faktury
+  billing_company_name: string | null;
+  billing_ico: string | null;
+  billing_dic: string | null;
+  billing_address_street: string | null;
+  billing_address_city: string | null;
+  billing_address_zip: string | null;
+  billing_email: string | null;
 }
 
 interface TenantOverviewResponse {
@@ -72,6 +80,14 @@ function BillingEditor({
   );
   const [billingCurrency, setBillingCurrency] = useState<string>(tenant.billing_currency || "CZK");
   const [billingNote, setBillingNote] = useState<string>(tenant.billing_note ?? "");
+  // Fakturační údaje příjemce
+  const [companyName, setCompanyName] = useState<string>(tenant.billing_company_name ?? "");
+  const [ico, setIco] = useState<string>(tenant.billing_ico ?? "");
+  const [dic, setDic] = useState<string>(tenant.billing_dic ?? "");
+  const [addressStreet, setAddressStreet] = useState<string>(tenant.billing_address_street ?? "");
+  const [addressCity, setAddressCity] = useState<string>(tenant.billing_address_city ?? "");
+  const [addressZip, setAddressZip] = useState<string>(tenant.billing_address_zip ?? "");
+  const [emailRecipient, setEmailRecipient] = useState<string>(tenant.billing_email ?? "");
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
@@ -81,6 +97,13 @@ function BillingEditor({
       billing_amount:   billingAmount === "" ? null : parseFloat(billingAmount),
       billing_currency: billingCurrency.toUpperCase().slice(0, 3),
       billing_note:     billingNote || null,
+      billing_company_name:   companyName || null,
+      billing_ico:            ico || null,
+      billing_dic:            dic || null,
+      billing_address_street: addressStreet || null,
+      billing_address_city:   addressCity || null,
+      billing_address_zip:    addressZip || null,
+      billing_email:          emailRecipient || null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-tenant-overview"] });
@@ -174,6 +197,87 @@ function BillingEditor({
           )}
         </div>
       )}
+
+      {/* ── Fakturační údaje příjemce (na faktuře) ──────────────────────── */}
+      <div className="border-t border-gray-200 pt-4 space-y-3">
+        <div className="text-sm font-semibold text-gray-700">Fakturační údaje příjemce</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor={`bc-name-${tenant.id}`}>Název firmy *</Label>
+            <Input
+              id={`bc-name-${tenant.id}`}
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="např. ABC s.r.o."
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`bc-email-${tenant.id}`}>Fakturační email *</Label>
+            <Input
+              id={`bc-email-${tenant.id}`}
+              type="email"
+              value={emailRecipient}
+              onChange={(e) => setEmailRecipient(e.target.value)}
+              placeholder="fakturace@firma.cz"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor={`bc-ico-${tenant.id}`}>IČO *</Label>
+            <Input
+              id={`bc-ico-${tenant.id}`}
+              value={ico}
+              onChange={(e) => setIco(e.target.value)}
+              maxLength={20}
+              placeholder="12345678"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`bc-dic-${tenant.id}`}>DIČ (volitelně)</Label>
+            <Input
+              id={`bc-dic-${tenant.id}`}
+              value={dic}
+              onChange={(e) => setDic(e.target.value)}
+              maxLength={20}
+              placeholder="CZ12345678"
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`bc-street-${tenant.id}`}>Ulice + č.p.</Label>
+          <Input
+            id={`bc-street-${tenant.id}`}
+            value={addressStreet}
+            onChange={(e) => setAddressStreet(e.target.value)}
+            placeholder="Dlouhá 1"
+          />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor={`bc-zip-${tenant.id}`}>PSČ</Label>
+            <Input
+              id={`bc-zip-${tenant.id}`}
+              value={addressZip}
+              onChange={(e) => setAddressZip(e.target.value)}
+              maxLength={10}
+              placeholder="110 00"
+            />
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label htmlFor={`bc-city-${tenant.id}`}>Město</Label>
+            <Input
+              id={`bc-city-${tenant.id}`}
+              value={addressCity}
+              onChange={(e) => setAddressCity(e.target.value)}
+              placeholder="Praha"
+            />
+          </div>
+        </div>
+        <div className="text-xs text-gray-500">
+          Pro vystavení faktury jsou povinné: <strong>Název firmy</strong>, <strong>IČO</strong> a <strong>fakturační email</strong>.
+        </div>
+      </div>
 
       {error && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
