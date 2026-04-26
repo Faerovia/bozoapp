@@ -34,6 +34,9 @@ class Employee(Base, TimestampMixin):
     # volitelné (brigádníci ho nemusí mít).
     personal_number: Mapped[str | None] = mapped_column(String(50))
     birth_date: Mapped[date | None] = mapped_column(Date)
+    # Pohlaví (NV 361/2007 ženy na rizikových pracovištích, statistiky)
+    # M = muž, F = žena, X = jiné / neuvedeno. NULL = nevyplněno.
+    gender: Mapped[str | None] = mapped_column(String(1))
 
     # Kontakt
     email: Mapped[str | None] = mapped_column(String(255))

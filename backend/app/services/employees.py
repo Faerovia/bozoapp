@@ -47,6 +47,10 @@ async def get_employees(
     *,
     emp_status: str | None = None,
     employment_type: str | None = None,
+    plant_id: uuid.UUID | None = None,
+    workplace_id: uuid.UUID | None = None,
+    job_position_id: uuid.UUID | None = None,
+    gender: str | None = None,
 ) -> list[Employee]:
     query = (
         select(Employee)
@@ -57,6 +61,14 @@ async def get_employees(
         query = query.where(Employee.status == emp_status)
     if employment_type is not None:
         query = query.where(Employee.employment_type == employment_type)
+    if plant_id is not None:
+        query = query.where(Employee.plant_id == plant_id)
+    if workplace_id is not None:
+        query = query.where(Employee.workplace_id == workplace_id)
+    if job_position_id is not None:
+        query = query.where(Employee.job_position_id == job_position_id)
+    if gender is not None:
+        query = query.where(Employee.gender == gender)
 
     result = await db.execute(query)
     return list(result.scalars().all())

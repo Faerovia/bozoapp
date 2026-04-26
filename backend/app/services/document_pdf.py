@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fpdf import FPDF
 
@@ -48,8 +49,10 @@ def _font_path(filename: str) -> str:
 
 
 class _DocumentPdf(FPDF):
-    def __init__(self, tenant_name: str, doc_title: str) -> None:
-        super().__init__(orientation="P", unit="mm", format="A4")
+    def __init__(
+        self, tenant_name: str, doc_title: str, orientation: str = "P",
+    ) -> None:
+        super().__init__(orientation=orientation, unit="mm", format="A4")
         self.set_auto_page_break(auto=True, margin=18)
         self._tenant_name = tenant_name
         self._doc_title = doc_title
@@ -264,32 +267,119 @@ def _calc_col_widths(headers: list[str], rows: list[list[str]],
 
 
 def _render_table(pdf: FPDF, headers: list[str], rows: list[list[str]]) -> None:
+    """Manuální table renderer — explicitně používá DejaVu font v každé buňce.
+
+    fpdf2 native pdf.table() v některých případech nedrží set_font kontext
+    a fallbackuje na core (Helvetica), který nepodporuje českou diakritiku.
+    Proto všechny buňky kreslíme přes set_font + multi_cell.
+    """
     if not headers:
         return
     pdf.ln(2)
     total_width = pdf.w - pdf.l_margin - pdf.r_margin
     col_widths = _calc_col_widths(headers, rows, total_width)
+    n = len(headers)
 
-    # Použij nativní fpdf2 table API (text wrap automaticky přes multi_cell)
-    pdf.set_font(FONT, "", 8)
-    with pdf.table(
-        col_widths=tuple(col_widths),
-        text_align="LEFT",
-        line_height=5,
-        padding=1.5,
-        # Manuálně necháme styling header v každé buňce, fpdf2 to dělá auto
-    ) as table:
-        # Header row
-        header_row = table.row()
-        for h in headers:
-            header_row.cell(_strip_inline(h))
+    line_h = 5.0
+    pad = 1.0
 
-        # Data rows
-        for r in rows:
-            cells = list(r) + [""] * max(0, len(headers) - len(r))
-            row = table.row()
-            for c in cells[: len(headers)]:
-                row.cell(_strip_inline(str(c)) if c is not None else "—")
+    def _cell_lines(text: str, width: float, font_size: int) -> int:
+        """Spočítá počet řádků, které text zabere v buňce dané šířky."""
+        pdf.set_font(FONT, "", font_size)
+        # split_only=True vrátí list zalomených řádků bez tisku;
+        # fpdf2 ji ale typuje jako Union — přijmeme Any a sami zkontrolujeme.
+        try:
+            wrapped: Any = pdf.multi_cell(
+                width - 2 * pad, line_h, text, split_only=True,
+            )
+            if isinstance(wrapped, list):
+                return max(1, len(wrapped))
+        except Exception:  # noqa: BLE001
+            pass
+        # Fallback heuristika dle počtu znaků
+        char_w = font_size * 0.45 / 2
+        chars_per_line = max(1, int((width - 2 * pad) / char_w))
+        return max(1, (len(text) + chars_per_line - 1) // chars_per_line)
+
+    def _draw_row(
+        cells: list[str], font_size: int,
+        bold: bool = False, fill: tuple[int, int, int] | None = None,
+    ) -> None:
+        """Vykreslí jeden řádek tabulky s text wrap a borders."""
+        # Spočti výšku řádku = max počet zalomených řádků × line_h
+        max_lines = 1
+        for i, txt in enumerate(cells[:n]):
+            lines = _cell_lines(txt, col_widths[i], font_size)
+            if lines > max_lines:
+                max_lines = lines
+        row_h = max_lines * line_h + 2 * pad
+
+        # Page break pokud se nevejde
+        if pdf.get_y() + row_h > pdf.h - pdf.b_margin:
+            pdf.add_page()
+
+        x_start = pdf.l_margin
+        y_start = pdf.get_y()
+
+        # Pozadí
+        if fill is not None:
+            pdf.set_fill_color(*fill)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+
+        # Vykresli každou buňku jako multi_cell se správným fontem
+        x = x_start
+        pdf.set_font(FONT, "B" if bold else "", font_size)
+        for i, txt in enumerate(cells[:n]):
+            pdf.set_xy(x, y_start)
+            # Detekce **bold** markeru — uvnitř buňky
+            display = txt
+            cell_bold = bold
+            if not bold and txt.startswith("**") and txt.endswith("**") and len(txt) >= 4:
+                display = txt[2:-2]
+                cell_bold = True
+                pdf.set_font(FONT, "B", font_size)
+            else:
+                pdf.set_font(FONT, "B" if bold else "", font_size)
+
+            pdf.multi_cell(
+                col_widths[i], line_h, display,
+                border=0, align="L", fill=fill is not None,
+                new_x="RIGHT", new_y="TOP",
+                max_line_height=line_h,
+            )
+            if cell_bold and not bold:
+                pdf.set_font(FONT, "", font_size)
+            x += col_widths[i]
+
+        # Vykresli ohraničení celého řádku přes set_draw + line/rect
+        pdf.set_draw_color(180, 180, 180)
+        pdf.set_line_width(0.1)
+        x = x_start
+        for i in range(n):
+            pdf.rect(x, y_start, col_widths[i], row_h)
+            x += col_widths[i]
+
+        # Posuň kurzor pod řádek
+        pdf.set_xy(x_start, y_start + row_h)
+
+    header_size = 8
+    body_size = 8
+
+    # Header
+    _draw_row(
+        [_strip_inline(h) for h in headers],
+        font_size=header_size, bold=True,
+        fill=(220, 230, 245),
+    )
+
+    # Body
+    for ridx, r in enumerate(rows):
+        cells = [_strip_inline(str(c)) if c is not None else "—" for c in r]
+        cells += [""] * max(0, n - len(cells))
+        shade = (248, 250, 252) if ridx % 2 == 1 else None
+        _draw_row(cells, font_size=body_size, bold=False, fill=shade)
+
     pdf.ln(2)
 
 
@@ -373,7 +463,11 @@ def _render_markdown(pdf: FPDF, md: str) -> None:
 
 def render_document_pdf(doc: GeneratedDocument, tenant: Tenant) -> bytes:
     """Vrátí PDF bytes pro daný GeneratedDocument."""
-    pdf = _DocumentPdf(tenant.name, doc.title)
+    # Wide-table dokumenty (RFA seznam) renderujeme na landscape A4,
+    # aby se vešlo 13 sloupců rizikových faktorů + identifikace + kat.
+    wide_layout = doc.document_type == "risk_categorization"
+    orientation = "L" if wide_layout else "P"
+    pdf = _DocumentPdf(tenant.name, doc.title, orientation=orientation)
     pdf.add_page()
 
     # Hlavička dokumentu na první stránce

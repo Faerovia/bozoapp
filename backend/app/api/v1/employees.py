@@ -56,18 +56,26 @@ class ImportResponse(BaseModel):
 async def list_employees(
     emp_status: str | None = Query(None, pattern="^(active|terminated|on_leave)$"),
     employment_type: str | None = Query(None),
+    plant_id: uuid.UUID | None = Query(None),
+    workplace_id: uuid.UUID | None = Query(None),
+    job_position_id: uuid.UUID | None = Query(None),
+    gender: str | None = Query(None, pattern="^(M|F|X)$"),
     current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     """
     Vrátí seznam zaměstnanců tenantu.
-    Filtry: ?emp_status=active|terminated|on_leave, ?employment_type=hpp|dpp|...
+    Filtry: emp_status, employment_type, plant_id, workplace_id, job_position_id, gender (M/F/X).
     Přístup: ozo, manager.
     """
     return await get_employees(
         db, current_user.tenant_id,
         emp_status=emp_status,
         employment_type=employment_type,
+        plant_id=plant_id,
+        workplace_id=workplace_id,
+        job_position_id=job_position_id,
+        gender=gender,
     )
 
 

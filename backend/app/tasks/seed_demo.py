@@ -621,28 +621,44 @@ async def seed(db: AsyncSession) -> None:
 
     # ── Platform admin ───────────────────────────────────────────────
     log.info("Creating platform admin user...")
-    admin_tenant = Tenant(name="Platform", slug="platform")
-    db.add(admin_tenant)
-    await db.flush()
+    # Reuse existing Platform tenant pokud existuje (z předchozího seed nebo
+    # z create_platform_admin.py). Vyhneme se UniqueViolationError na slug.
+    admin_tenant = (await db.execute(
+        select(Tenant).where(Tenant.slug.in_(["platform", "__platform__"]))
+    )).scalars().first()
+    if admin_tenant is None:
+        admin_tenant = Tenant(name="Platform", slug="platform")
+        db.add(admin_tenant)
+        await db.flush()
 
-    admin_user = User(
-        tenant_id=admin_tenant.id,
-        email="admin@demo.cz",
-        hashed_password=hash_password(PASSWORD),
-        full_name="Platform Admin",
-        role="admin",
-        is_active=True,
-        is_platform_admin=True,
-    )
-    db.add(admin_user)
-    await db.flush()
-    db.add(UserTenantMembership(
-        user_id=admin_user.id,
-        tenant_id=admin_tenant.id,
-        role="admin",
-        is_default=True,
-    ))
-    await db.flush()
+    admin_user = (await db.execute(
+        select(User).where(User.email == "admin@demo.cz")
+    )).scalar_one_or_none()
+    if admin_user is None:
+        admin_user = User(
+            tenant_id=admin_tenant.id,
+            email="admin@demo.cz",
+            hashed_password=hash_password(PASSWORD),
+            full_name="Platform Admin",
+            role="admin",
+            is_active=True,
+            is_platform_admin=True,
+        )
+        db.add(admin_user)
+        await db.flush()
+        db.add(UserTenantMembership(
+            user_id=admin_user.id,
+            tenant_id=admin_tenant.id,
+            role="admin",
+            is_default=True,
+        ))
+        await db.flush()
+    else:
+        # Refresh password (kdyby admin byl z předchozí instalace)
+        admin_user.hashed_password = hash_password(PASSWORD)
+        admin_user.is_platform_admin = True
+        admin_user.is_active = True
+        await db.flush()
 
     # ── OZO user (multi-client) ──────────────────────────────────────
     log.info("Creating OZO user...")

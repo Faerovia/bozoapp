@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, FileText, Sparkles, Loader2, Upload,
 } from "lucide-react";
@@ -51,11 +51,14 @@ function GenerateDialog({
   open,
   onClose,
   onGenerated,
+  folderId,
 }: {
   open: boolean;
   onClose: () => void;
   onGenerated: (id: string) => void;
+  folderId: string | null;
 }) {
+  const qc = useQueryClient();
   const [docType, setDocType] = useState<DocumentType>("revision_schedule");
   const [positionId, setPositionId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -73,10 +76,13 @@ function GenerateDialog({
       return api.post<GeneratedDocument>("/documents/generate", {
         document_type: docType,
         params,
+        folder_id: folderId,
       });
     },
     onSuccess: (doc) => {
       setError(null);
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["document-folders"] });
       onGenerated(doc.id);
     },
     onError: (err) => setError(errMsg(err)),
@@ -301,6 +307,7 @@ export default function DocumentsPage() {
       <GenerateDialog
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
+        folderId={selectedFolderId === undefined ? null : selectedFolderId}
         onGenerated={(id) => {
           setGenerateOpen(false);
           setSelectedId(id);

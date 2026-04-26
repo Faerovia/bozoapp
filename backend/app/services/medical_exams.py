@@ -249,11 +249,13 @@ async def create_medical_exam(
 
     valid_months = data.valid_months
     valid_until = data.valid_until
-    # Auto-výpočet lhůty pro periodickou prohlídku, pokud OZO nezadal ručně
+    # Auto-výpočet lhůty pro periodickou prohlídku — jen pokud OZO zadal exam_date
+    # (pokud chybí, prohlídka neproběhla → necháme valid_until=None → expired)
     if (
         data.exam_type == "periodicka"
         and valid_months is None
         and valid_until is None
+        and data.exam_date is not None
     ):
         valid_months = await _resolve_periodic_months(
             db,
@@ -350,11 +352,12 @@ async def generate_initial_exam_requests(
         e.exam_type == "vstupni" and e.validity_status != "expired" for e in existing
     )
 
-    today = date.today()
     created_exams: list[MedicalExam] = []
     skipped: list[str] = []
 
     # 1) Vstupní preventivní prohlídka — vždy
+    # Auto-generovaná: exam_date a valid_until zůstávají NULL → status 'expired'
+    # = prohlídka byla naplánována, ale neproběhla (musí být provedena).
     if not has_vstupni:
         exam = MedicalExam(
             tenant_id=tenant_id,
@@ -363,8 +366,9 @@ async def generate_initial_exam_requests(
             job_position_id=job_position_id,
             exam_category="preventivni",
             exam_type="vstupni",
-            exam_date=today,
-            notes="Auto-vygenerováno na základě nástupu zaměstnance.",
+            exam_date=None,
+            valid_until=None,
+            notes="Auto-vygenerováno — prohlídka musí být provedena.",
         )
         db.add(exam)
         created_exams.append(exam)
@@ -412,10 +416,14 @@ async def generate_initial_exam_requests(
             exam_category="odborna",
             exam_type="odborna",
             specialty=specialty,
-            exam_date=today,
+            # Auto-generovaná: exam_date a valid_until NULL → status 'expired'.
+            # OZO/lékař doplní reálné datum po provedení prohlídky.
+            exam_date=None,
+            valid_until=None,
             valid_months=valid_months,
             notes=(
-                f"Auto-vygenerováno na základě faktoru {source_factor} = {factor_rating}."
+                f"Auto-vygenerováno na základě faktoru {source_factor} = {factor_rating}. "
+                "Prohlídka musí být provedena."
             ),
         )
         db.add(exam)

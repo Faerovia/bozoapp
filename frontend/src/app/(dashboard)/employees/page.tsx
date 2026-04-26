@@ -51,6 +51,8 @@ const schema = z.object({
   personal_id:      z.string().optional(),       // rodné číslo
   personal_number:  z.string().optional(),       // osobní číslo ve firmě
   birth_date:       z.string().optional(),
+  gender:           z.enum(["M", "F", "X"] as const).or(z.literal("")).optional()
+                     .transform(v => v === "" ? null : (v ?? null)),
 
   // Kontakt — email je povinný (vytvoří přihlašovací účet)
   email:            z.string().email("Neplatný email"),
@@ -433,8 +435,8 @@ function EmployeeForm({
         </div>
       </div>
 
-      {/* Datum narození + nástupu */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Datum narození + nástupu + pohlaví */}
+      <div className="grid grid-cols-3 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="birth_date">Datum narození</Label>
           <Input id="birth_date" type="date" {...register("birth_date")} />
@@ -442,6 +444,15 @@ function EmployeeForm({
         <div className="space-y-1.5">
           <Label htmlFor="hired_at">Datum nástupu</Label>
           <Input id="hired_at" type="date" {...register("hired_at")} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="gender">Pohlaví</Label>
+          <select id="gender" {...register("gender")} className={SELECT_CLS}>
+            <option value="">— neuvedeno —</option>
+            <option value="M">Muž</option>
+            <option value="F">Žena</option>
+            <option value="X">Jiné</option>
+          </select>
         </div>
       </div>
 
@@ -810,6 +821,10 @@ function PasswordModal({
 export default function EmployeesPage() {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [plantFilter, setPlantFilter] = useState<string>("");
+  const [workplaceFilter, setWorkplaceFilter] = useState<string>("");
+  const [positionFilter, setPositionFilter] = useState<string>("");
+  const [genderFilter, setGenderFilter] = useState<string>("");
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -817,8 +832,17 @@ export default function EmployeesPage() {
   const [passwordModal, setPasswordModal] = useState<{ password: string; email: string | null } | null>(null);
 
   const { data: employeesRaw = [], isLoading } = useQuery<Employee[]>({
-    queryKey: ["employees", statusFilter],
-    queryFn: () => api.get(`/employees${statusFilter ? `?emp_status=${statusFilter}` : ""}`),
+    queryKey: ["employees", statusFilter, plantFilter, workplaceFilter, positionFilter, genderFilter],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (statusFilter)    params.set("emp_status", statusFilter);
+      if (plantFilter)     params.set("plant_id", plantFilter);
+      if (workplaceFilter) params.set("workplace_id", workplaceFilter);
+      if (positionFilter)  params.set("job_position_id", positionFilter);
+      if (genderFilter)    params.set("gender", genderFilter);
+      const qs = params.toString();
+      return api.get(`/employees${qs ? `?${qs}` : ""}`);
+    },
   });
   const {
     sortedItems: employees,
@@ -907,6 +931,7 @@ export default function EmployeesPage() {
       />
 
       <div className="p-6 space-y-4">
+        {/* Statusový filtr (rychlé záložky) */}
         <div className="flex items-center gap-2">
           {(["", "active", "terminated", "on_leave"] as const).map(val => (
             <button
@@ -930,6 +955,96 @@ export default function EmployeesPage() {
           >
             <Download className="h-3.5 w-3.5 mr-1" />
             PDF
+          </Button>
+        </div>
+
+        {/* Pokročilé filtry: provozovna → pracoviště → pozice + pohlaví */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end bg-gray-50 border border-gray-200 rounded-md p-3">
+          <div>
+            <Label htmlFor="f-plant" className="text-xs text-gray-600">Provozovna</Label>
+            <select
+              id="f-plant"
+              value={plantFilter}
+              onChange={(e) => {
+                setPlantFilter(e.target.value);
+                setWorkplaceFilter("");
+                setPositionFilter("");
+              }}
+              className={SELECT_CLS}
+            >
+              <option value="">— vše —</option>
+              {plants.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <Label htmlFor="f-workplace" className="text-xs text-gray-600">Pracoviště</Label>
+            <select
+              id="f-workplace"
+              value={workplaceFilter}
+              onChange={(e) => {
+                setWorkplaceFilter(e.target.value);
+                setPositionFilter("");
+              }}
+              disabled={!plantFilter}
+              className={SELECT_CLS}
+            >
+              <option value="">— vše —</option>
+              {workplaces
+                .filter((w) => !plantFilter || w.plant_id === plantFilter)
+                .map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <Label htmlFor="f-position" className="text-xs text-gray-600">Pozice</Label>
+            <select
+              id="f-position"
+              value={positionFilter}
+              onChange={(e) => setPositionFilter(e.target.value)}
+              disabled={!workplaceFilter}
+              className={SELECT_CLS}
+            >
+              <option value="">— vše —</option>
+              {jobPositions
+                .filter((p) => !workplaceFilter || p.workplace_id === workplaceFilter)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <Label htmlFor="f-gender" className="text-xs text-gray-600">Pohlaví</Label>
+            <select
+              id="f-gender"
+              value={genderFilter}
+              onChange={(e) => setGenderFilter(e.target.value)}
+              className={SELECT_CLS}
+            >
+              <option value="">— vše —</option>
+              <option value="M">Muž</option>
+              <option value="F">Žena</option>
+              <option value="X">Jiné / neuvedeno</option>
+            </select>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!plantFilter && !workplaceFilter && !positionFilter && !genderFilter}
+            onClick={() => {
+              setPlantFilter("");
+              setWorkplaceFilter("");
+              setPositionFilter("");
+              setGenderFilter("");
+            }}
+          >
+            Vyčistit filtry
           </Button>
         </div>
 
@@ -1139,6 +1254,7 @@ function EditEmployeeBody({
         phone:           employee.phone ?? "",
         hired_at:        employee.hired_at ?? "",
         birth_date:      employee.birth_date ?? "",
+        gender:          employee.gender ?? null,
         personal_id:     employee.personal_id ?? "",
         personal_number: employee.personal_number ?? "",
         address_street:  employee.address_street ?? "",

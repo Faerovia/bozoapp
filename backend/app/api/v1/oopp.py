@@ -205,6 +205,51 @@ async def archive_oopp_item(
 # ── Issues (záznam výdeje OOPP zaměstnanci) ─────────────────────────────────
 
 
+@router.get("/oopp/issues.pdf")
+async def export_issues_pdf(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """PDF přehled vydaných OOPP zaměstnancům s osobním číslem."""
+    from fastapi.responses import Response
+
+    from app.models.tenant import Tenant
+    from app.services.export_pdf import generate_oopp_issues_pdf
+
+    issues = await get_issues(
+        db, current_user.tenant_id, status="active",
+    )
+    issue_dicts = [await issue_to_response_dict(db, i) for i in issues]
+
+    # Doplň personal_number per employee
+    from sqlalchemy import select
+
+    from app.models.employee import Employee
+    emp_ids = {iss.get("employee_id") for iss in issue_dicts if iss.get("employee_id")}
+    if emp_ids:
+        rows = (await db.execute(
+            select(Employee).where(Employee.id.in_(emp_ids))
+        )).scalars().all()
+        emp_map = {str(e.id): e for e in rows}
+        for iss in issue_dicts:
+            emp = emp_map.get(str(iss.get("employee_id")))
+            if emp is not None:
+                iss["personal_number"] = emp.personal_number
+
+    tenant = (await db.execute(
+        select(Tenant).where(Tenant.id == current_user.tenant_id)
+    )).scalar_one()
+    pdf_bytes = generate_oopp_issues_pdf(issue_dicts, tenant.name)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="oopp-vydeje.pdf"',
+        },
+    )
+
+
 @router.get("/oopp/issues", response_model=list[IssueResponse])
 async def list_issues(
     employee_id: uuid.UUID | None = Query(None),

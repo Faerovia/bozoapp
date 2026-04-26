@@ -53,7 +53,68 @@ async def test_generate_risk_categorization_empty(client: AsyncClient) -> None:
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["document_type"] == "risk_categorization"
-    assert "Kategorizace prací" in body["title"]
+    assert "Seznam rizikových faktorů" in body["title"]
+    # Hlavička dokumentu (i pro prázdný tenant) musí obsahovat odkaz na NV 361/2007
+    assert "NV č. 361/2007" in body["content_md"]
+
+
+@pytest.mark.asyncio
+async def test_generate_risk_categorization_with_data(client: AsyncClient) -> None:
+    """RFA dokument obsahuje Excel-like tabulku s 13 RF sloupci a počtem pracovníků."""
+    headers = await _ozo_headers(client, "drfa")
+
+    plant = (await client.post(
+        "/api/v1/plants",
+        json={"name": "Provozovna A", "ico": "12345678", "address": "Hlavní 1"},
+        headers=headers,
+    )).json()
+    workplace = (await client.post(
+        "/api/v1/workplaces",
+        json={"plant_id": plant["id"], "name": "Lakovna"},
+        headers=headers,
+    )).json()
+    position = (await client.post(
+        "/api/v1/job-positions",
+        json={"workplace_id": workplace["id"], "name": "Lakýrník"},
+        headers=headers,
+    )).json()
+    # POST /job-positions auto-vytvoří RFA stub — tady jen vyplníme pole
+    rfa = (await client.get(
+        f"/api/v1/job-positions/{position['id']}/risk-assessment",
+        headers=headers,
+    )).json()
+    await client.patch(
+        f"/api/v1/risk-factors/{rfa['id']}",
+        json={
+            "worker_count": 12,
+            "women_count": 3,
+            "operator_names": "Novák, Svoboda",
+            "rf_hluk": "3",
+            "rf_chem": "2R",
+        },
+        headers=headers,
+    )
+
+    resp = await client.post(
+        "/api/v1/documents/generate",
+        json={"document_type": "risk_categorization"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    md = resp.json()["content_md"]
+
+    # Excel-like header
+    assert "Provozovna A" in md
+    assert "Lakovna" in md
+    assert "Lakýrník" in md
+    assert "Novák" in md
+    assert "12/3" in md
+    # Tabulka má 13 RF sloupců + Profese/Pracoviště/Obsluha/Počet/Kat.
+    for col in ["Profese", "Pracoviště", "Obsluha", "Počet", "Hluk", "Chem.", "Kat."]:
+        assert col in md, f"Sloupec '{col}' chybí v MD: {md[:500]}"
+    # Hodnocení faktorů se propíše do správných sloupců
+    assert "| 3 |" in md  # rf_hluk
+    assert "| 2R |" in md  # rf_chem
 
 
 @pytest.mark.asyncio

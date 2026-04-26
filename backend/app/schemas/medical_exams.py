@@ -13,7 +13,8 @@ class MedicalExamCreateRequest(BaseModel):
     exam_category: str = Field("preventivni", pattern=EXAM_CATEGORY_PATTERN)
     exam_type: str = Field(..., pattern=EXAM_TYPE_PATTERN)
     specialty: str | None = Field(None, max_length=50)
-    exam_date: date
+    # NULL = prohlídka byla naplánována ale neproběhla (auto-gen z RFA)
+    exam_date: date | None = None
     result: str | None = Field(
         None,
         pattern="^(zpusobily|zpusobily_omezeni|nezpusobily|pozbyl_zpusobilosti)$",
@@ -41,8 +42,12 @@ class MedicalExamCreateRequest(BaseModel):
                     "exam_type='odborna' není platný pro exam_category='preventivni'.",
                 )
 
-        # Auto-výpočet valid_until z valid_months
-        if self.valid_until is None and self.valid_months is not None:
+        # Auto-výpočet valid_until z valid_months (jen pokud je exam_date)
+        if (
+            self.valid_until is None
+            and self.valid_months is not None
+            and self.exam_date is not None
+        ):
             import calendar
             d = self.exam_date
             month = d.month + self.valid_months
@@ -83,7 +88,7 @@ class MedicalExamResponse(BaseModel):
     exam_type: str
     specialty: str | None
     specialty_label: str | None = None    # lidsky čitelné z catalogu
-    exam_date: date
+    exam_date: date | None
     result: str | None
     physician_name: str | None
     valid_months: int | None

@@ -63,6 +63,7 @@ async def generate_document_endpoint(
             document_type=data.document_type,
             params=data.params,
             created_by=current_user.id,
+            folder_id=data.folder_id,
         )
     except RuntimeError as e:
         # Anthropic API klíč chybí

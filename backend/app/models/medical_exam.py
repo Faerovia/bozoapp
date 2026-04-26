@@ -60,7 +60,10 @@ class MedicalExam(Base, TimestampMixin):
     )
     exam_type: Mapped[str] = mapped_column(String(20), nullable=False)
     specialty: Mapped[str | None] = mapped_column(String(50))  # jen pro odborné
-    exam_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # NULL = prohlídka byla naplánována (auto-vygenerována na základě RFA),
+    # ale dosud neproběhla → validity_status vrací 'expired'.
+    # Migrace 044.
+    exam_date: Mapped[date | None] = mapped_column(Date)
     result: Mapped[str | None] = mapped_column(String(30))
 
     physician_name: Mapped[str | None] = mapped_column(String(255))
@@ -83,11 +86,14 @@ class MedicalExam(Base, TimestampMixin):
     def validity_status(self) -> str:
         """
         Stav platnosti prohlídky:
-          no_expiry     – prohlídka bez stanoveného termínu platnosti
+          expired       – prohlídka neproběhla (exam_date IS NULL) NEBO valid_until je v minulosti
+          no_expiry     – proběhla, ale nemá stanoven termín dalšího vyšetření
           valid         – platná
           expiring_soon – vyprší do EXPIRING_SOON_DAYS dnů
-          expired       – prošlá
         """
+        # Auto-vygenerovaná prohlídka bez exam_date = neproběhla = expired
+        if self.exam_date is None:
+            return "expired"
         if self.valid_until is None:
             return "no_expiry"
         today = date.today()

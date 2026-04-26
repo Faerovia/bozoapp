@@ -81,6 +81,7 @@ export interface Employee {
   personal_id: string | null;
   personal_number: string | null;
   birth_date: string | null;
+  gender: "M" | "F" | "X" | null;
   email: string | null;
   phone: string | null;
   address_street: string | null;

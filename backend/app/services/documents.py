@@ -147,6 +147,14 @@ async def _get_workplace_tree(
                         {RF_LABELS[f]: getattr(rfa, f) for f in RF_FIELDS if getattr(rfa, f)}
                         if rfa else {}
                     ),
+                    # Plná data pro NV 361/2007 tabulku (Excel-like layout)
+                    "operator_names": (rfa.operator_names if rfa else None),
+                    "worker_count": (rfa.worker_count if rfa else 0),
+                    "women_count": (rfa.women_count if rfa else 0),
+                    "rf_values": (
+                        {f: getattr(rfa, f) for f in RF_FIELDS}
+                        if rfa else dict.fromkeys(RF_FIELDS)
+                    ),
                 })
             wp_list.append({"name": wp.name, "notes": wp.notes, "positions": positions})
         out.append({
@@ -275,64 +283,189 @@ async def _gen_revision_schedule(
     return title, "\n".join(md)
 
 
+# Kompaktní zkratky RF pro Excel-like tabulku (musí se vejít do landscape A4)
+_RF_SHORT_LABELS = {
+    "rf_prach":       "Prach",
+    "rf_chem":        "Chem.",
+    "rf_hluk":        "Hluk",
+    "rf_vibrace":     "Vibr.",
+    "rf_zareni":      "Záření",
+    "rf_tlak":        "Tlak",
+    "rf_fyz_zatez":   "Fyz.z.",
+    "rf_prac_poloha": "Poloha",
+    "rf_teplo":       "Teplo",
+    "rf_chlad":       "Chlad",
+    "rf_psych":       "Psych.",
+    "rf_zrak":        "Zrak",
+    "rf_bio":         "Bio",
+}
+
+
 async def _gen_risk_categorization(
     db: AsyncSession, tenant_id: uuid.UUID, params: dict[str, Any],
+    created_by: uuid.UUID | None = None,
 ) -> tuple[str, str]:
-    """Tabulka kategorie rizik per pozice — z RFA, bez AI."""
+    """Seznam rizikových faktorů pracovního prostředí (NV 361/2007 Sb.).
+
+    Layout napodobuje Excel "Seznam rizikových faktorů": jeden řádek =
+    (profese × pracoviště) s počty pracovníků, 13 hodnocení faktorů a
+    návrhem kategorie. Per-provozovna sekce.
+
+    Na konec dokumentu se přidá podpisová sekce (Jednatel + OZO).
+    """
     tenant = await _get_tenant(db, tenant_id)
     tree = await _get_workplace_tree(db, tenant_id)
 
-    today = datetime.now(UTC).date().isoformat()
-    title = f"Kategorizace prací — {tenant.name}"
+    # Načti jméno OZO (autora dokumentu) — pokud nelze, použij placeholder
+    ozo_name = "[DOPLŇTE: jméno OZO BOZP]"
+    if created_by is not None:
+        from app.models.user import User
+        user_res = await db.execute(select(User).where(User.id == created_by))
+        user = user_res.scalar_one_or_none()
+        if user is not None:
+            ozo_name = user.full_name or user.email or ozo_name
 
-    md = [
-        "# Kategorizace prací dle NV 361/2007 Sb.",
-        f"**{tenant.name}**",
+    # Jednatel — z params (může vyplnit OZO před generováním) nebo placeholder
+    director_name = (
+        params.get("director_name") or "[DOPLŇTE: jméno jednatele]"
+    )
+
+    today = datetime.now(UTC).date().isoformat()
+    title = f"Seznam rizikových faktorů — {tenant.name}"
+
+    # Hlavička — obchodní jméno, IČO, sídlo (z billing údajů Tenant)
+    md: list[str] = [
+        "# Seznam rizikových faktorů pracovního prostředí",
         "",
-        f"Vystaveno: {today}",
+        "_dle § 37 odst. 2 zákona č. 258/2000 Sb. a NV č. 361/2007 Sb._",
         "",
-        "---",
-        "",
+        f"**Obchodní jméno:** {tenant.billing_company_name or tenant.name}",
     ]
+    if tenant.billing_ico:
+        md.append(f"**IČO:** {tenant.billing_ico}")
+    sidlo_parts = [
+        tenant.billing_address_street,
+        tenant.billing_address_zip,
+        tenant.billing_address_city,
+    ]
+    sidlo = ", ".join(p for p in sidlo_parts if p)
+    if sidlo:
+        md.append(f"**Sídlo:** {sidlo}")
+    md.append("")
+    md.append(f"_Vystaveno: {today}_")
+    md.append("")
+    md.append("---")
+    md.append("")
 
     if not tree:
         md.append("*Žádná provozovna není v evidenci.*")
         return title, "\n".join(md)
 
+    headers = (
+        ["Profese", "Pracoviště", "Obsluha", "Počet (M/Ž)"]
+        + [_RF_SHORT_LABELS[f] for f in RF_FIELDS]
+        + ["Kat."]
+    )
+
+    total_rows = 0
+    cat3_plus = 0
+
     for plant in tree:
-        md.append(f"## {plant['name']}")
+        md.append(f"## Provozovna: {plant['name']}")
         addr_parts = [plant.get("address"), plant.get("city")]
         addr = ", ".join(p for p in addr_parts if p)
         if addr:
             md.append(f"_{addr}_")
         md.append("")
+
         if not plant["workplaces"]:
             md.append("*Žádná pracoviště.*")
             md.append("")
             continue
 
+        rows: list[list[str]] = []
+        # Pomocný state pro mergování stejné profese po sobě jdoucích řádků
+        # (vizuální zjednodušení — Markdown tabulka mergování nepodporuje
+        # nativně, ale vyprázdníme buňku jak v Excelu).
+        last_profese: str | None = None
         for wp in plant["workplaces"]:
-            md.append(f"### Pracoviště: {wp['name']}")
-            md.append("")
-            if not wp["positions"]:
-                md.append("*Žádné pozice.*")
-                md.append("")
-                continue
-            rows = []
             for pos in wp["positions"]:
-                ratings_str = ", ".join(
-                    f"{k}: {v}" for k, v in pos["rfa_ratings"].items()
-                ) or "—"
+                rf_vals: dict[str, str | None] = pos.get("rf_values", {})
+                worker = pos.get("worker_count") or 0
+                women = pos.get("women_count") or 0
+                pocet = f"{worker}/{women}" if (worker or women) else "—"
+
+                profese_cell = pos["name"] if pos["name"] != last_profese else ""
+                last_profese = pos["name"]
+
+                cat = pos["category"] or "—"
+                if cat in ("3", "4"):
+                    cat3_plus += 1
+                cat_cell = f"**{cat}**" if cat != "—" else "—"
+
                 rows.append([
-                    pos["name"],
-                    pos["category"] or "neurčeno",
-                    ratings_str,
+                    profese_cell,
+                    wp["name"],
+                    pos.get("operator_names") or "",
+                    pocet,
+                    *[(rf_vals.get(f) or "") for f in RF_FIELDS],
+                    cat_cell,
                 ])
-            md.append(_md_table(
-                ["Pozice", "Celková kategorie", "Hodnocení faktorů"],
-                rows,
-            ))
+                total_rows += 1
+
+        if not rows:
+            md.append("*Žádné pozice s hodnocením.*")
             md.append("")
+            continue
+
+        md.append(_md_table(headers, rows))
+        md.append("")
+
+    # Souhrn + legenda
+    md.append("---")
+    md.append("")
+    md.append(
+        f"**Celkem hodnocených profesí:** {total_rows}  ·  "
+        f"**Kategorie 3 a vyšší:** {cat3_plus}"
+    )
+    md.append("")
+    md.append(
+        "**Vysvětlivky kategorií:** "
+        "1 = nejnižší riziko · 2 = přijatelné · 2R = riziková (přesahy ojediněle) · "
+        "3 = zvýšené riziko · 4 = vysoké riziko"
+    )
+    md.append("")
+    md.append(
+        "**Legenda zkratek faktorů:** "
+        + " · ".join(
+            f"{_RF_SHORT_LABELS[f]} = {RF_LABELS[f]}" for f in RF_FIELDS
+        )
+    )
+
+    # ── Podpisová sekce ─────────────────────────────────────────────────────
+    md.append("")
+    md.append("---")
+    md.append("")
+    md.append("## Podpisy")
+    md.append("")
+    md.append("**Vyhodnocení rizikových faktorů provedl(a):**")
+    md.append("")
+    md.append(f"Odborně způsobilá osoba v BOZP: **{ozo_name}**")
+    md.append("")
+    md.append(
+        "Datum: ____________________     "
+        "Podpis: _______________________________________"
+    )
+    md.append("")
+    md.append("")
+    md.append("**Schvaluje:**")
+    md.append("")
+    md.append(f"Jednatel společnosti: **{director_name}**")
+    md.append("")
+    md.append(
+        "Datum: ____________________     "
+        "Podpis: _______________________________________"
+    )
 
     return title, "\n".join(md)
 
@@ -547,13 +680,22 @@ async def generate_document(
     document_type: str,
     params: dict[str, Any],
     created_by: uuid.UUID,
+    folder_id: uuid.UUID | None = None,
 ) -> GeneratedDocument:
     """Vygeneruje a uloží dokument."""
+    if folder_id is not None:
+        from app.models.document_folder import DocumentFolder
+        await assert_in_tenant(
+            db, DocumentFolder, folder_id, tenant_id, field_name="folder_id",
+        )
+
     if document_type == "revision_schedule":
         title, content = await _gen_revision_schedule(db, tenant_id, params)
         in_tokens = out_tokens = None
     elif document_type == "risk_categorization":
-        title, content = await _gen_risk_categorization(db, tenant_id, params)
+        title, content = await _gen_risk_categorization(
+            db, tenant_id, params, created_by=created_by,
+        )
         in_tokens = out_tokens = None
     elif document_type == "bozp_directive":
         title, content, in_tokens, out_tokens = await _gen_bozp_directive(
@@ -569,6 +711,7 @@ async def generate_document(
     doc = GeneratedDocument(
         tenant_id=tenant_id,
         document_type=document_type,
+        folder_id=folder_id,
         title=title,
         content_md=content,
         params=params,

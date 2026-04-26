@@ -98,14 +98,25 @@ class _ExportPDF(FPDF):
         self.ln()
 
     def table_row(self, values: list[tuple[str, int]], shade: bool = False) -> None:
-        """Vykreslí jeden řádek tabulky."""
+        """
+        Vykreslí jeden řádek tabulky. Texty se automaticky ořezávají na
+        skutečnou šířku buňky (s ellipsis), takže nepřesahují přes hranici.
+        """
         self.set_font(FONT, style="", size=7)
         if shade:
             self.set_fill_color(245, 248, 252)
         else:
             self.set_fill_color(255, 255, 255)
         for text, w in values:
-            self.cell(w, 6, str(text)[:60] if text else "—", border=1, fill=True, new_x="RIGHT", new_y="TOP")  # noqa: E501
+            s = str(text) if text else "—"
+            # Vnitřní padding cell (cca 1 mm na každou stranu)
+            usable_w = w - 2.0
+            if self.get_string_width(s) > usable_w:
+                # Zkrať dokud se nevejde + přidej "…"
+                while s and self.get_string_width(s + "…") > usable_w:
+                    s = s[:-1]
+                s = s + "…" if s else "…"
+            self.cell(w, 6, s, border=1, fill=True, new_x="RIGHT", new_y="TOP")
         self.ln()
 
     def section_note(self, text: str) -> None:
@@ -423,6 +434,67 @@ def generate_medical_exams_pdf(
     )
     pdf.section_note(
         f"Celkem záznamů: {len(exams)}   |   "
+        f"Prošlé: {expired_count}   |   Brzy vyprší: {expiring_count}"
+    )
+    return bytes(pdf.output())
+
+
+def generate_oopp_issues_pdf(
+    issues: list[dict[str, Any]],
+    tenant_name: str,
+) -> bytes:
+    """
+    Přehled vydaných OOPP zaměstnancům. Každý issue obsahuje
+    employee_name, personal_number, oopp_name, body_part, issued_at,
+    valid_until, validity_status, size_spec, serial_number, quantity.
+    """
+    VALIDITY_LABELS = {  # noqa: N806
+        "valid": "Platné",
+        "expiring_soon": "Brzy vyprší",
+        "expired": "Prošlé",
+        "no_expiry": "Bez termínu",
+    }
+
+    pdf = _ExportPDF("PŘEHLED VYDANÝCH OOPP", tenant_name)
+
+    cols = [
+        ("Jméno + os. číslo",  60),
+        ("OOPP",               50),
+        ("Část těla",          25),
+        ("Velikost",           20),
+        ("Mn.",                10),
+        ("Vydáno",             22),
+        ("Platí do",           22),
+        ("Status",             24),
+        ("Sériové č.",         44),
+    ]
+    pdf.table_header(cols)
+
+    for i, iss in enumerate(issues):
+        emp_name = iss.get("employee_name") or "—"
+        personal = iss.get("personal_number") or ""
+        emp_label = f"{emp_name} ({personal})" if personal else emp_name
+        validity = iss.get("validity_status") or "no_expiry"
+        pdf.table_row([
+            (emp_label, 60),
+            (iss.get("oopp_name") or "—", 50),
+            (iss.get("body_part") or "—", 25),
+            (iss.get("size_spec") or "—", 20),
+            (str(iss.get("quantity", 1)), 10),
+            (_fmt_date(iss.get("issued_at")), 22),
+            (_fmt_date(iss.get("valid_until")), 22),
+            (VALIDITY_LABELS.get(validity, validity), 24),
+            (iss.get("serial_number") or "—", 44),
+        ], shade=i % 2 == 1)
+
+    expired_count = sum(
+        1 for i in issues if i.get("validity_status") == "expired"
+    )
+    expiring_count = sum(
+        1 for i in issues if i.get("validity_status") == "expiring_soon"
+    )
+    pdf.section_note(
+        f"Celkem výdejů: {len(issues)}   |   "
         f"Prošlé: {expired_count}   |   Brzy vyprší: {expiring_count}"
     )
     return bytes(pdf.output())

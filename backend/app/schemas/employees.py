@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 EmploymentType = Literal["hpp", "dpp", "dpc", "externista", "brigádník"]
 EmployeeStatus = Literal["active", "terminated", "on_leave"]
+Gender = Literal["M", "F", "X"]
 
 
 class EmployeeCreateRequest(BaseModel):
@@ -34,6 +35,7 @@ class EmployeeCreateRequest(BaseModel):
     personal_number: str | None = Field(None, max_length=50)
     # Osobní číslo u zaměstnavatele (unikátní v tenantu).
     birth_date: date | None = None
+    gender: Gender | None = None
 
     email: str | None = Field(None, max_length=255)
     phone: str | None = Field(None, max_length=50)
@@ -61,6 +63,7 @@ class EmployeeUpdateRequest(BaseModel):
     personal_id: str | None = Field(None, max_length=20)
     personal_number: str | None = Field(None, max_length=50)
     birth_date: date | None = None
+    gender: Gender | None = None
     email: str | None = Field(None, max_length=255)
     phone: str | None = Field(None, max_length=50)
     address_street: str | None = Field(None, max_length=200)
@@ -92,6 +95,7 @@ class EmployeeResponse(BaseModel):
     personal_id: str | None
     personal_number: str | None
     birth_date: date | None
+    gender: str | None = None
     email: str | None
     phone: str | None
     address_street: str | None

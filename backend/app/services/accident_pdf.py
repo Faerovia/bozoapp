@@ -77,10 +77,28 @@ class _ReportPDF(FPDF):
         self.ln(1)
 
     def field_row(self, label: str, value: str, label_w: int = 65) -> None:
+        """
+        Label vlevo (single line) + value vpravo s automatickým zalamováním
+        přes multi_cell. Pokud se value vejde na jeden řádek, výška = 6 mm.
+        Pokud se zalomí, výška se přizpůsobí.
+        """
         self.set_font(self.FONT, style="B", size=9)
+        # Záznam start Y
+        start_y = self.get_y()
+        start_x = self.get_x()
+        # Label (single line)
         self.cell(label_w, 6, label + ":", new_x="RIGHT", new_y="TOP")
+        # Value — multi_cell pro automatické zalamování
         self.set_font(self.FONT, style="", size=9)
-        self.cell(self.PAGE_W - label_w, 6, value or "—", new_x="LMARGIN", new_y="NEXT")
+        value_x = self.get_x()
+        value_w = self.PAGE_W - label_w
+        self.multi_cell(value_w, 6, value or "—",
+                        new_x="LMARGIN", new_y="NEXT")
+        # Pokud multi_cell vykreslil víc řádků, kurzor je už pod value.
+        # Zarovnáme na začátek dalšího řádku.
+        end_y = self.get_y()
+        # Pro single-line value se chování nemění (end_y = start_y + 6)
+        _ = (start_y, start_x, value_x, end_y)
 
     def multiline_field(self, label: str, value: str) -> None:
         self.set_font(self.FONT, style="B", size=9)

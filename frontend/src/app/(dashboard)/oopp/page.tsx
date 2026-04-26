@@ -5,14 +5,14 @@
  *
  * 3 záložky:
  *  1) Vyhodnocení rizik — výběr pozice + matrix 14×26 (checkboxy)
- *  2) OOPP per pozice    — pozice s vyplněným gridem, k nim přidělené OOPP
+ *  2) OOPP dle pozic     — pozice s vyplněným gridem, k nim přidělené OOPP
  *  3) Výdeje zaměstnancům — záznamy + zaznamenat nový výdej
  */
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, Pencil, Trash2, ShieldAlert, Boxes, ClipboardList, Save,
+  Plus, Pencil, Trash2, ShieldAlert, Boxes, ClipboardList, Save, Download,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
@@ -171,17 +171,11 @@ function RiskGridMatrix({
               {catalog.risk_columns.map((rc) => (
                 <th
                   key={rc.col}
-                  className="p-1 border-l border-gray-200 align-bottom"
-                  style={{ width: 28, minWidth: 28 }}
+                  className="p-2 border-l border-gray-200 align-middle text-center"
+                  style={{ width: 90, minWidth: 90, maxWidth: 90 }}
                   title={rc.label}
                 >
-                  <div
-                    style={{
-                      writingMode: "vertical-rl",
-                      transform: "rotate(180deg)",
-                    }}
-                    className="text-[10px] whitespace-nowrap py-1 max-h-32 truncate"
-                  >
+                  <div className="text-xs leading-snug font-medium break-words whitespace-normal">
                     {rc.label}
                   </div>
                 </th>
@@ -191,7 +185,7 @@ function RiskGridMatrix({
           <tbody>
             {catalog.body_parts.map((bp, idx) => (
               <tr key={bp.key} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}>
-                <td className="p-2 sticky left-0 z-10 border-r border-gray-200 bg-inherit font-medium">
+                <td className="p-2 sticky left-0 z-10 border-r border-gray-200 bg-inherit font-medium text-sm">
                   {bp.key}. {bp.label}
                 </td>
                 {catalog.risk_columns.map((rc) => {
@@ -199,14 +193,14 @@ function RiskGridMatrix({
                   return (
                     <td
                       key={rc.col}
-                      className="text-center border-l border-gray-100"
-                      style={{ width: 28, minWidth: 28 }}
+                      className="text-center border-l border-gray-100 p-2"
+                      style={{ width: 90, minWidth: 90 }}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggle(bp.key, rc.col)}
-                        className="h-3.5 w-3.5 cursor-pointer"
+                        className="h-5 w-5 cursor-pointer"
                       />
                     </td>
                   );
@@ -277,7 +271,7 @@ function RiskGridTab({
   );
 }
 
-// ── Tab 2: OOPP per pozice ───────────────────────────────────────────────────
+// ── Tab 2: OOPP dle pozic ────────────────────────────────────────────────────
 
 function OoppItemForm({
   positionId,
@@ -668,10 +662,30 @@ function IssuesTab() {
       <CardContent className="p-0">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <span className="text-sm text-gray-500">{issues.length} aktivních výdejů</span>
-          <Button size="sm" onClick={() => { setFormError(null); setCreateOpen(true); }}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            Zaznamenat výdej
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                const resp = await fetch("/api/v1/oopp/issues.pdf");
+                if (!resp.ok) { alert("Stažení selhalo"); return; }
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "oopp-vydeje.pdf";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download className="h-4 w-4 mr-1.5" />
+              PDF přehled
+            </Button>
+            <Button size="sm" onClick={() => { setFormError(null); setCreateOpen(true); }}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Zaznamenat výdej
+            </Button>
+          </div>
         </div>
 
         {issues.length === 0 ? (
@@ -862,7 +876,7 @@ export default function OoppPage() {
         <div className="flex gap-1 border-b border-gray-200">
           {([
             { key: "grid",      label: "Vyhodnocení rizik",     icon: ShieldAlert },
-            { key: "positions", label: "OOPP per pozice",       icon: Boxes },
+            { key: "positions", label: "OOPP dle pozic",        icon: Boxes },
             { key: "issues",    label: "Výdeje zaměstnancům",   icon: ClipboardList },
           ] as { key: Tab; label: string; icon: typeof ShieldAlert }[]).map((t) => (
             <button
