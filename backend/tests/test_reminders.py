@@ -38,11 +38,41 @@ async def _register_ozo(client: AsyncClient, suffix: str) -> tuple[str, str]:
     return body["access_token"], str(payload["tenant_id"])
 
 
-async def _promote_to_admin(db: AsyncSession, email: str) -> None:
+async def _create_separate_platform_admin(
+    db: AsyncSession, email: str, password: str = "heslo1234",
+) -> None:
+    """
+    Vytvoří platform admina v samostatném __PLATFORM__ tenantu — neztratíme
+    tím OZO uživatele v původním tenantu (potřebujeme ho jako recipienta
+    pro reminder testy).
+    """
+    import uuid as _uuid
+
+    from app.core.security import hash_password
+    from app.models.tenant import Tenant
+
     await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))
-    user = (await db.execute(select(User).where(User.email == email))).scalar_one()
-    user.role = "admin"
-    user.is_platform_admin = True
+    platform = (await db.execute(
+        select(Tenant).where(Tenant.name == "__PLATFORM__")
+    )).scalar_one_or_none()
+    if platform is None:
+        platform = Tenant(
+            id=_uuid.uuid4(), name="__PLATFORM__", slug="__platform__",
+        )
+        db.add(platform)
+        await db.flush()
+    user = User(
+        id=_uuid.uuid4(),
+        tenant_id=platform.id,
+        email=email,
+        username=None,
+        hashed_password=hash_password(password),
+        full_name="Platform Admin",
+        role="admin",
+        is_platform_admin=True,
+        is_active=True,
+    )
+    db.add(user)
     await db.commit()
 
 
@@ -174,14 +204,15 @@ async def test_admin_run_reminders_dry_run(
     client: AsyncClient, db_session: AsyncSession,
 ) -> None:
     _, tid = await _register_ozo(client, "ar1")
-    await _promote_to_admin(db_session, "rar1@me.cz")
+    # Admin v separátním __PLATFORM__ tenantu — OZO v tid zůstane jako recipient
+    await _create_separate_platform_admin(db_session, "adminar1@platform-admin.cz")
     await _create_employee_with_expiring_training(
         db_session, tid, valid_until_offset_days=20, suffix="D",
     )
 
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "rar1@me.cz", "password": "heslo1234"},
+        json={"email": "adminar1@platform-admin.cz", "password": "heslo1234"},
     )
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -212,14 +243,14 @@ async def test_admin_preview_returns_subject_and_body(
     client: AsyncClient, db_session: AsyncSession,
 ) -> None:
     _, tid = await _register_ozo(client, "pv1")
-    await _promote_to_admin(db_session, "rpv1@me.cz")
+    await _create_separate_platform_admin(db_session, "adminpv1@platform-admin.cz")
     await _create_employee_with_expiring_training(
         db_session, tid, valid_until_offset_days=5, suffix="E",
     )
 
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "rpv1@me.cz", "password": "heslo1234"},
+        json={"email": "adminpv1@platform-admin.cz", "password": "heslo1234"},
     )
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
