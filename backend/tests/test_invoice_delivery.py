@@ -123,9 +123,12 @@ async def test_render_and_save_pdf_writes_to_disk(
     client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
-    # Reset settings cache
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    # Reset settings + storage cache
     from app.core.config import get_settings
+    from app.core.storage import reset_storage_for_tests
     get_settings.cache_clear()
+    reset_storage_for_tests()
 
     _, tid = await _register_ozo(client, "pdf2")
     tenant = await _set_billing(db_session, tid)
@@ -141,6 +144,7 @@ async def test_render_and_save_pdf_writes_to_disk(
     assert (tmp_path / rel_path).exists()
 
     get_settings.cache_clear()
+    reset_storage_for_tests()
 
 
 # ── Email delivery ──────────────────────────────────────────────────────────
@@ -301,8 +305,11 @@ async def test_deliver_invoice_full_flow(
     client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch,
 ) -> None:
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
     from app.core.config import get_settings
+    from app.core.storage import reset_storage_for_tests
     get_settings.cache_clear()
+    reset_storage_for_tests()
 
     _, tid = await _register_ozo(client, "dl1")
     tenant = await _set_billing(db_session, tid)
@@ -330,3 +337,4 @@ async def test_deliver_invoice_full_flow(
     assert invoice.status == "sent"
 
     get_settings.cache_clear()
+    reset_storage_for_tests()

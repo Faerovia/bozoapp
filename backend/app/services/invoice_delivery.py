@@ -13,35 +13,27 @@ Obě operace jsou idempotentní — opakované volání přepíše PDF / pošle 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.email import EmailAttachment, EmailMessage, get_email_sender
+from app.core.storage import save_invoice_pdf
 from app.models.invoice import Invoice
 from app.services.invoice_pdf import render_invoice_pdf
 
 
 def render_and_save_pdf(invoice: Invoice) -> tuple[bytes, str]:
     """
-    Vyrenderuje PDF a uloží jej do UPLOAD_DIR/invoices/{year}/{number}.pdf.
-    Vrátí (pdf_bytes, relative_path).
+    Vyrenderuje PDF a uloží jej přes storage backend (Local nebo S3) na cestu
+    `invoices/{year}/{number}.pdf`. Vrátí (pdf_bytes, relative_path).
     """
     pdf_bytes = render_invoice_pdf(invoice)
-
-    settings = get_settings()
-    year = invoice.issued_at.year
-    rel_dir = Path("invoices") / str(year)
-    abs_dir = Path(settings.upload_dir) / rel_dir
-    abs_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = f"{invoice.invoice_number}.pdf"
-    abs_path = abs_dir / filename
-    abs_path.write_bytes(pdf_bytes)
-
-    rel_path = str(rel_dir / filename)
+    rel_path = save_invoice_pdf(
+        invoice_year=invoice.issued_at.year,
+        invoice_number=invoice.invoice_number,
+        content=pdf_bytes,
+    )
     return pdf_bytes, rel_path
 
 

@@ -52,8 +52,19 @@ class Settings(BaseSettings):
     fernet_key: str = ""
 
     # Upload directory pro PDF školení a loga firem.
-    # Dev: mount jako docker volume; produkce: sync na S3 (TODO: S3 wrapper).
+    # Pro STORAGE_BACKEND=local cesta na disku.
+    # Pro STORAGE_BACKEND=s3 fallback cesta jen pro dev tooling.
     upload_dir: str = "/app/uploads"
+
+    # Storage backend: "local" (default) | "s3" (produkce — Hetzner Object Storage).
+    storage_backend: str = "local"
+    # S3 konfigurace — vyžaduje storage_backend=s3.
+    s3_endpoint_url: str = ""        # např. https://fsn1.your-objectstorage.com
+    s3_bucket: str = ""              # název bucketu
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_region: str = "eu-central-1"  # Hetzner: použít region kde je bucket
+    s3_public_base_url: str = ""     # volitelné: CDN/přímá URL pro presigned-free čtení
 
     # Veřejná URL aplikace (frontend) — používá se pro odkazy v emailech
     # a v obsahu QR kódů (sken vede na /devices/{qr_token}/record).
