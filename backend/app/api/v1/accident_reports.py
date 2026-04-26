@@ -88,20 +88,38 @@ async def export_accident_log_pdf_endpoint(
 async def list_accident_reports(
     report_status: str | None = Query(None, pattern="^(draft|final|archived)$"),
     risk_review_pending: bool | None = Query(None),
+    signed: str | None = Query(None, pattern="^(signed|unsigned)$"),
     current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     """
     Vrátí záznamy o pracovních úrazech.
-    Filtry: ?report_status=draft|final|archived, ?risk_review_pending=true
+    Filtry:
+    - ?report_status=draft|final|archived
+    - ?risk_review_pending=true
+    - ?signed=signed|unsigned  — filtr digitálního podpisu (#105)
     Přístup: ozo, manager.
     """
-    return await get_accident_reports(
+    from app.services.accident_reports import hydrate_signed_count, to_response_dict
+
+    reports = await get_accident_reports(
         db,
         current_user.tenant_id,
         report_status=report_status,
         risk_review_pending=risk_review_pending,
+        signed_filter=signed,
     )
+    sig_counts = await hydrate_signed_count(db, reports)
+    return [to_response_dict(r, sig_counts.get(r.id, 0)) for r in reports]
+
+
+async def _one_report_response(
+    db: AsyncSession, report: Any,
+) -> dict[str, Any]:
+    """Helper — hydratuje single report s signed_count a vrátí response dict."""
+    from app.services.accident_reports import hydrate_signed_count, to_response_dict
+    counts = await hydrate_signed_count(db, [report])
+    return to_response_dict(report, counts.get(report.id, 0))
 
 
 @router.post(
@@ -115,7 +133,10 @@ async def create_accident_report_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> object:
     """Vytvoří nový záznam o úrazu (status=draft). Přístup: ozo, manager."""
-    return await create_accident_report(db, data, current_user.tenant_id, current_user.id)
+    report = await create_accident_report(
+        db, data, current_user.tenant_id, current_user.id,
+    )
+    return await _one_report_response(db, report)
 
 
 @router.get("/accident-reports/{report_id}", response_model=AccidentReportResponse)
@@ -128,7 +149,7 @@ async def get_accident_report(
     report = await get_accident_report_by_id(db, report_id, current_user.tenant_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen")
-    return report
+    return await _one_report_response(db, report)
 
 
 @router.patch("/accident-reports/{report_id}", response_model=AccidentReportResponse)
@@ -146,7 +167,8 @@ async def update_accident_report_endpoint(
     report = await get_accident_report_by_id(db, report_id, current_user.tenant_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen")
-    return await update_accident_report(db, report, data)
+    updated = await update_accident_report(db, report, data)
+    return await _one_report_response(db, updated)
 
 
 @router.post("/accident-reports/{report_id}/finalize", response_model=AccidentReportResponse)
@@ -164,7 +186,8 @@ async def finalize_accident_report_endpoint(
     report = await get_accident_report_by_id(db, report_id, current_user.tenant_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen")
-    return await finalize_accident_report(db, report, created_by=current_user.id)
+    finalized = await finalize_accident_report(db, report, created_by=current_user.id)
+    return await _one_report_response(db, finalized)
 
 
 @router.post(
@@ -184,7 +207,8 @@ async def complete_risk_review_endpoint(
     report = await get_accident_report_by_id(db, report_id, current_user.tenant_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Záznam nenalezen")
-    return await complete_risk_review(db, report)
+    reviewed = await complete_risk_review(db, report)
+    return await _one_report_response(db, reviewed)
 
 
 @router.get("/accident-reports/{report_id}/pdf")
@@ -508,7 +532,7 @@ async def upload_signed_document_endpoint(
 
     report.signed_document_path = path
     await db.flush()
-    return report
+    return await _one_report_response(db, report)
 
 
 @router.get("/accident-reports/{report_id}/signed-document/file")

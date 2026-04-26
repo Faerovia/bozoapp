@@ -73,8 +73,20 @@ class AccidentReport(Base, TimestampMixin):
 
     # Podpisy
     injured_signed_at: Mapped[date | None] = mapped_column(Date)
+    # Postižený externí (brigádník bez evidence). Pokud True, digitální
+    # podpis nelze a celý formulář vyžaduje fyzický tisk. Migrace 058.
+    injured_external: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )
+    # JSONB: list dictů {name: str, employee_id: uuid | None, signed_at: date | None}
+    # Pokud witness.employee_id is None → externí svědek (digi podpis nelze).
     witnesses: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     supervisor_name: Mapped[str | None] = mapped_column(String(255))
+    # Vedoucí pracovník z evidence. Pokud None ale supervisor_name je
+    # vyplněný, je to externí vedoucí. Migrace 058.
+    supervisor_employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL")
+    )
     supervisor_signed_at: Mapped[date | None] = mapped_column(Date)
 
     # Vazba na riziko
@@ -91,6 +103,18 @@ class AccidentReport(Base, TimestampMixin):
 
     # Podepsaný papírový záznam (sken / PDF)
     signed_document_path: Mapped[str | None] = mapped_column(String(500))
+
+    # Univerzální digitální podpis (#105). Migrace 057.
+    # signature_required: True pokud všichni účastníci jsou interní zaměstnanci.
+    # False pokud kdokoliv je externí → vyžaduje fyzický tisk.
+    signature_required: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False,
+    )
+    # Pole employee UUID, kteří musí podepsat (postižený + svědci + vedoucí,
+    # všichni jen interní). Stringy v JSONB kvůli serializaci UUID.
+    required_signer_employee_ids: Mapped[list[Any]] = mapped_column(
+        JSONB, default=list, nullable=False,
+    )
 
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
