@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, Briefcase, GraduationCap, ExternalLink, AlertTriangle,
-  Loader2, ChevronDown, ChevronRight, Save, CreditCard,
+  Loader2, ChevronDown, ChevronRight, Save, CreditCard, Plus, Building2,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Header } from "@/components/layout/header";
@@ -18,6 +18,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog } from "@/components/ui/dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -301,13 +302,51 @@ function BillingEditor({
 
 export default function AdminPage() {
   const router = useRouter();
+  const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [expandedTenantId, setExpandedTenantId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newTenantName, setNewTenantName] = useState("");
+  const [newOzoEmail, setNewOzoEmail] = useState("");
+  const [newOzoFullName, setNewOzoFullName] = useState("");
+  const [newExternalLogin, setNewExternalLogin] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createdInfo, setCreatedInfo] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery<TenantOverviewResponse>({
     queryKey: ["admin-tenant-overview"],
     queryFn: () => api.get("/admin/tenant-overview"),
     refetchInterval: 60_000,
+  });
+
+  const createTenantMutation = useMutation<
+    { tenant: { id: string; name: string }; ozo_user_id: string; onboarding_email_sent_to: string },
+    ApiError,
+    void
+  >({
+    mutationFn: () => api.post("/admin/tenants", {
+      tenant_name: newTenantName,
+      ozo_email: newOzoEmail,
+      ozo_full_name: newOzoFullName || null,
+      external_login_enabled: newExternalLogin,
+    }),
+    onSuccess: (resp) => {
+      qc.invalidateQueries({ queryKey: ["admin-tenant-overview"] });
+      setCreatedInfo(
+        `Zákazník "${resp.tenant.name}" vytvořen. ` +
+        `OZO bude muset kliknout na link v emailu (${resp.onboarding_email_sent_to}) ` +
+        `a nastavit si heslo.`,
+      );
+      setNewTenantName("");
+      setNewOzoEmail("");
+      setNewOzoFullName("");
+      setNewExternalLogin(false);
+      setCreateError(null);
+    },
+    onError: (err) => {
+      setCreateError(err.detail || "Vytvoření selhalo");
+      setCreatedInfo(null);
+    },
   });
 
   const impersonateMutation = useMutation({
@@ -351,7 +390,21 @@ export default function AdminPage() {
 
   return (
     <div>
-      <Header title="Zákazníci" />
+      <Header
+        title="Zákazníci"
+        actions={
+          <Button
+            size="sm"
+            onClick={() => {
+              setCreateError(null);
+              setCreatedInfo(null);
+              setCreateOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Nový zákazník
+          </Button>
+        }
+      />
 
       <div className="p-6 space-y-4">
         {/* Souhrn */}
@@ -500,6 +553,94 @@ export default function AdminPage() {
           Při typu &bdquo;Za zaměstnance&ldquo; se odhad spočítá automaticky podle aktuálního počtu zaměstnanců.
         </div>
       </div>
+
+      {/* ── Dialog: Vytvořit nového zákazníka ───────────────────────────── */}
+      <Dialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Nový zákazník"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+            <Building2 className="h-3.5 w-3.5 inline mr-1" />
+            Vytvoří se nový tenant + první OZO uživatel. OZO obdrží email
+            s linkem pro nastavení hesla. Až bude přihlášen, projde 2-krokový
+            onboarding wizard (firma + první pracoviště).
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="new-tenant-name">Název firmy zákazníka *</Label>
+            <Input
+              id="new-tenant-name"
+              value={newTenantName}
+              onChange={(e) => setNewTenantName(e.target.value)}
+              placeholder="např. Strojírny Nováček s.r.o."
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="new-ozo-email">Email OZO *</Label>
+            <Input
+              id="new-ozo-email"
+              type="email"
+              value={newOzoEmail}
+              onChange={(e) => setNewOzoEmail(e.target.value)}
+              placeholder="ozo@firmazakaznika.cz"
+            />
+            <p className="text-xs text-gray-500">
+              Na tuto adresu pošleme link pro nastavení hesla.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="new-ozo-name">Jméno OZO (volitelně)</Label>
+            <Input
+              id="new-ozo-name"
+              value={newOzoFullName}
+              onChange={(e) => setNewOzoFullName(e.target.value)}
+              placeholder="Bc. Jan Novák"
+            />
+          </div>
+
+          <Label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={newExternalLogin}
+              onChange={(e) => setNewExternalLogin(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            <span className="text-sm">
+              Povolit přihlášení i HR/zaměstnancům klienta (jinak OZO-only)
+            </span>
+          </Label>
+
+          {createError && (
+            <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              <AlertTriangle className="h-4 w-4 inline mr-1" /> {createError}
+            </div>
+          )}
+          {createdInfo && (
+            <div className="rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">
+              ✅ {createdInfo}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Zavřít
+            </Button>
+            <Button
+              onClick={() => createTenantMutation.mutate()}
+              disabled={!newTenantName || !newOzoEmail || createTenantMutation.isPending}
+              loading={createTenantMutation.isPending}
+            >
+              Vytvořit zákazníka
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }
