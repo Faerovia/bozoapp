@@ -1,4 +1,4 @@
-# BOZOapp — Production Deployment
+# DigitalOZO — Production Deployment
 
 Produkční setup pro Hetzner Cloud + Docker Compose + Caddy.
 
@@ -106,7 +106,7 @@ Pro systemd timer (preferováno v produkci):
 ```ini
 # /etc/systemd/system/bozoapp-weekly-notifications.timer
 [Unit]
-Description=BOZOapp týdenní notifikace revizí
+Description=DigitalOZO týdenní notifikace revizí
 
 [Timer]
 OnCalendar=Mon 05:00
@@ -119,7 +119,7 @@ WantedBy=timers.target
 ```ini
 # /etc/systemd/system/bozoapp-weekly-notifications.service
 [Unit]
-Description=BOZOapp týdenní notifikace — spuštění
+Description=DigitalOZO týdenní notifikace — spuštění
 
 [Service]
 Type=oneshot
@@ -130,6 +130,39 @@ ExecStart=/usr/bin/docker exec bozoapp-backend \
 `systemctl enable --now bozoapp-weekly-notifications.timer`
 
 Ověření: `systemctl list-timers bozoapp*` a `journalctl -u bozoapp-weekly-notifications`.
+
+### Další cron tasky
+
+Stejným systemd-timer patternem (uprav ExecStart) nasaďte i:
+
+| Task | Frekvence | Účel |
+|------|-----------|------|
+| `app.tasks.reminders` | Po 05:30 | Reminders pro školení, lékařské, akční plány úrazů |
+| `app.tasks.auto_request_revisions` | Každý den 06:00 | Auto-poptávka revize 30 dní před vypršením |
+| `app.tasks.periodic_check_reminders` | Po 05:45 | Sanační sady, záchytné vany, lékárničky |
+| `app.tasks.operating_log_no_entry_reminder` | Každý den 06:30 | Zařízení v provozním deníku bez aktuálních zápisů |
+| `app.tasks.invoicing_monthly` | 1. v měsíci 04:00 | Vystavení měsíčních faktur (cron pro `generate_monthly_invoices`) |
+
+Doporučený single-timer pattern:
+
+```bash
+# /opt/bozoapp/cron-runner.sh
+#!/bin/bash
+set -euo pipefail
+TASK="$1"
+exec docker exec bozoapp-backend python -m "$TASK"
+```
+
+Volat: `/opt/bozoapp/cron-runner.sh app.tasks.periodic_check_reminders`. Logy
+přes systemd journald (`journalctl -u <service>`).
+
+### Reminder thresholds (platform_settings)
+
+Prahy pro reminder emaily (kolik dní předem) konfiguruje admin v UI
+`/admin/settings/reminders`. Klíče: `reminders.thresholds.training`,
+`reminders.thresholds.medical_exam`, `reminders.thresholds.accident_followup`,
+`reminders.thresholds.periodic_check`. Master switch
+`reminders.enabled` (off zruší veškerý mailing).
 
 ## 5. Backup strategie
 
@@ -209,7 +242,7 @@ docker compose exec \
   python -m app.commands.create_platform_admin --non-interactive
 ```
 
-Skript vytvoří servisní tenant "BOZOapp Platform" a usera s `is_platform_admin=True`,
+Skript vytvoří servisní tenant "DigitalOZO Platform" a usera s `is_platform_admin=True`,
 `role='admin'`. Heslo si admin může potom změnit přes standardní flow.
 
 Dál admin používá `POST /api/v1/admin/tenants` pro každého nového klienta:

@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { AccidentDetailPanel } from "./accident-detail-panel";
@@ -155,19 +156,17 @@ function AccidentForm({
             name="employee_id"
             control={control}
             render={({ field }) => (
-              <select
+              <SearchableSelect
                 id="employee_id"
-                value={field.value ?? ""}
-                onChange={(e) => handleEmployeeChange(e.target.value)}
-                className={SELECT_CLS}
-              >
-                <option value="">— Externista / nepřiřazeno —</option>
-                {employees.map(e => (
-                  <option key={e.id} value={e.id}>
-                    {e.last_name} {e.first_name}
-                  </option>
-                ))}
-              </select>
+                placeholder="— Externista / nepřiřazeno —"
+                value={field.value || null}
+                onChange={(v) => handleEmployeeChange(v ?? "")}
+                options={employees.map((e) => ({
+                  value: e.id,
+                  label: `${e.last_name} ${e.first_name}`,
+                  hint: e.personal_number || undefined,
+                }))}
+              />
             )}
           />
         </div>

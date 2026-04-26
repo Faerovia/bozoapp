@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -91,22 +92,31 @@ function PreventiveExamForm({
   employees: Employee[];
   isEdit: boolean;
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<PreventiveFormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<PreventiveFormData>({
     resolver: zodResolver(preventiveSchema),
     defaultValues: defaultValues ?? { exam_type: "periodicka" },
   });
+  // Skrytá registrace pole — zod validace běží, ale UI rendrujeme přes SearchableSelect
+  register("employee_id");
+  const empId = watch("employee_id");
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       {!isEdit && (
         <div className="space-y-1.5">
           <Label htmlFor="employee_id">Zaměstnanec *</Label>
-          <select id="employee_id" {...register("employee_id")} className={SELECT_CLS}>
-            <option value="">— Vyberte zaměstnance —</option>
-            {employees.map(e => (
-              <option key={e.id} value={e.id}>{e.last_name} {e.first_name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            id="employee_id"
+            required
+            placeholder="— Vyberte zaměstnance —"
+            value={empId || null}
+            onChange={(v) => setValue("employee_id", v ?? "", { shouldValidate: true })}
+            options={employees.map((e) => ({
+              value: e.id,
+              label: `${e.last_name} ${e.first_name}`,
+              hint: e.personal_number || undefined,
+            }))}
+          />
           {errors.employee_id && <p className="text-xs text-red-600">{errors.employee_id.message}</p>}
         </div>
       )}
@@ -182,24 +192,32 @@ function OdbornaExamForm({
   specialties: SpecialtyCatalogEntry[];
   isEdit: boolean;
 }) {
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<OdbornaFormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<OdbornaFormData>({
     resolver: zodResolver(odbornaSchema),
     defaultValues,
   });
   const selectedSpec = watch("specialty");
   const specInfo = specialties.find(s => s.key === selectedSpec);
+  register("employee_id");
+  const empId = watch("employee_id");
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       {!isEdit && (
         <div className="space-y-1.5">
           <Label htmlFor="employee_id">Zaměstnanec *</Label>
-          <select id="employee_id" {...register("employee_id")} className={SELECT_CLS}>
-            <option value="">— Vyberte zaměstnance —</option>
-            {employees.map(e => (
-              <option key={e.id} value={e.id}>{e.last_name} {e.first_name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            id="employee_id"
+            required
+            placeholder="— Vyberte zaměstnance —"
+            value={empId || null}
+            onChange={(v) => setValue("employee_id", v ?? "", { shouldValidate: true })}
+            options={employees.map((e) => ({
+              value: e.id,
+              label: `${e.last_name} ${e.first_name}`,
+              hint: e.personal_number || undefined,
+            }))}
+          />
           {errors.employee_id && <p className="text-xs text-red-600">{errors.employee_id.message}</p>}
         </div>
       )}

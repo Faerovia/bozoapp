@@ -478,6 +478,135 @@ async def _seed_revisions(
     return revisions
 
 
+async def _seed_periodic_checks(
+    db: AsyncSession, tenant_id: uuid.UUID, created_by: uuid.UUID,
+    plants: dict[str, Plant],
+) -> None:
+    """Seed pravidelných kontrol — sanační sady, záchytné vany, lékárničky."""
+    from app.models.periodic_check import PeriodicCheck, PeriodicCheckRecord
+
+    if not plants:
+        return
+    plant_list = list(plants.values())
+    today = date.today()
+
+    specs: list[tuple[str, str, str, int]] = [
+        # (kind, title, location, valid_months)
+        ("first_aid_kit",  "Lékárnička výroba", "Hala A, vstup", 12),
+        ("first_aid_kit",  "Lékárnička sklad",  "Sklad, kancelář", 12),
+        ("sanitation_kit", "Sanační sada chemikálie", "Sklad chem. látek", 12),
+        ("spill_tray",     "Záchytná vana — oleje", "Servis VZV", 12),
+    ]
+    for i, (kind, title, location, valid) in enumerate(specs):
+        plant = plant_list[i % len(plant_list)]
+        last = today - timedelta(days=random.randint(60, 200))
+        check = PeriodicCheck(
+            tenant_id=tenant_id,
+            created_by=created_by,
+            check_kind=kind,
+            title=title,
+            location=location,
+            plant_id=plant.id,
+            last_checked_at=last,
+            valid_months=valid,
+            next_check_at=_add_months(last, valid),
+        )
+        db.add(check)
+        await db.flush()
+        # 1 historický záznam
+        rec = PeriodicCheckRecord(
+            tenant_id=tenant_id,
+            periodic_check_id=check.id,
+            performed_at=last,
+            performed_by_name="Ing. OZO Demo",
+            result="ok",
+            notes="Bez závad. Obsah doplněn dle seznamu.",
+            created_by=created_by,
+        )
+        db.add(rec)
+    await db.flush()
+
+
+async def _seed_operating_logs(
+    db: AsyncSession, tenant_id: uuid.UUID, created_by: uuid.UUID,
+    plants: dict[str, Plant],
+) -> None:
+    """Seed provozních deníků — VZV + kotle + jeřáby."""
+    from app.models.operating_log import OperatingLogDevice, OperatingLogEntry
+
+    if not plants:
+        return
+    plant_list = list(plants.values())
+    today = date.today()
+
+    specs: list[tuple[str, str, str, str, list[str], str]] = [
+        (
+            "vzv", "VZV Linde H25", "VZV-001", "Hala výrobní A",
+            [
+                "Kontrola brzd a parkovací brzdy",
+                "Kontrola hydrauliky (zdvih, naklápění)",
+                "Kontrola pneumatik a tlaku",
+                "Kontrola osvětlení a houkačky",
+                "Vizuální kontrola tělesa, vidlí, řetězů",
+            ],
+            "daily",
+        ),
+        (
+            "kotelna", "Plynový kotel Viessmann V2", "KOT-002", "Kotelna",
+            [
+                "Kontrola tlaku v soustavě",
+                "Kontrola teploty topné vody",
+                "Záznam stavu plynoměru",
+                "Vizuální kontrola hořáku a komínu",
+                "Kontrola pojistných ventilů",
+            ],
+            "daily",
+        ),
+        (
+            "jerab", "Mostový jeřáb 5t", "JER-003", "Hala B",
+            [
+                "Kontrola lan a háků",
+                "Test koncových vypínačů",
+                "Kontrola ovladačů",
+                "Vizuální stav závěsných řetězů",
+            ],
+            "shift",
+        ),
+    ]
+
+    for i, (cat, title, code, location, items, period) in enumerate(specs):
+        plant = plant_list[i % len(plant_list)]
+        device = OperatingLogDevice(
+            tenant_id=tenant_id,
+            created_by=created_by,
+            category=cat,
+            title=title,
+            device_code=code,
+            location=location,
+            plant_id=plant.id,
+            check_items=items,
+            period=period,
+            qr_token=uuid.uuid4().hex,
+        )
+        db.add(device)
+        await db.flush()
+
+        # Pár historických zápisů (poslední 7 dní)
+        for d_offset in [1, 3, 5]:
+            entry = OperatingLogEntry(
+                tenant_id=tenant_id,
+                device_id=device.id,
+                performed_at=today - timedelta(days=d_offset),
+                performed_by_name=f"{random.choice(CZECH_FIRST_NAMES)} {random.choice(CZECH_LAST_NAMES)}",
+                capable_items=["yes"] * len(items),
+                overall_status="yes",
+                notes="Bez závad.",
+                created_by=created_by,
+            )
+            db.add(entry)
+    await db.flush()
+
+
 async def _seed_oopp(
     db: AsyncSession, tenant_id: uuid.UUID, created_by: uuid.UUID,
     positions: dict[str, JobPosition],
@@ -774,6 +903,8 @@ async def seed(db: AsyncSession) -> None:
          "days_since_last": 700},
     ])
     await _seed_oopp(db, abc.id, ozo.id, positions_abc, employees_abc)
+    await _seed_periodic_checks(db, abc.id, ozo.id, plants_abc)
+    await _seed_operating_logs(db, abc.id, ozo.id, plants_abc)
     await _seed_medical_exams(db, abc.id, ozo.id, employees_abc)
     await _seed_accident(db, abc.id, ozo.id, employees_abc)
 

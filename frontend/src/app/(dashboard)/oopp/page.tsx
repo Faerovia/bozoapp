@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 
 const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
@@ -759,18 +760,18 @@ function IssuesTab() {
         >
           <div className="space-y-1.5">
             <Label htmlFor="i_emp">Zaměstnanec *</Label>
-            <select
+            <SearchableSelect
               id="i_emp"
-              value={form.employee_id}
-              onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
-              className={SELECT_CLS}
               required
-            >
-              <option value="">— vyber —</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>{e.full_name}</option>
-              ))}
-            </select>
+              placeholder="— vyber zaměstnance —"
+              value={form.employee_id || null}
+              onChange={(v) => setForm({ ...form, employee_id: v ?? "" })}
+              options={employees.map((e) => ({
+                value: e.id,
+                label: e.full_name,
+                hint: e.personal_number || undefined,
+              }))}
+            />
           </div>
 
           <div className="space-y-1.5">
