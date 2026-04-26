@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.http_utils import content_disposition
 from app.core.permissions import require_role
 from app.models.employee import Employee
 from app.models.tenant import Tenant
@@ -79,8 +80,8 @@ async def attendance_list_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": (
-                f'inline; filename="prezencni-listina-{training_id}.pdf"'
+            "Content-Disposition": content_disposition(
+                f"prezencni-listina-{training_id}.pdf", inline=True,
             ),
         },
     )
@@ -147,12 +148,11 @@ async def employee_trainings_pdf(
             detail=f"Generování souhrnu selhalo: {type(e).__name__}: {e}",
         ) from e
 
+    filename = f"skoleni-{employee.last_name}-{employee.first_name}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": (
-                f'inline; filename="skoleni-{employee.last_name}-{employee_id}.pdf"'
-            ),
+            "Content-Disposition": content_disposition(filename, inline=True),
         },
     )
