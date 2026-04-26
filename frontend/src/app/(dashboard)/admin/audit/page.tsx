@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Audit log — read-only přehled změn v tenantu.
+ * Audit log — read-only cross-tenant přehled (jen pro platform admina).
  *
- * Filtry: action (CREATE/UPDATE/DELETE/VIEW/EXPORT), resource_type, user.
+ * Filtry: tenant, action (CREATE/UPDATE/DELETE/VIEW/EXPORT), resource_type.
  * Klik na řádek → expand JSON diff (old_values / new_values).
  */
 
@@ -88,17 +88,30 @@ function ExpandedRow({ id }: { id: number }) {
   );
 }
 
+interface TenantOption {
+  id: string;
+  name: string;
+}
+
 export default function AuditLogPage() {
   const [action, setAction] = useState<string>("");
   const [resourceType, setResourceType] = useState<string>("");
+  const [tenantId, setTenantId] = useState<string>("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  const { data: tenants = [] } = useQuery<TenantOption[]>({
+    queryKey: ["admin-tenants-options"],
+    queryFn: () => api.get("/admin/tenants"),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: items = [], isLoading, refetch } = useQuery<AuditLogItem[]>({
-    queryKey: ["audit", action, resourceType],
+    queryKey: ["audit", action, resourceType, tenantId],
     queryFn: () => {
       const p = new URLSearchParams();
       if (action) p.set("action", action);
       if (resourceType) p.set("resource_type", resourceType);
+      if (tenantId) p.set("tenant_id", tenantId);
       p.set("limit", "200");
       return api.get(`/audit?${p.toString()}`);
     },
@@ -121,11 +134,25 @@ export default function AuditLogPage() {
       />
 
       <div className="p-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end bg-gray-50 border border-gray-200 rounded-md p-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end bg-gray-50 border border-gray-200 rounded-md p-3">
           <div>
-            <Label htmlFor="f-action" className="text-xs text-gray-600 flex items-center gap-1">
-              <Filter className="h-3 w-3" /> Akce
+            <Label htmlFor="f-tenant" className="text-xs text-gray-600 flex items-center gap-1">
+              <Filter className="h-3 w-3" /> Klient (tenant)
             </Label>
+            <select
+              id="f-tenant"
+              value={tenantId}
+              onChange={(e) => setTenantId(e.target.value)}
+              className={SELECT_CLS}
+            >
+              <option value="">— všichni —</option>
+              {tenants.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="f-action" className="text-xs text-gray-600">Akce</Label>
             <select
               id="f-action"
               value={action}
@@ -146,7 +173,7 @@ export default function AuditLogPage() {
               id="f-rt"
               value={resourceType}
               onChange={(e) => setResourceType(e.target.value)}
-              placeholder="employees, trainings, revisions, ..."
+              placeholder="employees, trainings, ..."
             />
           </div>
           <div className="text-xs text-gray-500 pb-2 text-right">

@@ -7,6 +7,11 @@ from pydantic import BaseModel, Field
 EmploymentType = Literal["hpp", "dpp", "dpc", "externista", "brigádník"]
 EmployeeStatus = Literal["active", "terminated", "on_leave"]
 Gender = Literal["M", "F", "X"]
+# Tenant-level role assignovatelná OZO/HR při tvorbě zaměstnance.
+# Platform admin se nezakládá přes employee endpoint.
+AssignableRole = Literal[
+    "ozo", "hr_manager", "lead_worker", "equipment_responsible", "employee",
+]
 
 
 class EmployeeCreateRequest(BaseModel):
@@ -25,6 +30,10 @@ class EmployeeCreateRequest(BaseModel):
     # Zodpovědnost za vyhrazená technická zařízení — pokud zaškrtnuto, user
     # dostane role `equipment_responsible` místo defaultního `employee`.
     is_equipment_responsible: bool = False
+    # Tenant-level role — explicitní volba (employee | equipment_responsible
+    # | lead_worker | hr_manager | ozo). Pokud None, fallback na logiku
+    # is_equipment_responsible (zachová BC).
+    assigned_role: AssignableRole | None = None
     # Seznam provozoven, za které je zaměstnanec zodpovědný (M:N).
     # Pokud prázdný seznam + is_equipment_responsible=True → role se nastaví,
     # ale notifikace nedostává (musí admin doplnit přes PUT responsibilities).
@@ -83,6 +92,8 @@ class EmployeeUpdateRequest(BaseModel):
     # Volitelné: nahradí aktuální seznam zodpovědných provozoven. Pokud je
     # pole vynechané, M:N vazba se nemění.
     responsible_plant_ids: list[uuid.UUID] | None = None
+    # Změna tenant-level role propojeného User účtu (jen pokud existuje).
+    assigned_role: AssignableRole | None = None
 
 
 class EmployeeResponse(BaseModel):

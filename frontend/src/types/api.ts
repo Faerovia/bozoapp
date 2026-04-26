@@ -12,7 +12,7 @@ export interface UserResponse {
   email: string;
   username: string | null;
   full_name: string | null;
-  role: "admin" | "ozo" | "hr_manager" | "equipment_responsible" | "employee" | "manager";
+  role: "admin" | "ozo" | "hr_manager" | "lead_worker" | "equipment_responsible" | "employee" | "manager";
   is_active: boolean;
   is_platform_admin: boolean;
 }
@@ -457,6 +457,8 @@ export interface PeriodicCheck {
   next_check_at: string | null;
   due_status: DueStatus;
   responsible_user_id: string | null;
+  responsible_employee_id: string | null;
+  responsible_employee_name: string | null;
   notes: string | null;
   status: "active" | "archived";
   created_by: string;
@@ -539,6 +541,8 @@ export interface OperatingLogDevice {
   notes: string | null;
   status: "active" | "archived";
   created_by: string;
+  responsible_employee_id: string | null;
+  responsible_employee_name: string | null;
 }
 
 export type CapabilityStatus = "yes" | "no" | "conditional";
@@ -739,6 +743,24 @@ export interface OoppIssue {
   status: "active" | "returned" | "discarded";
   created_by: string;
 }
+
+// ── Tenant-level role (assignovatelné OZO/HR při tvorbě zaměstnance) ─────────
+
+export type AssignableRole =
+  | "ozo"
+  | "hr_manager"
+  | "lead_worker"
+  | "equipment_responsible"
+  | "employee";
+
+export const ASSIGNABLE_ROLE_LABELS: Record<AssignableRole, string> = {
+  ozo: "OZO BOZP/PO",
+  hr_manager: "HR manager",
+  lead_worker: "Vedoucí pracovník",
+  equipment_responsible: "Zaměstnanec — zodpovědný za vyhrazená zařízení",
+  employee: "Zaměstnanec",
+};
+
 
 // ── Documents (generátor BOZP/PO) ────────────────────────────────────────────
 

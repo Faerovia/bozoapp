@@ -470,6 +470,14 @@ def render_document_pdf(doc: GeneratedDocument, tenant: Tenant) -> bytes:
     pdf = _DocumentPdf(tenant.name, doc.title, orientation=orientation)
     pdf.add_page()
 
+    # Logo firmy (vlevo nahoře) — pokud tenant má upload
+    from app.services.pdf_logo import embed_tenant_logo
+    logo_y_start = pdf.get_y()
+    has_logo = embed_tenant_logo(pdf, tenant, x=pdf.l_margin, y=logo_y_start, h=14)
+    if has_logo:
+        # Odsadíme nadpis vpravo od loga aby se nepřekrývaly
+        pdf.set_xy(pdf.l_margin + 30, logo_y_start)
+
     # Hlavička dokumentu na první stránce
     pdf.set_font(FONT, "B", 22)
     pdf.set_text_color(0, 0, 100)

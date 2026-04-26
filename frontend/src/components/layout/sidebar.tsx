@@ -38,13 +38,14 @@ type Role =
   | "admin"
   | "ozo"
   | "hr_manager"
+  | "lead_worker"
   | "equipment_responsible"
   | "employee";
 
 // Tenant-level "managers" = plný přístup v tenantu (OZO + HR)
 const MANAGERS: Role[] = ["ozo", "hr_manager"];
-// Všechny tenant role (employee + responsible + managers)
-const ALL_TENANT: Role[] = ["ozo", "hr_manager", "equipment_responsible", "employee"];
+// Všechny tenant role (employee + responsible + lead + managers)
+const ALL_TENANT: Role[] = ["ozo", "hr_manager", "lead_worker", "equipment_responsible", "employee"];
 
 interface NavItem {
   href: string;
@@ -144,12 +145,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: Receipt,
     roles: MANAGERS,
   },
-  {
-    href: "/audit",
-    label: "Audit log",
-    icon: Activity,
-    roles: MANAGERS,
-  },
 ];
 
 
@@ -214,6 +209,11 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     href: "/admin/settings/auto-throttle",
     label: "Throttle auto-generace",
     icon: Timer,
+  },
+  {
+    href: "/admin/audit",
+    label: "Audit log",
+    icon: Activity,
   },
 ];
 

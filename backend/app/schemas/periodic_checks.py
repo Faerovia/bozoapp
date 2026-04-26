@@ -31,6 +31,7 @@ class PeriodicCheckCreateRequest(BaseModel):
     valid_months: int | None = Field(None, gt=0, le=600)
     next_check_at: date | None = None
     responsible_user_id: uuid.UUID | None = None
+    responsible_employee_id: uuid.UUID | None = None
     notes: str | None = None
 
     @model_validator(mode="after")
@@ -53,6 +54,7 @@ class PeriodicCheckUpdateRequest(BaseModel):
     valid_months: int | None = Field(None, gt=0, le=600)
     next_check_at: date | None = None
     responsible_user_id: uuid.UUID | None = None
+    responsible_employee_id: uuid.UUID | None = None
     notes: str | None = None
     status: CheckStatus | None = None
 
@@ -71,6 +73,8 @@ class PeriodicCheckResponse(BaseModel):
     next_check_at: date | None
     due_status: str
     responsible_user_id: uuid.UUID | None
+    responsible_employee_id: uuid.UUID | None = None
+    responsible_employee_name: str | None = None
     notes: str | None
     status: str
     created_by: uuid.UUID

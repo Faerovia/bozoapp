@@ -8,13 +8,20 @@
  * (POST /auth/select-tenant) a otevře dashboard daného klienta.
  */
 
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { Briefcase, AlertTriangle, ChevronRight } from "lucide-react";
-import { api } from "@/lib/api";
+import {
+  Briefcase, AlertTriangle, ChevronRight, Settings, Snowflake, Power, PowerOff,
+} from "lucide-react";
+import { api, ApiError, uploadFile } from "@/lib/api";
 import type { ClientOverview, UserResponse } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 function MetricBadge({ label, value, urgent }: { label: string; value: number; urgent?: boolean }) {
@@ -44,6 +51,7 @@ function MetricBadge({ label, value, urgent }: { label: string; value: number; u
 export default function MyClientsPage() {
   const qc = useQueryClient();
   const router = useRouter();
+  const [settingsTenantId, setSettingsTenantId] = useState<string | null>(null);
 
   const { data: user } = useQuery<UserResponse>({
     queryKey: ["me"],
@@ -124,14 +132,15 @@ export default function MyClientsPage() {
                   const isCurrent = c.tenant_id === user?.tenant_id;
                   return (
                     <li key={c.tenant_id}>
+                      <div className={cn(
+                          "w-full px-5 py-4 hover:bg-gray-50 transition-colors flex items-center justify-between gap-4",
+                          isCurrent && "bg-blue-50/30",
+                          switchTo.isPending && "opacity-50",
+                        )}>
                       <button
                         onClick={() => switchTo.mutate(c.tenant_id)}
                         disabled={switchTo.isPending}
-                        className={cn(
-                          "w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors flex items-center justify-between gap-4",
-                          isCurrent && "bg-blue-50/30",
-                          switchTo.isPending && "opacity-50 cursor-wait"
-                        )}
+                        className="text-left flex items-center gap-3 min-w-0 flex-1"
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <div className={cn(
@@ -188,6 +197,14 @@ export default function MyClientsPage() {
 
                         <ChevronRight className="h-5 w-5 text-gray-400 shrink-0" />
                       </button>
+                      <button
+                        onClick={() => setSettingsTenantId(c.tenant_id)}
+                        className="rounded-md p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors shrink-0"
+                        title="Nastavení klienta"
+                      >
+                        <Settings className="h-4 w-4" />
+                      </button>
+                      </div>
                     </li>
                   );
                 })}
@@ -196,11 +213,235 @@ export default function MyClientsPage() {
           </CardContent>
         </Card>
 
+        <ClientSettingsDialog
+          tenantId={settingsTenantId}
+          onClose={() => setSettingsTenantId(null)}
+        />
+
         <p className="text-xs text-gray-400 text-center pt-2">
           Klikni na klienta pro otevření jeho dashboardu. Klienti jsou seřazeni
           podle počtu otevřených úkolů (nejvíc nahoře).
         </p>
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ClientSettingsDialog — úprava klienta z /my-clients (kolečko Settings)
+// Volá PATCH /admin/tenants/{id} → vyžaduje platform admin oprávnění.
+// Pokud uživatel není platform admin, server vrátí 403 a UI to zobrazí.
+// Logo upload není zatím napojen na API endpoint — pole je readonly s TODO.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface TenantDetail {
+  id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  logo_path: string | null;
+  service_level: string | null;
+  frozen_at: string | null;
+  billing_address_street?: string | null;
+  billing_address_city?: string | null;
+  billing_address_zip?: string | null;
+}
+
+const SERVICE_LEVELS = [
+  { value: "", label: "—" },
+  { value: "free", label: "Free" },
+  { value: "basic", label: "Basic" },
+  { value: "standard", label: "Standard" },
+  { value: "pro", label: "Pro" },
+  { value: "enterprise", label: "Enterprise" },
+];
+
+function ClientSettingsDialog({
+  tenantId,
+  onClose,
+}: {
+  tenantId: string | null;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [zip, setZip] = useState("");
+  const [serviceLevel, setServiceLevel] = useState<string>("");
+  const [isFrozen, setIsFrozen] = useState(false);
+  const [isActive, setIsActive] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+
+  const open = tenantId !== null;
+
+  const { data: tenant, isLoading } = useQuery<TenantDetail>({
+    queryKey: ["admin-tenant-detail", tenantId],
+    queryFn: () => api.get(`/admin/tenants/${tenantId}`),
+    enabled: open,
+  });
+
+  // sync formuláře po načtení tenant detailu
+  useEffect(() => {
+    if (tenant) {
+      setName(tenant.name);
+      setStreet(tenant.billing_address_street || "");
+      setCity(tenant.billing_address_city || "");
+      setZip(tenant.billing_address_zip || "");
+      setServiceLevel(tenant.service_level || "");
+      setIsFrozen(!!tenant.frozen_at);
+      setIsActive(tenant.is_active);
+    }
+  }, [tenant]);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, unknown> = {
+        name,
+        billing_address_street: street || null,
+        billing_address_city: city || null,
+        billing_address_zip: zip || null,
+        service_level: serviceLevel || null,
+        is_frozen: isFrozen,
+        is_active: isActive,
+      };
+      const updated = await api.patch<TenantDetail>(
+        `/admin/tenants/${tenantId}`,
+        body,
+      );
+      // Logo upload — pokud je vybrán, pošle se separátně přes UploadFile.
+      // Endpoint zatím neexistuje, takže to jen no-op + warning v konzoli.
+      if (logoFile) {
+        try {
+          await uploadFile(`/admin/tenants/${tenantId}/logo`, logoFile);
+        } catch (e) {
+          console.warn("Logo upload endpoint zatím neexistuje", e);
+        }
+      }
+      return updated;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ozo-overview"] });
+      qc.invalidateQueries({ queryKey: ["admin-tenant-detail", tenantId] });
+      onClose();
+    },
+    onError: (e: unknown) => {
+      if (e instanceof ApiError && e.status === 403) {
+        setError("Pro úpravu nastavení klienta potřebuješ platform admin oprávnění.");
+      } else {
+        setError(e instanceof Error ? e.message : "Chyba při ukládání");
+      }
+    },
+  });
+
+  if (!open) return null;
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Nastavení klienta">
+      {isLoading ? (
+        <div className="py-8 text-center text-sm text-gray-500">Načítám…</div>
+      ) : (
+        <div className="space-y-4">
+          {error && (
+            <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="t-name">Název firmy *</Label>
+            <Input id="t-name" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5 col-span-2">
+              <Label htmlFor="t-street">Ulice a č.p.</Label>
+              <Input id="t-street" value={street} onChange={(e) => setStreet(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="t-city">Město</Label>
+              <Input id="t-city" value={city} onChange={(e) => setCity(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="t-zip">PSČ</Label>
+              <Input id="t-zip" value={zip} onChange={(e) => setZip(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="t-logo">Logo firmy (PNG/JPG, max 1 MB)</Label>
+            <input
+              id="t-logo"
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-gray-700 dark:text-gray-200
+                         file:mr-3 file:py-1.5 file:px-3 file:rounded-md
+                         file:border-0 file:text-xs file:font-medium
+                         file:bg-blue-50 file:text-blue-700
+                         hover:file:bg-blue-100"
+            />
+            {tenant?.logo_path && !logoFile && (
+              <p className="text-xs text-gray-500">Aktuální logo: {tenant.logo_path}</p>
+            )}
+            <p className="text-xs text-amber-600">
+              Pozn.: backend endpoint pro upload loga zatím neexistuje (TODO).
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="t-svc">Úroveň služeb</Label>
+            <select
+              id="t-svc"
+              value={serviceLevel}
+              onChange={(e) => setServiceLevel(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm
+                         dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+            >
+              {SERVICE_LEVELS.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-amber-900">
+              <Snowflake className="h-4 w-4" />
+              <input
+                type="checkbox"
+                checked={isFrozen}
+                onChange={(e) => setIsFrozen(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Zmrazit klienta (read-only přístup, nelze upravovat)
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium text-amber-900">
+              {isActive ? <Power className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
+              <input
+                type="checkbox"
+                checked={isActive}
+                onChange={(e) => setIsActive(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Aktivní (odznačením úplně deaktivuješ — login zakázán)
+            </label>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Zrušit
+            </Button>
+            <Button
+              type="button"
+              onClick={() => { setError(null); saveMut.mutate(); }}
+              disabled={saveMut.isPending || !name.trim()}
+            >
+              {saveMut.isPending ? "Ukládám…" : "Uložit"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Dialog>
   );
 }

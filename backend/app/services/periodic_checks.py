@@ -71,11 +71,17 @@ async def create_check(
     tenant_id: uuid.UUID,
     created_by: uuid.UUID,
 ) -> PeriodicCheck:
+    from app.models.employee import Employee
     if data.plant_id is not None:
         await assert_in_tenant(db, Plant, data.plant_id, tenant_id, field_name="plant_id")
     if data.workplace_id is not None:
         await assert_in_tenant(
             db, Workplace, data.workplace_id, tenant_id, field_name="workplace_id",
+        )
+    if data.responsible_employee_id is not None:
+        await assert_in_tenant(
+            db, Employee, data.responsible_employee_id, tenant_id,
+            field_name="responsible_employee_id",
         )
     check = PeriodicCheck(
         tenant_id=tenant_id,

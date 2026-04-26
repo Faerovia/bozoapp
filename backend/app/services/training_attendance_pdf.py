@@ -173,8 +173,19 @@ def render_attendance_list_pdf(
     )
 
     row_h = 18  # výška řádku — místo na canvas image
+
+    def _truncate_to_width(text: str, max_width: float) -> str:
+        """Zkrátí text s ellipsis aby se vešel do dané šířky (mm)."""
+        if pdf.get_string_width(text) <= max_width - 2:
+            return text
+        truncated = text
+        while truncated and pdf.get_string_width(truncated + "…") > max_width - 2:
+            truncated = truncated[:-1]
+        return (truncated.rstrip() + "…") if truncated else text
+
     for assignment, employee in signed_assignments:
         full_name = f"{employee.first_name} {employee.last_name}"
+        full_name_fit = _truncate_to_width(full_name, col_widths[0])
         date_str = (
             assignment.signed_at.strftime("%d.%m.%Y")
             if assignment.signed_at else "—"
@@ -183,8 +194,8 @@ def render_attendance_list_pdf(
         x_start = pdf.get_x()
         y_start = pdf.get_y()
 
-        # Jméno (text)
-        pdf.cell(col_widths[0], row_h, full_name, border=1, new_x="RIGHT", new_y="TOP")
+        # Jméno (text) — ořezané s ellipsis
+        pdf.cell(col_widths[0], row_h, full_name_fit, border=1, new_x="RIGHT", new_y="TOP")
         # Datum
         pdf.cell(col_widths[1], row_h, date_str, border=1, align="C", new_x="RIGHT", new_y="TOP")
         # Podpis školeného (canvas PNG)
@@ -200,7 +211,8 @@ def render_attendance_list_pdf(
             except Exception:
                 log.warning("Failed to embed signature for assignment %s", assignment.id)
         # Podpis školitele (placeholder text — později canvas z user profilu)
-        pdf.cell(col_widths[3], row_h, trainer_name, border=1,
+        trainer_name_fit = _truncate_to_width(trainer_name, col_widths[3])
+        pdf.cell(col_widths[3], row_h, trainer_name_fit, border=1,
                  align="C", new_x="LMARGIN", new_y="NEXT")
         # x_start, y_start unused (cells už pohnuly s X)
         _ = (x_start, y_start)

@@ -151,18 +151,28 @@ function RiskGridMatrix({
         Zaškrtni rizika, kterým je pozice vystavena. Tabulka odpovídá Příloze č. 2 NV 390/2021 Sb.
       </div>
 
-      <div className="overflow-auto border border-gray-200 rounded">
-        <table className="text-xs">
-          <thead className="bg-gray-50 sticky top-0">
+      <div className="overflow-auto border border-gray-200 dark:border-gray-700 rounded">
+        <table className="text-xs border-collapse">
+          <thead className="sticky top-0 z-30">
             <tr>
-              <th className="text-left p-2 sticky left-0 bg-gray-50 z-10 border-r border-gray-200" rowSpan={2}>
+              {/* sticky corner — vyšší z-index než body sticky */}
+              <th
+                rowSpan={2}
+                className="text-left p-2 sticky left-0 top-0 z-40
+                           bg-gray-100 dark:bg-gray-800
+                           border-r border-b border-gray-300 dark:border-gray-600
+                           font-semibold text-gray-800 dark:text-gray-100"
+                style={{ minWidth: 140 }}
+              >
                 Část těla
               </th>
               {groups.map((g) => (
                 <th
                   key={g.name}
                   colSpan={g.to - g.from + 1}
-                  className="text-center p-1 border-l border-gray-200 font-semibold uppercase"
+                  className="text-center p-1 border-l border-b border-gray-300 dark:border-gray-600
+                             bg-gray-100 dark:bg-gray-800 font-semibold uppercase
+                             text-gray-700 dark:text-gray-100"
                 >
                   {g.name}
                 </th>
@@ -172,7 +182,8 @@ function RiskGridMatrix({
               {catalog.risk_columns.map((rc) => (
                 <th
                   key={rc.col}
-                  className="p-2 border-l border-gray-200 align-middle text-center"
+                  className="p-2 border-l border-b border-gray-300 dark:border-gray-600 align-middle text-center
+                             bg-gray-50 dark:bg-gray-800/80 text-gray-700 dark:text-gray-200"
                   style={{ width: 90, minWidth: 90, maxWidth: 90 }}
                   title={rc.label}
                 >
@@ -184,30 +195,47 @@ function RiskGridMatrix({
             </tr>
           </thead>
           <tbody>
-            {catalog.body_parts.map((bp, idx) => (
-              <tr key={bp.key} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}>
-                <td className="p-2 sticky left-0 z-10 border-r border-gray-200 bg-inherit font-medium text-sm">
-                  {bp.key}. {bp.label}
-                </td>
-                {catalog.risk_columns.map((rc) => {
-                  const checked = matrix[bp.key]?.has(rc.col) ?? false;
-                  return (
-                    <td
-                      key={rc.col}
-                      className="text-center border-l border-gray-100 p-2"
-                      style={{ width: 90, minWidth: 90 }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggle(bp.key, rc.col)}
-                        className="h-5 w-5 cursor-pointer"
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {catalog.body_parts.map((bp, idx) => {
+              // Explicitní barvy řádku — bez průhlednosti, aby nepronikaly checkboxy
+              // skrz sticky první sloupec.
+              const rowBg = idx % 2 === 0
+                ? "bg-white dark:bg-gray-900"
+                : "bg-gray-50 dark:bg-gray-800/60";
+              return (
+                <tr key={bp.key} className={rowBg}>
+                  <td
+                    className={cn(
+                      "p-2 sticky left-0 z-20 border-r border-gray-300 dark:border-gray-600",
+                      "font-medium text-sm text-gray-800 dark:text-gray-100",
+                      // Stejná barva jako řádek + ŽÁDNÁ průhlednost
+                      idx % 2 === 0
+                        ? "bg-white dark:bg-gray-900"
+                        : "bg-gray-100 dark:bg-gray-800",
+                    )}
+                    style={{ minWidth: 140 }}
+                  >
+                    {bp.key}. {bp.label}
+                  </td>
+                  {catalog.risk_columns.map((rc) => {
+                    const checked = matrix[bp.key]?.has(rc.col) ?? false;
+                    return (
+                      <td
+                        key={rc.col}
+                        className="text-center border-l border-gray-100 dark:border-gray-700 p-2"
+                        style={{ width: 90, minWidth: 90 }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggle(bp.key, rc.col)}
+                          className="h-5 w-5 cursor-pointer"
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -432,14 +460,88 @@ function PositionOoppDetail({
     return acc;
   }, {});
 
+  // Pomocné: existují nějaké OOPP nad rámec rizik (= bez checkovaného body partu)?
+  const orphanItems = items.filter((i) => !checkedBodyParts.has(i.body_part));
+
   return (
     <div className="space-y-3">
+      {/*
+        Ruční přidání OOPP nad rámec tabulky — slouží pro položky, které
+        zaměstnanec dostává bez ohledu na rizika z matice (např. firemní
+        oblečení, jmenovka, ID karta, viditelná vesta při návštěvách provozu).
+      */}
+      <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700 px-3 py-2">
+        <div className="text-xs text-blue-800 dark:text-blue-200">
+          Přidat OOPP <strong>nad rámec tabulky rizik</strong> (např. reflexní vesta,
+          firemní oblečení) — body část si zvolíš ve formuláři.
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => { setFormError(null); setAddModal({ bodyPart: "G" }); }}
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" /> Přidat ručně
+        </Button>
+      </div>
+
+      {/* Sekce „bez kategorie" — OOPP přiřazené k body partu, který nemá riziko */}
+      {orphanItems.length > 0 && (
+        <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3">
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-medium">
+            Ručně přidané OOPP (bez vazby na riziko v tabulce)
+          </div>
+          <ul className="divide-y divide-gray-50 dark:divide-gray-700">
+            {orphanItems.map((item) => {
+              const bp = catalog.body_parts.find((b) => b.key === item.body_part);
+              return (
+                <li key={item.id} className="py-1.5 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-gray-400 mr-2">
+                      {item.body_part}. {bp?.label ?? "?"}
+                    </span>
+                    <span className="font-medium text-gray-800 dark:text-gray-100">{item.name}</span>
+                    {item.valid_months && (
+                      <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                        výdej á {item.valid_months} měs.
+                      </span>
+                    )}
+                    {item.notes && (
+                      <span className="ml-2 text-xs text-gray-400">· {item.notes}</span>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => { setFormError(null); setEditItem(item); }}
+                      className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                      title="Upravit"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Archivovat ${item.name}?`)) archiveItem.mutate(item.id);
+                      }}
+                      className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                      title="Archivovat"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {catalog.body_parts.map((bp) => {
         const isChecked = checkedBodyParts.has(bp.key);
         const list = itemsByBodyPart[bp.key] ?? [];
 
-        // Skryj body parts, pro které není nic zaškrtnuté A není přidáno OOPP
-        if (!isChecked && list.length === 0) return null;
+        // Sekce per body part renderujeme JEN když je v matici označeno
+        // riziko. Položky bez vazby na riziko se zobrazí v sekci
+        // „Ručně přidané OOPP" výše.
+        if (!isChecked) return null;
 
         return (
           <div key={bp.key} className="border border-gray-100 rounded-md p-3">
@@ -876,7 +978,7 @@ export default function OoppPage() {
       <div className="px-6 pt-4">
         <div className="flex gap-1 border-b border-gray-200">
           {([
-            { key: "grid",      label: "Vyhodnocení rizik",     icon: ShieldAlert },
+            { key: "grid",      label: "Vyhodnocení rizik a výběr OOPP", icon: ShieldAlert },
             { key: "positions", label: "OOPP dle pozic",        icon: Boxes },
             { key: "issues",    label: "Výdeje zaměstnancům",   icon: ClipboardList },
           ] as { key: Tab; label: string; icon: typeof ShieldAlert }[]).map((t) => (

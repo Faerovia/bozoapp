@@ -11,7 +11,7 @@ Všechny endpointy vyžadují `require_platform_admin()`. Platform admin bypass
 RLS je nastaven v `get_current_user` automaticky pro users s flag.
 """
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -63,7 +63,13 @@ class CreateTenantResponse(BaseModel):
 
 
 class TenantPatchRequest(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
     is_active: bool | None = None
+    # Service level (free|basic|standard|pro|enterprise) — admin definuje
+    # katalog v platform_settings 'service_levels.catalog'.
+    service_level: str | None = Field(None, max_length=20)
+    # Pokud True → freeze tenant (nastaví frozen_at na now); False → unfreeze.
+    is_frozen: bool | None = None
     billing_type: str | None = Field(
         None, pattern="^(monthly|yearly|per_employee|custom|free)$",
     )
@@ -143,8 +149,14 @@ async def admin_update_tenant(
     if tenant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant nenalezen")
 
-    # Billing fields — patch jen těch, které byly poslány
-    update_fields = data.model_dump(exclude_unset=True, exclude={"is_active"})
+    # Billing/general fields — patch jen těch, které byly poslány
+    update_fields = data.model_dump(
+        exclude_unset=True, exclude={"is_active", "is_frozen"},
+    )
+    # Freeze toggle — převede is_frozen flag na frozen_at timestamp
+    if data.is_frozen is not None:
+        update_fields["frozen_at"] = datetime.now(UTC) if data.is_frozen else None
+
     if update_fields:
         await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))
         for k, v in update_fields.items():

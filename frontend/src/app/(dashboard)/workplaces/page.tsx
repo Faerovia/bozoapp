@@ -16,11 +16,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  Building2, Briefcase, Factory, ShieldCheck, Download,
+  Building2, Briefcase, Factory, ShieldCheck,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
-  Plant, Workplace, JobPosition, RiskFactorAssessment,
+  Plant, Workplace, JobPosition,
 } from "@/types/api";
 import { RF_ORDER, RF_LABELS, RISK_RATINGS } from "@/types/api";
 import { Header } from "@/components/layout/header";
@@ -35,12 +35,6 @@ const INPUT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 t
 
 function errMsg(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Chyba serveru";
-}
-
-function getCsrf(): string | null {
-  if (typeof document === "undefined") return null;
-  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
 }
 
 // ── Plant form ─────────────────────────────────────────────────────────────
@@ -259,95 +253,72 @@ function PositionForm({
   );
 }
 
-// ── RFA matrix dialog body ────────────────────────────────────────────────
+// ── Workplace-level RFA matrix dialog body ───────────────────────────────
+// Hodnocení rizik se nyní eviduje per-pracoviště (workplace) — bulk-update
+// propaguje rating na všechny pozice pracoviště. Pozice rizika dědí.
+// PDF měření per faktor zde záměrně nejsou — PDF zůstávají per-pozice
+// a budou se spravovat samostatně (např. v detailu pozice / RFA dokumentu).
 
-function RfaMatrixBody({
-  positionId,
+function WorkplaceRfaMatrixBody({
+  workplaceId,
   onClose,
 }: {
-  positionId: string;
+  workplaceId: string;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const { data: rfa, isLoading } = useQuery<RiskFactorAssessment>({
-    queryKey: ["rfa-by-position", positionId],
-    queryFn: () => api.get(`/job-positions/${positionId}/risk-assessment`),
+  const { data, isLoading } = useQuery<{
+    workplace_id: string;
+    factors: Record<string, string | null>;
+  }>({
+    queryKey: ["workplace-rfa", workplaceId],
+    queryFn: () => api.get(`/workplaces/${workplaceId}/risk-assessment`),
   });
 
-  const updateRfa = useMutation({
-    mutationFn: (patch: Partial<RiskFactorAssessment>) =>
-      api.patch(`/risk-factors/${rfa!.id}`, patch),
+  const updateFactor = useMutation({
+    mutationFn: (payload: { factor: string; rating: string | null }) =>
+      api.put(`/workplaces/${workplaceId}/risk-assessment`, payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["rfa-by-position", positionId] });
+      qc.invalidateQueries({ queryKey: ["workplace-rfa", workplaceId] });
       qc.invalidateQueries({ queryKey: ["positions"] });
     },
     onError: (err) => setSaveError(errMsg(err)),
   });
 
-  const deletePdf = useMutation({
-    mutationFn: (factor: string) =>
-      api.delete(`/risk-factors/${rfa!.id}/pdf/${factor}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["rfa-by-position", positionId] });
-    },
-  });
-
-  async function uploadPdf(factor: string, file: File) {
-    if (!rfa) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    const headers: Record<string, string> = {};
-    const csrf = getCsrf();
-    if (csrf) headers["X-CSRF-Token"] = csrf;
-    const res = await fetch(`/api/v1/risk-factors/${rfa.id}/pdf/${factor}`, {
-      method: "POST",
-      body: fd,
-      headers,
-      credentials: "same-origin",
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setSaveError(body.detail ?? `HTTP ${res.status}`);
-      return;
-    }
-    qc.invalidateQueries({ queryKey: ["rfa-by-position", positionId] });
+  if (isLoading || !data) {
+    return <div className="h-32 animate-pulse bg-gray-50 dark:bg-gray-800 rounded" />;
   }
 
-  if (isLoading || !rfa) {
-    return <div className="h-32 animate-pulse bg-gray-50 rounded" />;
-  }
+  const factors = data.factors;
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-gray-500">
-        Navrhovaná kategorie: <strong>{rfa.category_proposed}</strong>
-        {rfa.category_override && (
-          <> · Přepsáno na <strong>{rfa.category_override}</strong></>
-        )}
+      <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800
+                      dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
+        Hodnocení rizik je definováno na úrovni pracoviště. Změna se propaguje
+        na všechny pozice tohoto pracoviště automaticky. Pozice nelze upravovat
+        zvlášť — dědí ratingy z pracoviště.
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-xs text-gray-500">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-300">
               <th className="text-left py-2 px-3">Faktor</th>
               {RISK_RATINGS.map((r) => (
                 <th key={r} className="text-center py-2 px-3 w-14">{r}</th>
               ))}
               <th className="text-center py-2 px-3 w-8">—</th>
-              <th className="text-center py-2 px-3 w-32">Měření (PDF)</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {RF_ORDER.map((factor) => {
-              const currentRating = rfa[factor];
-              const pdfField = `${factor}_pdf_path` as keyof RiskFactorAssessment;
-              const hasPdf = !!rfa[pdfField];
+              const currentRating = factors[factor];
               return (
                 <tr key={factor}>
-                  <td className="py-2 px-3 font-medium text-gray-700">
+                  <td className="py-2 px-3 font-medium text-gray-800 dark:text-gray-100">
                     {RF_LABELS[factor]}
                   </td>
                   {RISK_RATINGS.map((r) => (
@@ -356,7 +327,7 @@ function RfaMatrixBody({
                         type="radio"
                         name={`rating-${factor}`}
                         checked={currentRating === r}
-                        onChange={() => updateRfa.mutate({ [factor]: r })}
+                        onChange={() => updateFactor.mutate({ factor, rating: r })}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500"
                       />
                     </td>
@@ -365,51 +336,11 @@ function RfaMatrixBody({
                     <input
                       type="radio"
                       name={`rating-${factor}`}
-                      checked={currentRating === null}
-                      onChange={() => updateRfa.mutate({ [factor]: null })}
+                      checked={!currentRating}
+                      onChange={() => updateFactor.mutate({ factor, rating: null })}
                       className="h-4 w-4 text-gray-400 focus:ring-gray-300"
                       title="Neaplikuje se"
                     />
-                  </td>
-                  <td className="text-center py-1">
-                    {hasPdf ? (
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            window.open(`/api/v1/risk-factors/${rfa.id}/pdf/${factor}`, "_blank")
-                          }
-                          className="rounded p-1 text-blue-600 hover:bg-blue-50"
-                          title="Otevřít PDF"
-                        >
-                          <Download className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm("Smazat PDF?")) deletePdf.mutate(factor);
-                          }}
-                          className="rounded p-1 text-red-600 hover:bg-red-50"
-                          title="Smazat PDF"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <label className="cursor-pointer text-xs text-blue-600 hover:underline">
-                        Nahrát…
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) uploadPdf(factor, f);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
-                    )}
                   </td>
                 </tr>
               );
@@ -437,12 +368,10 @@ function PositionsTable({
   workplaceId,
   onEditPosition,
   onDeletePosition,
-  onOpenRfa,
 }: {
   workplaceId: string;
   onEditPosition: (jp: JobPosition) => void;
   onDeletePosition: (jp: JobPosition) => void;
-  onOpenRfa: (jp: JobPosition) => void;
 }) {
   const { data: positions = [] } = useQuery<JobPosition[]>({
     queryKey: ["positions", workplaceId],
@@ -489,13 +418,11 @@ function PositionsTable({
               </td>
               <td className="py-1.5">
                 <div className="flex items-center justify-end gap-1">
-                  <button
-                    onClick={() => onOpenRfa(jp)}
-                    className="rounded p-1 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50"
-                    title="Hodnocení rizik"
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                  </button>
+                  {/*
+                    Hodnocení rizik se neřeší per-pozice, ale per-pracoviště
+                    (RFA refactor #81). Tlačítko bylo přesunuto na řádek
+                    pracoviště ve <WorkplacesSection />. Pozice rizika dědí.
+                  */}
                   <button
                     onClick={() => onEditPosition(jp)}
                     className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
@@ -527,7 +454,7 @@ function WorkplacesSection({
   onAddPos,
   onEditPos,
   onDeletePos,
-  onOpenRfa,
+  onOpenWorkplaceRfa,
 }: {
   plantId: string;
   onEditWp: (wp: Workplace) => void;
@@ -535,7 +462,7 @@ function WorkplacesSection({
   onAddPos: (workplaceId: string) => void;
   onEditPos: (jp: JobPosition) => void;
   onDeletePos: (jp: JobPosition) => void;
-  onOpenRfa: (jp: JobPosition) => void;
+  onOpenWorkplaceRfa: (wp: Workplace) => void;
 }) {
   const { data: workplaces = [] } = useQuery<Workplace[]>({
     queryKey: ["workplaces", plantId],
@@ -570,6 +497,13 @@ function WorkplacesSection({
                 <Plus className="h-3 w-3" /> Pozice
               </button>
               <button
+                onClick={() => onOpenWorkplaceRfa(wp)}
+                className="rounded p-1 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50"
+                title="Hodnocení rizik (per pracoviště)"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+              </button>
+              <button
                 onClick={() => onEditWp(wp)}
                 className="rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
                 title="Upravit"
@@ -590,7 +524,6 @@ function WorkplacesSection({
             workplaceId={wp.id}
             onEditPosition={onEditPos}
             onDeletePosition={onDeletePos}
-            onOpenRfa={onOpenRfa}
           />
         </div>
       ))}
@@ -607,7 +540,7 @@ export default function WorkplacesPage() {
   const [plantModal, setPlantModal] = useState<{ mode: "create" | "edit"; plant?: Plant } | null>(null);
   const [wpModal, setWpModal] = useState<{ mode: "create" | "edit"; plantId: string; wp?: Workplace } | null>(null);
   const [posModal, setPosModal] = useState<{ mode: "create" | "edit"; workplaceId: string; jp?: JobPosition } | null>(null);
-  const [rfaModal, setRfaModal] = useState<JobPosition | null>(null);
+  const [rfaModal, setRfaModal] = useState<Workplace | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: plants = [], isLoading } = useQuery<Plant[]>({
@@ -800,7 +733,7 @@ export default function WorkplacesPage() {
                           if (confirm(`Archivovat pozici ${jp.name}?`))
                             deletePos.mutate({ id: jp.id, workplaceId: jp.workplace_id });
                         }}
-                        onOpenRfa={(jp) => setRfaModal(jp)}
+                        onOpenWorkplaceRfa={(wp) => setRfaModal(wp)}
                       />
                     </div>
                   )}
@@ -890,7 +823,7 @@ export default function WorkplacesPage() {
         )}
       </Dialog>
 
-      {/* RFA matrix dialog */}
+      {/* RFA matrix dialog (per-workplace) */}
       <Dialog
         open={!!rfaModal}
         onClose={() => setRfaModal(null)}
@@ -898,8 +831,8 @@ export default function WorkplacesPage() {
         size="lg"
       >
         {rfaModal && (
-          <RfaMatrixBody
-            positionId={rfaModal.id}
+          <WorkplaceRfaMatrixBody
+            workplaceId={rfaModal.id}
             onClose={() => setRfaModal(null)}
           />
         )}

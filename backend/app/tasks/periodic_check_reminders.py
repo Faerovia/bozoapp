@@ -160,9 +160,27 @@ async def _process(db: AsyncSession) -> int:
                 Employee.status == "active",
             )
         )
-        recipients = [
+        recipients_set: set[str] = {
             e.email for e in recipients_res.scalars() if e.email
-        ]
+        }
+
+        # Per-check responsible employee — explicitně nastavená osoba (mig 056)
+        per_check_emp_ids = {
+            c.responsible_employee_id for c, _ in items
+            if c.responsible_employee_id is not None
+        }
+        if per_check_emp_ids:
+            emp_res = await db.execute(
+                select(Employee).where(
+                    Employee.id.in_(per_check_emp_ids),
+                    Employee.status == "active",
+                )
+            )
+            for emp in emp_res.scalars():
+                if emp.email:
+                    recipients_set.add(emp.email)
+
+        recipients = list(recipients_set)
         if not recipients:
             log.info(
                 "No responsible employees with email for plant %s — skip",

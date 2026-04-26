@@ -25,9 +25,14 @@ from app.services.revisions import generate_qr_png
 router = APIRouter()
 
 
-def _to_device_response(d: Any, plant_name: str | None = None) -> DeviceResponse:
+def _to_device_response(
+    d: Any,
+    plant_name: str | None = None,
+    employee_name: str | None = None,
+) -> DeviceResponse:
     resp = DeviceResponse.model_validate(d)
     resp.plant_name = plant_name
+    resp.responsible_employee_name = employee_name
     return resp
 
 
@@ -50,8 +55,22 @@ async def list_devices_endpoint(
             select(Plant).where(Plant.id.in_(plant_ids))
         )).scalars().all()
         plant_names = {p.id: p.name for p in prows}
+
+    emp_ids = {r.responsible_employee_id for r in rows if r.responsible_employee_id is not None}
+    emp_names: dict[uuid.UUID, str] = {}
+    if emp_ids:
+        from app.models.employee import Employee
+        erows = (await db.execute(
+            select(Employee).where(Employee.id.in_(emp_ids))
+        )).scalars().all()
+        emp_names = {e.id: e.full_name for e in erows}
+
     return [
-        _to_device_response(r, plant_names.get(r.plant_id) if r.plant_id else None)
+        _to_device_response(
+            r,
+            plant_names.get(r.plant_id) if r.plant_id else None,
+            emp_names.get(r.responsible_employee_id) if r.responsible_employee_id else None,
+        )
         for r in rows
     ]
 

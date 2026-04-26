@@ -22,10 +22,15 @@ from app.services import periodic_checks as svc
 router = APIRouter()
 
 
-def _to_response(check: Any, plant_name: str | None = None) -> PeriodicCheckResponse:
+def _to_response(
+    check: Any,
+    plant_name: str | None = None,
+    employee_name: str | None = None,
+) -> PeriodicCheckResponse:
     resp = PeriodicCheckResponse.model_validate(check)
     resp.due_status = check.due_status
     resp.plant_name = plant_name
+    resp.responsible_employee_name = employee_name
     return resp
 
 
@@ -52,7 +57,23 @@ async def list_checks_endpoint(
         )).scalars().all()
         plant_names = {p.id: p.name for p in plant_rows}
 
-    return [_to_response(r, plant_names.get(r.plant_id) if r.plant_id else None) for r in rows]
+    emp_ids = {r.responsible_employee_id for r in rows if r.responsible_employee_id is not None}
+    emp_names: dict[uuid.UUID, str] = {}
+    if emp_ids:
+        from app.models.employee import Employee
+        emp_rows = (await db.execute(
+            select(Employee).where(Employee.id.in_(emp_ids))
+        )).scalars().all()
+        emp_names = {e.id: e.full_name for e in emp_rows}
+
+    return [
+        _to_response(
+            r,
+            plant_names.get(r.plant_id) if r.plant_id else None,
+            emp_names.get(r.responsible_employee_id) if r.responsible_employee_id else None,
+        )
+        for r in rows
+    ]
 
 
 @router.post(

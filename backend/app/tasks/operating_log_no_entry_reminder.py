@@ -163,9 +163,28 @@ async def _process(db: AsyncSession) -> int:
                 Employee.status == "active",
             )
         )
-        recipients = [
+        recipients_set: set[str] = {
             e.email for e in recipients_res.scalars() if e.email
-        ]
+        }
+
+        # Per-device responsible employee — má prioritu, je explicitně
+        # nastaven jako odpovědná osoba zařízení (migrace 056).
+        per_device_emp_ids = {
+            d.responsible_employee_id for d, _ in items
+            if d.responsible_employee_id is not None
+        }
+        if per_device_emp_ids:
+            emp_res = await db.execute(
+                select(Employee).where(
+                    Employee.id.in_(per_device_emp_ids),
+                    Employee.status == "active",
+                )
+            )
+            for emp in emp_res.scalars():
+                if emp.email:
+                    recipients_set.add(emp.email)
+
+        recipients = list(recipients_set)
         if not recipients:
             log.info("No recipients for plant %s — skip", plant_id)
             continue

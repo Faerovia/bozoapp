@@ -1,8 +1,9 @@
-"""Audit log API — read-only pro tenant managers + platform admins.
+"""Audit log API — read-only **pouze pro platform admina**.
 
 Žádné write endpointy — audit_log je append-only (zapisuje SQLAlchemy
-event listener v app.core.audit). Tenant manager (OZO/HR) vidí jen své
-tenanty, platform admin vidí napříč.
+event listener v app.core.audit). Platform admin vidí napříč všemi tenanty
+(přístup k cross-tenant audit trailu pro compliance / incident response);
+běžný OZO ani HR manager k auditu přístup nemají.
 """
 from __future__ import annotations
 
@@ -12,11 +13,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.permissions import require_role
+from app.core.permissions import require_platform_admin
 from app.models.audit_log import AuditLog
 from app.models.user import User
 
@@ -50,19 +51,27 @@ async def list_audit_endpoint(
     action: str | None = Query(None, pattern="^(CREATE|UPDATE|DELETE|VIEW|EXPORT)$"),
     resource_type: str | None = Query(None, max_length=100),
     user_id: uuid.UUID | None = Query(None),
+    tenant_id: uuid.UUID | None = Query(
+        None, description="Filter by tenant (cross-tenant je default)",
+    ),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    _current_user: User = Depends(require_platform_admin()),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
-    """Vrátí poslední audit log entries — řazení desc dle created_at."""
+    """Vrátí poslední audit log entries napříč všemi tenanty (platform admin)."""
+    # Platform admin musí mít is_platform_admin GUC v DB session pro RLS bypass
+    await db.execute(
+        text("SELECT set_config('app.is_platform_admin', 'true', true)")
+    )
     q = (
         select(AuditLog)
-        .where(AuditLog.tenant_id == current_user.tenant_id)
         .order_by(AuditLog.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
+    if tenant_id is not None:
+        q = q.where(AuditLog.tenant_id == tenant_id)
     if action:
         q = q.where(AuditLog.action == action)
     if resource_type:
@@ -104,15 +113,15 @@ async def list_audit_endpoint(
 @router.get("/audit/{audit_id}", response_model=AuditLogDetail)
 async def get_audit_detail_endpoint(
     audit_id: int,
-    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    _current_user: User = Depends(require_platform_admin()),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Vrátí kompletní audit záznam včetně old_values/new_values pro diff zobrazení."""
+    await db.execute(
+        text("SELECT set_config('app.is_platform_admin', 'true', true)")
+    )
     res = await db.execute(
-        select(AuditLog).where(
-            AuditLog.id == audit_id,
-            AuditLog.tenant_id == current_user.tenant_id,
-        )
+        select(AuditLog).where(AuditLog.id == audit_id)
     )
     row = res.scalar_one_or_none()
     if row is None:

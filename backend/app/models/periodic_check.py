@@ -49,6 +49,12 @@ class PeriodicCheck(Base, TimestampMixin):
     responsible_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+    # Zodpovědný zaměstnanec — preferovaný kanál pro due/overdue alerty.
+    # Pokud je nastaven, cron posílá email tomuto zaměstnanci místo
+    # responsible_user_id. Migrace 056.
+    responsible_employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL")
+    )
 
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)

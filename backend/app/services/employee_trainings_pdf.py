@@ -125,22 +125,30 @@ def render_employee_trainings_pdf(
         )
         pdf.set_text_color(0, 0, 0)
     else:
+        def _trunc(text: str, max_width: float) -> str:
+            if pdf.get_string_width(text) <= max_width - 2:
+                return text
+            t = text
+            while t and pdf.get_string_width(t + "…") > max_width - 2:
+                t = t[:-1]
+            return (t.rstrip() + "…") if t else text
+
         for assignment, training, trainer in rows:
             date_str = (
                 assignment.signed_at.strftime("%d.%m.%Y")
                 if assignment.signed_at else "—"
             )
-            # Trainer může mít obě pole NULL (legacy data) → použij "—"
             if trainer is not None:
                 trainer_name = trainer.full_name or trainer.email or "—"
             else:
                 trainer_name = "—"
-            title_text = (training.title or "")[:60]
+            title_text = _trunc(training.title or "", col_widths[0])
+            trainer_fit = _trunc(trainer_name, col_widths[2])
             pdf.cell(col_widths[0], 7, title_text,
                      border=1, new_x="RIGHT", new_y="TOP")
             pdf.cell(col_widths[1], 7, date_str,
                      border=1, align="C", new_x="RIGHT", new_y="TOP")
-            pdf.cell(col_widths[2], 7, trainer_name,
+            pdf.cell(col_widths[2], 7, trainer_fit,
                      border=1, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 

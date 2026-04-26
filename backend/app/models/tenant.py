@@ -50,3 +50,10 @@ class Tenant(Base, TimestampMixin):
     onboarding_dismissed: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False,
     )
+    # Úroveň zakoupených služeb — admin definuje katalog v platform_settings.
+    # Volné hodnoty (free | basic | standard | pro | enterprise | …),
+    # konkrétní seznam edituje admin v /admin/settings.
+    service_level: Mapped[str | None] = mapped_column(String(20))
+    # Pokud nastaven, tenant je „zmražený" — uživatelé ho mohou vidět
+    # ale nemohou nic zapisovat (kromě platform admina). Reaktivace = SET NULL.
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

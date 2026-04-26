@@ -5,17 +5,18 @@ from fastapi import Depends, HTTPException, status
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
-# Hierarchie rolí pro BOZP SaaS (po commitu 8):
+# Hierarchie rolí pro BOZP SaaS:
 #
 # admin                  – platform-level (SaaS operator); spravuje tenanty.
 #                          Vyžaduje is_platform_admin=True pro cross-tenant akce.
 # ozo                    – OZO poradce; full access v tenantu
-# hr_manager             – HR manager; full access v tenantu (budoucí split z OZO)
-# equipment_responsible  – zaměstnanec + správa revizí/vyhrazených zařízení
-# employee               – přístup jen ke svým záznamům
+# hr_manager             – HR manager; full access v tenantu
+# lead_worker            – Vedoucí pracovník; vidí přiřazení své skupiny
+# equipment_responsible  – Zaměstnanec + správa revizí/vyhrazených zařízení
+# employee               – Přístup jen ke svým záznamům
 #
 # Konvence rovnosti: `ozo` a `hr_manager` mají stejná práva napříč moduly;
-# `TENANT_MANAGERS` je zkratka pro oboji dvě role dohromady.
+# `TENANT_MANAGERS` je zkratka pro tyto dvě role dohromady.
 
 TENANT_MANAGERS: tuple[str, ...] = ("ozo", "hr_manager")
 

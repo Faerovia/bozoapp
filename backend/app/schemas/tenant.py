@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 
@@ -9,6 +10,9 @@ class TenantResponse(BaseModel):
     slug: str
     is_active: bool
     external_login_enabled: bool = False
+    logo_path: str | None = None
+    service_level: str | None = None
+    frozen_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

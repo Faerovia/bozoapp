@@ -26,6 +26,7 @@ class DeviceCreateRequest(BaseModel):
     period: Period = "daily"
     period_note: str | None = Field(None, max_length=255)
     notes: str | None = None
+    responsible_employee_id: uuid.UUID | None = None
 
 
 class DeviceUpdateRequest(BaseModel):
@@ -39,6 +40,7 @@ class DeviceUpdateRequest(BaseModel):
     period_note: str | None = Field(None, max_length=255)
     notes: str | None = None
     status: DeviceStatus | None = None
+    responsible_employee_id: uuid.UUID | None = None
 
 
 class DeviceResponse(BaseModel):
@@ -58,6 +60,8 @@ class DeviceResponse(BaseModel):
     notes: str | None
     status: str
     created_by: uuid.UUID
+    responsible_employee_id: uuid.UUID | None = None
+    responsible_employee_name: str | None = None
 
     model_config = {"from_attributes": True}
 

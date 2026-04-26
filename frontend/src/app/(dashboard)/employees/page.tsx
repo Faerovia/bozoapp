@@ -79,6 +79,10 @@ const schema = z.object({
   // Provozovny, za které je zaměstnanec zodpovědný (pro revize). M:N mapping.
   // Při create/update se posílá do backendu spolu s is_equipment_responsible.
   responsible_plant_ids: z.array(z.string().uuid()).default([]),
+  // Tenant-level role propojeného User účtu — výběr OZO/HR/lead_worker/...
+  assigned_role: z.enum([
+    "ozo", "hr_manager", "lead_worker", "equipment_responsible", "employee",
+  ] as const).default("employee"),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -247,8 +251,8 @@ function EmployeeForm({
         </div>
       </div>
 
-      {/* Typ úvazku + Equipment responsible checkbox */}
-      <div className="grid grid-cols-2 gap-3 items-end">
+      {/* Typ úvazku + Role */}
+      <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="employment_type">Typ úvazku *</Label>
           <select id="employment_type" {...register("employment_type")} className={SELECT_CLS}>
@@ -257,24 +261,23 @@ function EmployeeForm({
             ))}
           </select>
         </div>
-        <label className="flex items-start gap-2 pb-2 cursor-pointer">
-          <input
-            type="checkbox"
-            {...register("is_equipment_responsible")}
-            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <span className="text-sm">
-            <span className="font-medium">Osoba zodpovědná za vyhraz. zařízení</span>
-            <br />
-            <span className="text-xs text-gray-500">
-              Získá přístup do modulu Revize
-            </span>
-          </span>
-        </label>
+        <div className="space-y-1.5">
+          <Label htmlFor="assigned_role">Role v aplikaci *</Label>
+          <select id="assigned_role" {...register("assigned_role")} className={SELECT_CLS}>
+            <option value="employee">Zaměstnanec</option>
+            <option value="lead_worker">Vedoucí pracovník</option>
+            <option value="equipment_responsible">Zaměstnanec — zodpovědný za vyhrazená zařízení</option>
+            <option value="hr_manager">HR manager</option>
+            <option value="ozo">OZO BOZP/PO</option>
+          </select>
+          <p className="text-xs text-gray-400">
+            Určuje co všechno zaměstnanec vidí v aplikaci po přihlášení.
+          </p>
+        </div>
       </div>
 
-      {/* Multi-select provozoven pro zodpovědnost — když je zaškrtnuto */}
-      {watch("is_equipment_responsible") && (
+      {/* Multi-select provozoven pro zodpovědnost — když má role equipment_responsible */}
+      {watch("assigned_role") === "equipment_responsible" && (
         <div className="space-y-1.5 rounded-md border border-blue-100 bg-blue-50/30 p-3">
           <Label>Zodpovědné provozovny</Label>
           <p className="text-xs text-gray-500 -mt-1 mb-2">
@@ -1271,6 +1274,10 @@ function EditEmployeeBody({
         job_position_id: employee.job_position_id ?? null,
         is_equipment_responsible: resp.plant_ids.length > 0,
         responsible_plant_ids: resp.plant_ids,
+        // V edit modu default heuristika: pokud má responsible plants →
+        // equipment_responsible, jinak employee. OZO může v dropdownu změnit
+        // (lead_worker, hr_manager, ozo).
+        assigned_role: resp.plant_ids.length > 0 ? "equipment_responsible" : "employee",
       }}
       onSubmit={onSubmit}
       isSubmitting={isSubmitting}

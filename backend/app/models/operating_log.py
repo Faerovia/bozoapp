@@ -78,6 +78,11 @@ class OperatingLogDevice(Base, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
 
+    # Zodpovědný zaměstnanec — chodí mu no-entry alert (cron). Migrace 056.
+    responsible_employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL")
+    )
+
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

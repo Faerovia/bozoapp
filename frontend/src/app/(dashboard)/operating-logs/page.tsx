@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Tooltip } from "@/components/ui/tooltip";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 
 const SELECT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
@@ -55,6 +56,7 @@ interface DeviceFormData {
   period_note: string;
   notes: string;
   check_items: { value: string }[];
+  responsible_employee_id: string;
 }
 
 function DeviceForm({
@@ -66,7 +68,7 @@ function DeviceForm({
   isSubmitting: boolean;
   serverError: string | null;
 }) {
-  const { register, handleSubmit, watch, control } = useForm<DeviceFormData>({
+  const { register, handleSubmit, watch, control, setValue } = useForm<DeviceFormData>({
     defaultValues: {
       category: defaultValues?.category ?? "vzv",
       title: defaultValues?.title ?? "",
@@ -77,8 +79,18 @@ function DeviceForm({
       period_note: defaultValues?.period_note ?? "",
       notes: defaultValues?.notes ?? "",
       check_items: defaultValues?.check_items ?? [{ value: "" }],
+      responsible_employee_id: defaultValues?.responsible_employee_id ?? "",
     },
   });
+
+  // Načti aktivní zaměstnance pro dropdown zodpovědné osoby
+  const { data: employees = [] } = useQuery<Array<{
+    id: string; full_name: string; email: string | null;
+  }>>({
+    queryKey: ["employees-for-responsible"],
+    queryFn: () => api.get("/employees?status=active"),
+  });
+  const responsibleEmpId = watch("responsible_employee_id");
   const { fields, append, remove, swap } = useFieldArray({
     control,
     name: "check_items",
@@ -196,6 +208,26 @@ function DeviceForm({
         >
           <Plus className="h-4 w-4 mr-1" /> Přidat úkon
         </Button>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="responsible_employee_id">
+          Zodpovědná osoba (notifikace)
+        </Label>
+        <SearchableSelect
+          options={employees.map((e) => ({
+            value: e.id,
+            label: e.email ? `${e.full_name} · ${e.email}` : e.full_name,
+          }))}
+          value={responsibleEmpId}
+          onChange={(v) => setValue("responsible_employee_id", v ?? "")}
+          placeholder="— bez zodpovědné osoby —"
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Této osobě budou chodit emailové alerty, pokud nebudou prováděny
+          zápisy v provozním deníku dle nastavené periodicity. Nemá-li
+          zaměstnanec email, alerty mu nebudou doručeny.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -635,6 +667,7 @@ export default function OperatingLogsPage() {
         period_note: data.period_note || null,
         notes: data.notes || null,
         check_items: data.check_items.map((c) => c.value).filter(Boolean),
+        responsible_employee_id: data.responsible_employee_id || null,
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["operating-logs"] });
@@ -656,6 +689,7 @@ export default function OperatingLogsPage() {
         period_note: data.period_note || null,
         notes: data.notes || null,
         check_items: data.check_items.map((c) => c.value).filter(Boolean),
+        responsible_employee_id: data.responsible_employee_id || null,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["operating-logs"] });
@@ -849,6 +883,7 @@ export default function OperatingLogsPage() {
               period_note: editDevice.period_note ?? "",
               notes: editDevice.notes ?? "",
               check_items: editDevice.check_items.map((v) => ({ value: v })),
+              responsible_employee_id: editDevice.responsible_employee_id ?? "",
             }}
             onSubmit={(d) => updateMut.mutate({ id: editDevice.id, data: d })}
             isSubmitting={updateMut.isPending}

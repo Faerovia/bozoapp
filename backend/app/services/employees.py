@@ -157,7 +157,13 @@ async def create_employee(
         # zkopírovat a předat zaměstnanci stejným kanálem jako generované).
         generated_password = password
 
-        role = "equipment_responsible" if data.is_equipment_responsible else "employee"
+        # Priorita: explicitní assigned_role > legacy is_equipment_responsible flag.
+        if data.assigned_role:
+            role = data.assigned_role
+        elif data.is_equipment_responsible:
+            role = "equipment_responsible"
+        else:
+            role = "employee"
         full_name = f"{data.first_name} {data.last_name}".strip()
         new_user = User(
             tenant_id=tenant_id,
@@ -239,16 +245,23 @@ async def update_employee(
 ) -> Employee:
     update_fields = data.model_dump(exclude_unset=True)
 
-    # Equipment responsible toggle — přepne roli propojeného usera
+    # Změna tenant-level role propojeného usera (priorita: assigned_role > legacy flag)
+    new_role: str | None = None
+    if "assigned_role" in update_fields:
+        new_role = update_fields.pop("assigned_role")
     if "is_equipment_responsible" in update_fields:
         is_resp = update_fields.pop("is_equipment_responsible")
-        if employee.user_id is not None:
-            linked = (await db.execute(
-                select(User).where(User.id == employee.user_id)
-            )).scalar_one_or_none()
-            if linked is not None and linked.role in ("employee", "equipment_responsible"):
-                # Měníme jen mezi těmito dvěma rolemi. OZO/HR/admin neměníme.
-                linked.role = "equipment_responsible" if is_resp else "employee"
+        if new_role is None:
+            new_role = "equipment_responsible" if is_resp else "employee"
+
+    if new_role and employee.user_id is not None:
+        linked = (await db.execute(
+            select(User).where(User.id == employee.user_id)
+        )).scalar_one_or_none()
+        # Pro bezpečnost: nikdy nepřepisuj 'admin' nebo platform_admin přes
+        # employee endpoint. Změny mezi employee/equipment/lead/hr/ozo OK.
+        if linked is not None and linked.role != "admin" and not linked.is_platform_admin:
+            linked.role = new_role
 
     # FK validace (stejně jako při create)
     if "user_id" in update_fields and update_fields["user_id"] is not None:

@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Tooltip } from "@/components/ui/tooltip";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 
 // ── Konstanty ───────────────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ const checkSchema = z.object({
     .transform((v) => parseInt(v, 10))
     .refine((v) => v > 0 && v <= 600, "Neplatná hodnota"),
   notes: z.string().optional().transform((v) => v || null),
+  responsible_employee_id: z.string().optional().transform((v) => v || null),
 });
 
 type CheckFormData = z.infer<typeof checkSchema>;
@@ -94,11 +96,19 @@ function CheckForm({
   isSubmitting: boolean;
   serverError: string | null;
 }) {
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<CheckFormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<CheckFormData>({
     resolver: zodResolver(checkSchema),
     defaultValues: defaultValues ?? {},
   });
   const selectedKind = watch("check_kind") as CheckKind | undefined;
+  const responsibleEmpId = watch("responsible_employee_id");
+
+  const { data: employees = [] } = useQuery<Array<{
+    id: string; full_name: string; email: string | null;
+  }>>({
+    queryKey: ["employees-for-responsible-pc"],
+    queryFn: () => api.get("/employees?status=active"),
+  });
   const periodInfo = selectedKind
     ? CHECK_KIND_PERIODICITY_INFO[selectedKind]
     : "Vyber typ kontroly výše — zobrazí se legislativní lhůty.";
@@ -154,6 +164,25 @@ function CheckForm({
           <Input id="valid_months" type="number" min="1" {...register("valid_months")} placeholder="12" />
           {errors.valid_months && <p className="text-xs text-red-600">{errors.valid_months.message}</p>}
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="responsible_employee_id">
+          Zodpovědná osoba (notifikace)
+        </Label>
+        <SearchableSelect
+          options={employees.map((e) => ({
+            value: e.id,
+            label: e.email ? `${e.full_name} · ${e.email}` : e.full_name,
+          }))}
+          value={responsibleEmpId ?? ""}
+          onChange={(v) => setValue("responsible_employee_id", v ?? "")}
+          placeholder="— bez zodpovědné osoby —"
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Této osobě budou chodit emailové alerty na blížící se / prošlé kontroly
+          (kromě plant-responsibility osob).
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -456,6 +485,7 @@ export default function PeriodicChecksPage() {
               last_checked_at: editCheck.last_checked_at ?? "",
               valid_months: editCheck.valid_months ?? undefined,
               notes: editCheck.notes ?? "",
+              responsible_employee_id: editCheck.responsible_employee_id ?? "",
             }}
             onSubmit={(d) => updateMut.mutate({ id: editCheck.id, data: d })}
             isSubmitting={updateMut.isPending}
