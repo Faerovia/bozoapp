@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -39,3 +40,13 @@ class Tenant(Base, TimestampMixin):
     billing_address_city: Mapped[str | None] = mapped_column(String(100))
     billing_address_zip: Mapped[str | None] = mapped_column(String(10))
     billing_email: Mapped[str | None] = mapped_column(String(255))
+    # Onboarding (migrace 042). Step 1 = wizard (firma + první pracoviště).
+    onboarding_step1_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    onboarding_dismissed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )

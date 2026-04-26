@@ -19,6 +19,8 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
+import { OnboardingWizard } from "@/components/onboarding-wizard";
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
@@ -180,8 +182,10 @@ export default function DashboardPage() {
   return (
     <div>
       <Header title="Dashboard" />
+      <OnboardingWizard />
 
       <div className="p-6 space-y-6">
+        <OnboardingChecklist />
         {/* Stat cards */}
         {isLoading ? (
           <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">

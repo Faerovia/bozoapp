@@ -23,6 +23,7 @@ from app.api.v1 import (
     invoices_admin,
     job_positions,
     medical_exams,
+    onboarding,
     oopp,
     ozo_overview,
     reminders_admin,
@@ -216,3 +217,4 @@ app.include_router(invoices.router, prefix="/api/v1", tags=["invoices"])
 app.include_router(reminders_admin.router, prefix="/api/v1", tags=["reminders-admin"])
 app.include_router(training_signing.router, prefix="/api/v1", tags=["training-signing"])
 app.include_router(training_pdf.router, prefix="/api/v1", tags=["training-pdf"])
+app.include_router(onboarding.router, prefix="/api/v1", tags=["onboarding"])

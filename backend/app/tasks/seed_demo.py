@@ -80,6 +80,15 @@ def _emp_name() -> tuple[str, str]:
     return random.choice(CZECH_FIRST_NAMES), random.choice(CZECH_LAST_NAMES)
 
 
+# Tiny placeholder PNG (1×1, modrý pixel) jako fake signature image — stačí
+# pro demo, kde nechceme generovat skutečné canvas obrázky.
+_DEMO_SIG_PNG = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAAWg"
+    "JpJQAAAAASUVORK5CYII="
+)
+
+
 def _add_months(d: date, months: int) -> date:
     import calendar
     month = d.month + months
@@ -188,12 +197,66 @@ async def _seed_employees(
     plants: dict[str, Plant],
     positions: dict[str, JobPosition],
     employee_specs: list[dict[str, Any]],
+    *,
+    extra_random_count: int = 0,
 ) -> list[Employee]:
+    """Vytvoří zaměstnance dle specs + případně N dalších náhodných.
+
+    Random batch:
+    - rovnoměrně rozdělí mezi dostupné plants/positions
+    - bez user accountu (jen Employee record)
+    - employment_type: HPP (70 %), DPP (15 %), DPČ (10 %), brigáda (5 %)
+    - žádné role manageřy — všichni 'employee'
+    """
+    if extra_random_count > 0 and plants and positions:
+        plant_list = list(plants.values())
+        pos_list = list(positions.values())
+        for _ in range(extra_random_count):
+            rnd_plant = random.choice(plant_list)
+            rnd_pos = random.choice(pos_list)
+            employee_specs.append({
+                "name": _emp_name(),
+                "plant": rnd_plant.name,
+                "position": rnd_pos.name,
+                "role": None,           # bez user account
+                "employment_type": random.choices(
+                    ["hpp", "dpp", "dpc", "brigada"],
+                    weights=[70, 15, 10, 5],
+                )[0],
+            })
+
     employees: list[Employee] = []
     for spec in employee_specs:
         first, last = spec.get("name") or _emp_name()
-        plant = plants.get(spec.get("plant", "")) if spec.get("plant") else None
-        position = positions.get(spec.get("position", "")) if spec.get("position") else None
+        plant: Plant | None = (
+            plants.get(spec.get("plant", "")) if spec.get("plant") else None
+        )
+        position: JobPosition | None = (
+            positions.get(spec.get("position", "")) if spec.get("position") else None
+        )
+
+        # Bez role → bulk zaměstnanec bez user accountu (typický CSV import)
+        if spec.get("role") is None and "email" not in spec:
+            emp = Employee(
+                tenant_id=tenant_id,
+                user_id=None,
+                created_by=created_by,
+                first_name=first,
+                last_name=last,
+                phone=f"+4207{random.randint(10, 99)}{random.randint(100000, 999999)}",
+                address_city=plant.city if plant else "Praha",
+                address_zip=plant.zip_code if plant else "11000",
+                employment_type=spec.get("employment_type", "hpp"),
+                plant_id=plant.id if plant else None,
+                workplace_id=position.workplace_id if position else None,
+                job_position_id=position.id if position else None,
+                hired_at=date.today() - timedelta(days=random.randint(30, 365 * 5)),
+                personal_number=f"P{random.randint(1000, 99999)}",
+            )
+            db.add(emp)
+            await db.flush()
+            employees.append(emp)
+            continue
 
         # Auth user
         email = spec.get("email") or f"{first.lower()}.{last.lower()}@demo.cz"
@@ -268,18 +331,47 @@ async def _seed_trainings(
             title="Vstupní školení BOZP",
             training_type="bozp", trainer_kind="ozo_bozp",
             valid_months=12,
+            duration_hours=2.0,
+            knowledge_test_required=True,
+            requires_qes=False,
+            outline_text=(
+                "1. Práva a povinnosti zaměstnanců dle Zákoníku práce\n"
+                "2. Hodnocení rizik na pracovišti\n"
+                "3. Bezpečné chování — práce s ručním nářadím, manipulace\n"
+                "4. První pomoc a evakuace\n"
+                "5. Hlášení nehod a úrazů"
+            ),
         ),
         Training(
             tenant_id=tenant_id, created_by=created_by,
             title="Školení požární ochrany",
             training_type="po", trainer_kind="ozo_po",
             valid_months=24,
+            duration_hours=1.5,
+            knowledge_test_required=True,
+            requires_qes=False,
+            outline_text=(
+                "1. Požární poplachová směrnice\n"
+                "2. Únikové cesty a evakuační plán\n"
+                "3. Hasicí přístroje — typy a použití\n"
+                "4. Klasifikace požárů, prevence"
+            ),
         ),
         Training(
             tenant_id=tenant_id, created_by=created_by,
             title="Práce ve výškách",
             training_type="other", trainer_kind="employer",
             valid_months=12,
+            duration_hours=4.0,
+            knowledge_test_required=True,
+            requires_qes=True,  # vysoce rizikové → ZES podpis
+            outline_text=(
+                "1. Legislativa — NV č. 362/2005 Sb.\n"
+                "2. Osobní zajištění — postroj, lana, kotvení\n"
+                "3. Žebříky, lešení, plošiny\n"
+                "4. Záchranné techniky\n"
+                "5. Praktická část — nasazení postroje"
+            ),
         ),
     ]
     for t in templates:
@@ -321,6 +413,17 @@ async def _seed_trainings(
                     status=status,
                     assigned_by=created_by,
                 )
+                # Completed assignments dostanou tinyfake podpis (1×1 PNG)
+                # — pro účely demo, aby prezenční listina + cert byly platné.
+                if status == "completed" and last_completed_at is not None:
+                    ta.signature_image = _DEMO_SIG_PNG
+                    ta.signed_at = last_completed_at
+                    ta.signature_method = "qes" if tpl.requires_qes else "simple"
+                    ta.signature_meta = {
+                        "ip": "127.0.0.1",
+                        "user_agent": "demo-seed",
+                        "server_signed_at": last_completed_at.isoformat(),
+                    }
                 db.add(ta)
 
     await db.flush()
@@ -548,6 +651,18 @@ async def seed(db: AsyncSession) -> None:
         name="Strojírny ABC s.r.o.",
         slug="strojirny-abc-s-r-o",
         external_login_enabled=False,
+        billing_type="monthly",
+        billing_amount=1990,
+        billing_currency="CZK",
+        billing_company_name="Strojírny ABC s.r.o.",
+        billing_ico="12345678",
+        billing_dic="CZ12345678",
+        billing_address_street="Vinohradská 1234/56",
+        billing_address_city="Praha",
+        billing_address_zip="120 00",
+        billing_email="fakturace@strojirny-abc.cz",
+        onboarding_step1_completed_at=datetime.now(UTC) - timedelta(days=120),
+        onboarding_completed_at=datetime.now(UTC) - timedelta(days=110),
     )
     db.add(abc)
     await db.flush()
@@ -609,16 +724,20 @@ async def seed(db: AsyncSession) -> None:
          "rfa": {"rf_fyz_zatez": "2", "rf_prac_poloha": "2"}},
     ]))
 
-    employees_abc = await _seed_employees(db, abc.id, ozo.id, plants_abc, positions_abc, [
-        {"name": ("Pavel", "Novák"), "plant": "Provozovna Praha", "position": "Soustružník", "role": "employee"},
-        {"name": ("Jan", "Svoboda"), "plant": "Provozovna Praha", "position": "Svářeč", "role": "employee"},
-        {"name": ("Tomáš", "Dvořák"), "plant": "Provozovna Praha", "position": "Soustružník", "role": "employee"},
-        {"name": ("Petr", "Černý"), "plant": "Provozovna Praha", "position": "Mistr", "role": "equipment_responsible"},
-        {"name": ("Eva", "Procházková"), "plant": "Provozovna Brno", "position": "Skladník", "role": "employee"},
-        {"name": ("Lucie", "Veselá"), "plant": "Provozovna Brno", "position": "Skladník", "role": "employee"},
-        {"name": ("Martin", "Horák"), "plant": "Provozovna Praha", "position": "Svářeč", "role": "employee"},
-        {"name": ("Tereza", "Marková"), "plant": "Provozovna Praha", "position": "Mistr", "role": "hr_manager"},
-    ])
+    employees_abc = await _seed_employees(
+        db, abc.id, ozo.id, plants_abc, positions_abc,
+        [
+            {"name": ("Pavel", "Novák"), "plant": "Provozovna Praha", "position": "Soustružník", "role": "employee"},
+            {"name": ("Jan", "Svoboda"), "plant": "Provozovna Praha", "position": "Svářeč", "role": "employee"},
+            {"name": ("Tomáš", "Dvořák"), "plant": "Provozovna Praha", "position": "Soustružník", "role": "employee"},
+            {"name": ("Petr", "Černý"), "plant": "Provozovna Praha", "position": "Mistr", "role": "equipment_responsible"},
+            {"name": ("Eva", "Procházková"), "plant": "Provozovna Brno", "position": "Skladník", "role": "employee"},
+            {"name": ("Lucie", "Veselá"), "plant": "Provozovna Brno", "position": "Skladník", "role": "employee"},
+            {"name": ("Martin", "Horák"), "plant": "Provozovna Praha", "position": "Svářeč", "role": "employee"},
+            {"name": ("Tereza", "Marková"), "plant": "Provozovna Praha", "position": "Mistr", "role": "hr_manager"},
+        ],
+        extra_random_count=25,  # +25 zaměstnanců bez user accountu
+    )
 
     await _seed_trainings(db, abc.id, ozo.id, employees_abc)
     await _seed_revisions(db, abc.id, ozo.id, plants_abc, [
@@ -648,6 +767,18 @@ async def seed(db: AsyncSession) -> None:
         name="Pekárny XYZ a.s.",
         slug="pekarny-xyz-a-s",
         external_login_enabled=False,
+        billing_type="per_employee",
+        billing_amount=49,
+        billing_currency="CZK",
+        billing_company_name="Pekárny XYZ a.s.",
+        billing_ico="87654321",
+        billing_dic="CZ87654321",
+        billing_address_street="Karlovarská 30",
+        billing_address_city="Plzeň",
+        billing_address_zip="301 00",
+        billing_email="ucetni@pekarny-xyz.cz",
+        onboarding_step1_completed_at=datetime.now(UTC) - timedelta(days=80),
+        onboarding_completed_at=datetime.now(UTC) - timedelta(days=70),
     )
     db.add(xyz)
     await db.flush()
@@ -676,12 +807,16 @@ async def seed(db: AsyncSession) -> None:
          "rfa": {"rf_psych": "2", "rf_prac_poloha": "2"}},
     ])
 
-    employees_xyz = await _seed_employees(db, xyz.id, ozo.id, plants_xyz, positions_xyz, [
-        {"name": ("Jakub", "Novotný"), "plant": "Pekárna Plzeň", "position": "Pekař", "role": "employee"},
-        {"name": ("Hana", "Kučerová"), "plant": "Pekárna Plzeň", "position": "Pekař", "role": "employee"},
-        {"name": ("Anna", "Štěpánková"), "plant": "Pekárna Plzeň", "position": "Prodavač", "role": "employee"},
-        {"name": ("Zuzana", "Šimková"), "plant": "Pekárna Plzeň", "position": "Prodavač", "role": "hr_manager"},
-    ])
+    employees_xyz = await _seed_employees(
+        db, xyz.id, ozo.id, plants_xyz, positions_xyz,
+        [
+            {"name": ("Jakub", "Novotný"), "plant": "Pekárna Plzeň", "position": "Pekař", "role": "employee"},
+            {"name": ("Hana", "Kučerová"), "plant": "Pekárna Plzeň", "position": "Pekař", "role": "employee"},
+            {"name": ("Anna", "Štěpánková"), "plant": "Pekárna Plzeň", "position": "Prodavač", "role": "employee"},
+            {"name": ("Zuzana", "Šimková"), "plant": "Pekárna Plzeň", "position": "Prodavač", "role": "hr_manager"},
+        ],
+        extra_random_count=18,
+    )
 
     await _seed_trainings(db, xyz.id, ozo.id, employees_xyz)
     await _seed_revisions(db, xyz.id, ozo.id, plants_xyz, [
@@ -695,12 +830,142 @@ async def seed(db: AsyncSession) -> None:
     await _seed_oopp(db, xyz.id, ozo.id, positions_xyz, employees_xyz)
     await _seed_medical_exams(db, xyz.id, ozo.id, employees_xyz)
 
+    # ── Klient 3: Stavební firma DELTA ──────────────────────────────
+    log.info("Seeding klient 3: Stavební firma DELTA s.r.o.")
+    delta = Tenant(
+        name="Stavební firma DELTA s.r.o.",
+        slug="stavebni-firma-delta",
+        external_login_enabled=False,
+        billing_type="monthly",
+        billing_amount=2990,
+        billing_currency="CZK",
+        billing_company_name="Stavební firma DELTA s.r.o.",
+        billing_ico="11223344",
+        billing_dic="CZ11223344",
+        billing_address_street="Průmyslová 12",
+        billing_address_city="Ostrava",
+        billing_address_zip="702 00",
+        billing_email="info@delta-stavby.cz",
+        onboarding_step1_completed_at=datetime.now(UTC) - timedelta(days=30),
+        onboarding_completed_at=None,  # ještě onboarding běží
+    )
+    db.add(delta)
+    await db.flush()
+    db.add(UserTenantMembership(
+        user_id=ozo.id, tenant_id=delta.id, role="ozo", is_default=False,
+    ))
+    await db.flush()
+
+    plants_delta = await _seed_workplaces(db, delta.id, ozo.id, [
+        {
+            "name": "Stavba Olomouc — bytový dům",
+            "address": "Wolkerova 5",
+            "city": "Olomouc", "zip": "77900", "ico": "11223344",
+            "workplaces": ["Hrubá stavba", "Dokončovací práce"],
+        },
+        {
+            "name": "Stavba Ostrava — průmyslová hala",
+            "address": "Průmyslová 100",
+            "city": "Ostrava", "zip": "70200", "ico": "11223344",
+            "workplaces": ["Stavební část", "Elektromontáže"],
+        },
+    ])
+
+    res = await db.execute(
+        select(Workplace).where(Workplace.plant_id == plants_delta["Stavba Olomouc — bytový dům"].id)
+    )
+    workplaces_olomouc = list(res.scalars().all())
+    hruba = next(w for w in workplaces_olomouc if w.name == "Hrubá stavba")
+
+    positions_delta = await _seed_positions(db, delta.id, ozo.id, hruba, [
+        {"name": "Zedník",
+         "rfa": {"rf_fyz_zatez": "3", "rf_prach": "2", "rf_hluk": "2"}},
+        {"name": "Tesař",
+         "rfa": {"rf_fyz_zatez": "3", "rf_vibrace": "2"}},
+        {"name": "Stavbyvedoucí",
+         "rfa": {"rf_psych": "2"}},
+        {"name": "Železář",
+         "rfa": {"rf_fyz_zatez": "3", "rf_prach": "2"}},
+    ])
+
+    employees_delta = await _seed_employees(
+        db, delta.id, ozo.id, plants_delta, positions_delta,
+        [
+            {"name": ("Karel", "Pospíšil"), "plant": "Stavba Olomouc — bytový dům", "position": "Stavbyvedoucí", "role": "hr_manager"},
+            {"name": ("Lukáš", "Veselý"), "plant": "Stavba Olomouc — bytový dům", "position": "Zedník", "role": "employee"},
+            {"name": ("Jiří", "Růžička"), "plant": "Stavba Olomouc — bytový dům", "position": "Tesař", "role": "employee"},
+            {"name": ("Martin", "Kučera"), "plant": "Stavba Ostrava — průmyslová hala", "position": "Železář", "role": "equipment_responsible"},
+        ],
+        extra_random_count=20,
+    )
+
+    await _seed_trainings(db, delta.id, ozo.id, employees_delta)
+    await _seed_revisions(db, delta.id, ozo.id, plants_delta, [
+        {"title": "Stavební výtah Geda 1500", "type": "vytahy", "code": "VYT-1",
+         "plant": "Stavba Olomouc — bytový dům", "valid_months": 6,
+         "days_since_last": 200},
+        {"title": "Lešení obvodové", "type": "elektro", "code": "LES-1",
+         "plant": "Stavba Olomouc — bytový dům", "valid_months": 1,
+         "days_since_last": 35},
+        {"title": "Elektrocentrála Honda EU22i", "type": "elektro",
+         "plant": "Stavba Ostrava — průmyslová hala", "valid_months": 12,
+         "days_since_last": 380},  # po termínu
+    ])
+    await _seed_oopp(db, delta.id, ozo.id, positions_delta, employees_delta)
+    await _seed_medical_exams(db, delta.id, ozo.id, employees_delta)
+
+    # ── Faktury (3 měsíce zpět pro každý placený tenant) ────────────
+    log.info("Seeding invoices...")
+    await _seed_invoices(db, [abc, xyz, delta], created_by=ozo.id)
+
     log.info("=" * 60)
     log.info("Demo seed dokončen.")
     log.info("Přihlašovací údaje:")
     log.info("  Platform admin:  admin@demo.cz / %s", PASSWORD)
     log.info("  OZO (multi):     ozo@demo.cz   / %s", PASSWORD)
     log.info("=" * 60)
+
+
+async def _seed_invoices(
+    db: AsyncSession,
+    tenants: list[Tenant],
+    *,
+    created_by: uuid.UUID,
+) -> None:
+    """3 měsíce zpět faktury pro každý placený tenant. Demo data — různé statusy."""
+    from app.services.invoicing import generate_invoice
+    today = date.today()
+
+    for tenant in tenants:
+        if tenant.billing_type not in ("monthly", "per_employee"):
+            continue
+
+        # 3 měsíce zpět: m-3 paid, m-2 paid, m-1 sent
+        for months_back, status in [(3, "paid"), (2, "paid"), (1, "sent")]:
+            issued = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+            for _ in range(months_back - 1):
+                issued = (issued.replace(day=1) - timedelta(days=1)).replace(day=1)
+            period_from = issued
+            # last day of month
+            if period_from.month == 12:
+                period_to = date(period_from.year, 12, 31)
+            else:
+                period_to = date(period_from.year, period_from.month + 1, 1) - timedelta(days=1)
+
+            invoice = await generate_invoice(
+                db, tenant=tenant,
+                period_from=period_from,
+                period_to=period_to,
+                issued_at=period_to + timedelta(days=1),
+                created_by=created_by,
+            )
+            if invoice is not None and status == "paid":
+                invoice.status = "paid"
+                invoice.paid_at = invoice.due_date - timedelta(days=2)
+            elif invoice is not None:
+                invoice.status = "sent"
+                invoice.sent_at = datetime.now(UTC) - timedelta(days=5)
+            await db.flush()
 
 
 async def main() -> None:
