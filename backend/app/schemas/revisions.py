@@ -24,6 +24,7 @@ DeviceType = Literal[
     "tlakove_nadoby",
     "vytahy",
     "spalinove_cesty",
+    "regaly",
 ]
 
 RevisionStatus = Literal["active", "archived"]
@@ -61,6 +62,9 @@ class RevisionCreateRequest(BaseModel):
     responsible_user_id: uuid.UUID | None = None
     notes: str | None = None
 
+    # Automatická poptávka revize — 30 dní před expirací cron pošle email
+    auto_request_enabled: bool = False
+
     # Legacy kompat — přestože schema nové, endpoint může dostat starý tvar
     revision_type: RevisionType | None = None
 
@@ -95,6 +99,7 @@ class RevisionUpdateRequest(BaseModel):
     responsible_user_id: uuid.UUID | None = None
     notes: str | None = None
     status: RevisionStatus | None = None
+    auto_request_enabled: bool | None = None
 
     revision_type: RevisionType | None = None
 
@@ -120,6 +125,8 @@ class RevisionResponse(BaseModel):
     qr_token: str
     notes: str | None
     status: str
+    auto_request_enabled: bool = False
+    auto_request_sent_at: date | None = None
     created_by: uuid.UUID
     revision_type: str
 

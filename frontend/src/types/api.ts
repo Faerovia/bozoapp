@@ -415,8 +415,140 @@ export interface Revision {
   qr_token: string;
   notes: string | null;
   status: "active" | "archived";
+  auto_request_enabled: boolean;
+  auto_request_sent_at: string | null;
   created_by: string;
   revision_type: string;
+}
+
+// ── Periodic checks (sanační sady, záchytné vany, lékárničky) ──────────────
+
+export type CheckKind = "sanitation_kit" | "spill_tray" | "first_aid_kit";
+
+export const CHECK_KIND_LABELS: Record<CheckKind, string> = {
+  sanitation_kit: "Sanační sada",
+  spill_tray:     "Záchytná vana",
+  first_aid_kit:  "Lékárnička",
+};
+
+export const CHECK_KIND_PERIODICITY_INFO: Record<CheckKind, string> = {
+  sanitation_kit:
+    "Vyhl. 432/2003 Sb. + NV 11/2002 Sb.: kontrola obsahu sanační sady min. 1× ročně, " +
+    "po každém použití okamžitá kontrola a doplnění.",
+  spill_tray:
+    "NV 11/2002 Sb. + ČSN EN 13160: vizuální kontrola integrity záchytných van min. " +
+    "1× měsíčně. Kontrola těsnosti 1× ročně.",
+  first_aid_kit:
+    "Vyhl. 296/2022 Sb. + § 102 odst. 6 ZP: kontrola obsahu a expirace léčiv min. " +
+    "1× ročně. Po každém použití okamžitá kontrola a doplnění chybějících položek.",
+};
+
+export interface PeriodicCheck {
+  id: string;
+  tenant_id: string;
+  check_kind: CheckKind;
+  title: string;
+  location: string | null;
+  plant_id: string | null;
+  plant_name: string | null;
+  workplace_id: string | null;
+  last_checked_at: string | null;
+  valid_months: number | null;
+  next_check_at: string | null;
+  due_status: DueStatus;
+  responsible_user_id: string | null;
+  notes: string | null;
+  status: "active" | "archived";
+  created_by: string;
+}
+
+export interface PeriodicCheckRecord {
+  id: string;
+  periodic_check_id: string;
+  performed_at: string;
+  performed_by_name: string | null;
+  result: "ok" | "fixed" | "issue";
+  notes: string | null;
+  file_path: string | null;
+  created_by: string;
+}
+
+// ── Operating logs (provozní deníky) ────────────────────────────────────────
+
+export type DeviceCategory =
+  | "vzv" | "kotelna" | "tlakova_nadoba" | "jerab" | "eps" | "sprinklery"
+  | "cov" | "diesel" | "regaly_sklad" | "vytah" | "stroje_riziko" | "other";
+
+export const DEVICE_CATEGORY_LABELS: Record<DeviceCategory, string> = {
+  vzv: "Vysokozdvižné vozíky (VZV)",
+  kotelna: "Kotelny (nad 100 kW)",
+  tlakova_nadoba: "Tlakové nádoby (TNS)",
+  jerab: "Jeřáby a zdvihadla",
+  eps: "Elektrická požární signalizace (EPS)",
+  sprinklery: "Stabilní hasicí zařízení (sprinklery)",
+  cov: "Čističky odpadních vod / Odlučovače",
+  diesel: "Náhradní zdroje (Dieselagregáty)",
+  regaly_sklad: "Regálové systémy (sklady)",
+  vytah: "Výtahy (osobní/nákladní)",
+  stroje_riziko: "Stroje s vyšším rizikem (lisy, pily)",
+  other: "Jiné",
+};
+
+/**
+ * Doporučená periodicita zápisů do provozního deníku per kategorie
+ * (zdroj: Příloha s legislativními požadavky a typickými intervaly).
+ */
+export const DEVICE_CATEGORY_PERIODICITY_INFO: Record<DeviceCategory, string> = {
+  vzv: "Denně před začátkem směny (NV 168/2002 + ČSN 26 8805): brzdy, řízení, hydraulika, pneumatiky.",
+  kotelna: "Denně dle typu obsluhy (vyhl. 91/1993 Sb.): tlak, teplota, těsnost, regulace, údaje do PD.",
+  tlakova_nadoba: "Denně/týdně (NV 192/2022 + ČSN 69 0012): tlak, odkalování, pojistné ventily.",
+  jerab: "Denně před zahájením (NV 378/2001 + ČSN ISO 9927): lana/řetězy, háky, ovladače, koncové vypínače.",
+  eps: "Denně + měsíčně (vyhl. 246/2001): denně ústředna, měsíčně testy hlásičů a sirén.",
+  sprinklery: "Týdně (ČSN EN 12845): tlak v soustavě, čerpadla, hladiny zásob vody.",
+  cov: "Týdně/měsíčně: stav kalu, dmychadla, záznamy spotřeby, údržbové úkony.",
+  diesel: "Měsíčně (ČSN ISO 8528): zkušební start naprázdno/v zátěži, palivo, baterie.",
+  regaly_sklad: "Týdně/měsíčně (ČSN EN 15635): vizuální kontrola stojin/nosníků, poškození, deformace.",
+  vytah: "Dle návodu, obvykle týdně (ČSN 27 4002): provozní prohlídka dozorcem výtahu, osvětlení, alarm.",
+  stroje_riziko: "Denně před směnou (NV 378/2001): ochranné kryty, nouzové vypínače, signalizace, čistota.",
+  other: "Periodicitu definuj podle výrobce / dle typu zařízení.",
+};
+
+export type OperatingPeriod = "daily" | "weekly" | "monthly" | "shift" | "other";
+export const OPERATING_PERIOD_LABELS: Record<OperatingPeriod, string> = {
+  daily: "Denně",
+  weekly: "Týdně",
+  monthly: "Měsíčně",
+  shift: "Před každou směnou",
+  other: "Jiné",
+};
+
+export interface OperatingLogDevice {
+  id: string;
+  tenant_id: string;
+  category: DeviceCategory;
+  title: string;
+  device_code: string | null;
+  location: string | null;
+  plant_id: string | null;
+  plant_name: string | null;
+  workplace_id: string | null;
+  check_items: string[];
+  period: OperatingPeriod;
+  period_note: string | null;
+  notes: string | null;
+  status: "active" | "archived";
+  created_by: string;
+}
+
+export interface OperatingLogEntry {
+  id: string;
+  device_id: string;
+  performed_at: string;
+  performed_by_name: string;
+  capable_items: boolean[];
+  overall_capable: boolean;
+  notes: string | null;
+  created_by: string;
 }
 
 export interface RevisionRecord {

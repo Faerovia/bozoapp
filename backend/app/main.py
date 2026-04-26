@@ -25,7 +25,9 @@ from app.api.v1 import (
     medical_exams,
     onboarding,
     oopp,
+    operating_logs,
     ozo_overview,
+    periodic_checks,
     reminders_admin,
     revisions,
     risks,
@@ -218,3 +220,5 @@ app.include_router(reminders_admin.router, prefix="/api/v1", tags=["reminders-ad
 app.include_router(training_signing.router, prefix="/api/v1", tags=["training-signing"])
 app.include_router(training_pdf.router, prefix="/api/v1", tags=["training-pdf"])
 app.include_router(onboarding.router, prefix="/api/v1", tags=["onboarding"])
+app.include_router(periodic_checks.router, prefix="/api/v1", tags=["periodic-checks"])
+app.include_router(operating_logs.router, prefix="/api/v1", tags=["operating-logs"])

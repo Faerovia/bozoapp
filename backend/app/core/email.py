@@ -39,6 +39,7 @@ class EmailMessage:
     body_text: str
     body_html: str | None = None
     attachments: list[EmailAttachment] | None = None
+    cc: list[str] | None = None
 
 
 class EmailSender(Protocol):
@@ -101,6 +102,8 @@ class SmtpEmailSender:
             msg = StdEmailMessage()
             msg["From"] = self.from_addr
             msg["To"] = message.to
+            if message.cc:
+                msg["Cc"] = ", ".join(message.cc)
             msg["Subject"] = message.subject
             msg.set_content(message.body_text)
             if message.body_html:

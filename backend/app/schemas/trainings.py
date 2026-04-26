@@ -152,6 +152,20 @@ class TestUploadResponse(BaseModel):
     pass_percentage: int
 
 
+# ── Test JSON editor (inline UI) ─────────────────────────────────────────────
+
+class TestSetRequest(BaseModel):
+    """Pro inline editor otázek v UI: nahradí celý test_questions a pass_percentage."""
+    questions: list[TestQuestion] = Field(..., min_length=1, max_length=100)
+    pass_percentage: int = Field(..., ge=0, le=100)
+
+
+class TestQuestionsResponse(BaseModel):
+    """Pro UI editor: vrátí všechny otázky pro editaci (s odpověďmi)."""
+    questions: list[TestQuestion]
+    pass_percentage: int | None
+
+
 # ── PDF content upload ───────────────────────────────────────────────────────
 
 class ContentUploadResponse(BaseModel):

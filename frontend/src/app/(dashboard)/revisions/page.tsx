@@ -63,6 +63,7 @@ const schema = z.object({
   technician_email:  z.string().optional().transform(v => v || null)
     .refine(v => v === null || /^[^@]+@[^@]+\.[^@]+$/.test(v), "Neplatný e-mail"),
   technician_phone:  z.string().optional().transform(v => v || null),
+  auto_request_enabled: z.boolean().default(false),
   notes:             z.string().optional().transform(v => v || null),
 });
 
@@ -179,6 +180,19 @@ function RevisionForm({
             <Input id="technician_phone" {...register("technician_phone")} />
           </div>
         </div>
+        <label className="mt-2 flex items-start gap-2 cursor-pointer rounded-md border border-blue-200 bg-blue-50 p-2.5">
+          <input
+            type="checkbox"
+            {...register("auto_request_enabled")}
+            className="mt-0.5"
+          />
+          <span className="text-xs text-blue-900 leading-snug">
+            <strong>Automatická poptávka revize</strong><br />
+            30 dní před vypršením revize systém automaticky odešle email na
+            uvedený e-mail technika s žádostí o provedení kontroly. V kopii budou
+            zodpovědné osoby této provozovny.
+          </span>
+        </label>
       </fieldset>
 
       <div className="space-y-1.5">
@@ -466,6 +480,7 @@ export default function RevisionsPage() {
               technician_name:  editRevision.technician_name ?? "",
               technician_email: editRevision.technician_email ?? "",
               technician_phone: editRevision.technician_phone ?? "",
+              auto_request_enabled: editRevision.auto_request_enabled ?? false,
               notes:            editRevision.notes ?? "",
             }}
             onSubmit={(data) => {

@@ -55,6 +55,9 @@ from app.schemas.trainings import (
     StartTestResponse,
     SubmitTestRequest,
     SubmitTestResponse,
+    TestQuestion,
+    TestQuestionsResponse,
+    TestSetRequest,
     TestUploadResponse,
     TrainingCreateRequest,
     TrainingResponse,
@@ -507,6 +510,49 @@ async def remove_test_endpoint(
     if t is None:
         raise HTTPException(status_code=404, detail="Školení nenalezeno")
     await svc.remove_test(db, t)
+
+
+@router.get(
+    "/trainings/{training_id}/test/json",
+    response_model=TestQuestionsResponse,
+)
+async def get_test_questions_endpoint(
+    training_id: uuid.UUID,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> TestQuestionsResponse:
+    """Vrátí kompletní obsah testu (pro inline editor)."""
+    t = await svc.get_training(db, training_id, current_user.tenant_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Školení nenalezeno")
+    questions = [
+        TestQuestion(**q) for q in (t.test_questions or [])
+    ]
+    return TestQuestionsResponse(
+        questions=questions,
+        pass_percentage=t.pass_percentage,
+    )
+
+
+@router.put(
+    "/trainings/{training_id}/test/json",
+    response_model=TestUploadResponse,
+)
+async def set_test_questions_endpoint(
+    training_id: uuid.UUID,
+    data: TestSetRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> TestUploadResponse:
+    """Nahradí test (otázky + pass_percentage) z JSON payloadu — pro UI editor."""
+    t = await svc.get_training(db, training_id, current_user.tenant_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Školení nenalezeno")
+    await svc.set_test(db, t, data.questions, data.pass_percentage)
+    return TestUploadResponse(
+        question_count=len(data.questions),
+        pass_percentage=data.pass_percentage,
+    )
 
 
 @router.get(

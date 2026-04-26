@@ -22,6 +22,8 @@ import {
   GitBranch,
   Timer,
   BookOpen,
+  BookOpenCheck,
+  ClipboardCheck,
   Receipt,
   Bell,
 } from "lucide-react";
@@ -86,6 +88,18 @@ const NAV_ITEMS: NavItem[] = [
     icon: Wrench,
     // OZO/HR + equipment_responsible (správa svých vyhrazených zařízení)
     roles: ["ozo", "hr_manager", "equipment_responsible"],
+  },
+  {
+    href: "/periodic-checks",
+    label: "Pravidelné kontroly",
+    icon: ClipboardCheck,
+    roles: ["ozo", "hr_manager", "equipment_responsible", "employee"],
+  },
+  {
+    href: "/operating-logs",
+    label: "Provozní deníky",
+    icon: BookOpenCheck,
+    roles: ["ozo", "hr_manager", "equipment_responsible", "employee"],
   },
   {
     href: "/accident-reports",

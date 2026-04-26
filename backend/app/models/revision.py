@@ -1,7 +1,16 @@
 import uuid
 from datetime import UTC, date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, SmallInteger, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    SmallInteger,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -81,6 +90,16 @@ class Revision(Base, TimestampMixin):
 
     # ── QR polep ──────────────────────────────────────────────────────────
     qr_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+
+    # ── Automatická poptávka revize ───────────────────────────────────────
+    # Pokud True, cron 30 dní před vypršením revize odešle email na
+    # technician_email s textem poptávky; CC = zodpovědné osoby na plantu.
+    auto_request_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    # Datum posledního odeslaného auto-poptávkového emailu — slouží pro
+    # idempotenci (jedno odeslání per revizní cyklus).
+    auto_request_sent_at: Mapped[date | None] = mapped_column(Date)
 
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)

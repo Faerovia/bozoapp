@@ -23,7 +23,9 @@ import {
   Award,
   Upload,
   Eye,
+  HelpCircle,
 } from "lucide-react";
+import { TestQuestionsDialog } from "@/components/test-questions-dialog";
 import { api, ApiError, uploadFile } from "@/lib/api";
 import type {
   AssignmentCreateResponse,
@@ -134,6 +136,7 @@ function AdminView() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTraining, setEditTraining] = useState<Training | null>(null);
   const [assignTraining, setAssignTraining] = useState<Training | null>(null);
+  const [testTraining, setTestTraining] = useState<Training | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const { data: trainings = [], isLoading } = useQuery<Training[]>({
@@ -274,6 +277,13 @@ function AdminView() {
                             <Download className="h-3.5 w-3.5" />
                           </button>
                           <button
+                            onClick={() => setTestTraining(t)}
+                            className="rounded p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50"
+                            title="Editor otázek testu"
+                          >
+                            <HelpCircle className="h-4 w-4" />
+                          </button>
+                          <button
                             onClick={() => {
                               setServerError(null);
                               setEditTraining(t);
@@ -350,6 +360,13 @@ function AdminView() {
           />
         )}
       </Dialog>
+
+      <TestQuestionsDialog
+        open={!!testTraining}
+        onClose={() => setTestTraining(null)}
+        trainingId={testTraining?.id ?? null}
+        trainingTitle={testTraining?.title ?? ""}
+      />
     </div>
   );
 }
