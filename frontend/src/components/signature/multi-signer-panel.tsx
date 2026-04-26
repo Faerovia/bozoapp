@@ -97,7 +97,7 @@ export function MultiSignerPanel({
           <>
             <p className="text-sm text-gray-600 dark:text-gray-300">
               Pro každého interního účastníka klikni na řádek a nech ho
-              podepsat. Po podepsání všech se status změní na „Podepsáno".
+              podepsat. Po podepsání všech se status změní na &bdquo;Podepsáno&ldquo;.
             </p>
 
             {anyCantSign && (

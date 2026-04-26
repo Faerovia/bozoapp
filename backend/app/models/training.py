@@ -125,6 +125,15 @@ class TrainingAssignment(Base, TimestampMixin):
     # Audit metadata: IP, user agent, OTP timestamp, server-side signed_at
     signature_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
+    # Univerzální digitální podpis (migrace 059). Pokud nastaven, podpis
+    # byl proveden přes /signatures/verify (heslo nebo SMS OTP) a je
+    # napojen na hash chain v `signatures` tabulce.
+    # Pozn.: dva systémy podpisů koexistují — starší canvas (signature_image)
+    # zůstává pro backward compat. Frontend ukáže to, co je vyplněno.
+    universal_signature_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("signatures.id", ondelete="SET NULL")
+    )
+
     @property
     def is_signed(self) -> bool:
         return bool(self.signature_image and self.signed_at)

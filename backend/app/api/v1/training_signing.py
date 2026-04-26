@@ -194,3 +194,79 @@ async def verify_signing_otp(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     return VerifyOtpResponse(otp_id=otp.id, verified=otp.verified_at is not None)
+
+
+# ── Univerzální digitální podpis (migrace 059) ──────────────────────────────
+# Alternativní cesta k podepsání školení přes systém /signatures (heslo/SMS).
+# Stávající canvas + email OTP flow zůstává funkční pro backward compat.
+# Frontend volá /signatures/verify s doc_type='training_attempt' a doc_id
+# = assignment_id. Po úspěchu napojí signature na assignment přes tento endpoint.
+
+
+class TrainingAttachSignatureRequest(BaseModel):
+    signature_id: uuid.UUID
+
+
+@router.post(
+    "/trainings/assignments/{assignment_id}/attach-signature",
+)
+async def attach_universal_signature(
+    assignment_id: uuid.UUID,
+    data: TrainingAttachSignatureRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Napojí univerzální podpis (z `signatures` tabulky) na školení.
+
+    Validace:
+    - assignment musí patřit aktuálnímu tenantu
+    - signature row musí existovat, mít doc_type='training_attempt' a
+      doc_id == assignment_id
+    - signature.employee_id musí odpovídat assignment.employee_id
+    - assignment.universal_signature_id musí být None (jeden podpis per
+      assignment)
+
+    Po úspěchu nastaví universal_signature_id + signed_at = signature.signed_at,
+    signature_method = 'universal'. Tím se školení považuje za podepsané
+    (validity_status zohledňuje signed_at).
+    """
+    from app.models.signature import DOC_TYPE_TRAINING_ATTEMPT, Signature
+
+    assignment, _ = await _load_assignment_for_user(db, assignment_id, user)
+    if assignment.universal_signature_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Školení je již univerzálně podepsané a nelze podepsat znovu.",
+        )
+
+    sig = (await db.execute(
+        select(Signature).where(
+            Signature.id == data.signature_id,
+            Signature.tenant_id == user.tenant_id,
+            Signature.doc_type == DOC_TYPE_TRAINING_ATTEMPT,
+            Signature.doc_id == assignment_id,
+        ),
+    )).scalar_one_or_none()
+    if sig is None:
+        raise HTTPException(
+            status_code=404, detail="Podpis pro toto školení nenalezen",
+        )
+    if sig.employee_id != assignment.employee_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Podpis je od jiného zaměstnance než školení",
+        )
+
+    assignment.universal_signature_id = sig.id
+    if assignment.signed_at is None:
+        assignment.signed_at = sig.signed_at
+        assignment.signature_method = "universal"
+    await db.flush()
+    return {
+        "ok": True,
+        "assignment_id": str(assignment.id),
+        "signature_id": str(sig.id),
+        "signed_at": (
+            assignment.signed_at.isoformat() if assignment.signed_at else None
+        ),
+    }
