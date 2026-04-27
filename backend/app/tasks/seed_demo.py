@@ -38,6 +38,7 @@ from app.models import (  # noqa: F401
     recovery_code,
     refresh_token,
     risk,
+    signature,  # FK target z trainings.author_signature_id atd.
 )
 from app.models.accident_report import AccidentReport
 from app.models.employee import Employee
@@ -103,20 +104,58 @@ def _add_months(d: date, months: int) -> date:
 
 
 async def _drop_demo_tenants(db: AsyncSession) -> None:
-    """Smaže existující demo tenanty (CASCADE smaže veškerá data)."""
+    """Smaže existující demo tenanty.
+
+    Nutné kroky:
+    1. Vypneme uživatelské triggery na úrovni session (signatures má
+       trigger proti DELETE — pro produkční audit OK, pro demo seed nutno
+       obejít). `session_replication_role = replica` deaktivuje user
+       triggery, FK kontrola zůstává.
+    2. Manuálně smažeme tabulky bez ON DELETE CASCADE FK na tenants.
+    3. Smažeme tenanty (CASCADE smaže zbytek).
+    4. Smažeme demo usery a ozo membership.
+    """
     res = await db.execute(
         select(Tenant).where(
-            Tenant.slug.in_(["strojirny-abc-s-r-o", "pekarny-xyz-a-s"])
-        )
+            Tenant.slug.in_([
+                "strojirny-abc-s-r-o",
+                "pekarny-xyz-a-s",
+                "stavebni-firma-delta",
+            ]),
+        ),
     )
-    for tenant in res.scalars():
+    tenants = list(res.scalars())
+    if not tenants:
+        return
+
+    tenant_ids = [t.id for t in tenants]
+
+    # Vypni user triggery na úrovni transakce (signatures append-only
+    # trigger by jinak zablokoval DELETE).
+    await db.execute(text("SET LOCAL session_replication_role = 'replica'"))
+
+    # Smaž data v tabulkách bez CASCADE FK na tenants. Pořadí důležité —
+    # signatures jsou referencované z employee_oopp_issues, training_assignments
+    # a accident_reports, ale ty mají ON DELETE SET NULL → bez problému.
+    raw_cleanup_tables = [
+        "invoices",
+        "signatures",
+        "sms_otp_codes",
+    ]
+    for tbl in raw_cleanup_tables:
+        await db.execute(
+            text(f"DELETE FROM {tbl} WHERE tenant_id = ANY(:ids)"),
+            {"ids": tenant_ids},
+        )
+
+    for tenant in tenants:
         log.info("DROP existing demo tenant: %s", tenant.name)
         await db.delete(tenant)
     await db.flush()
 
     # Smaž demo usery (ozo@demo.cz, admin@demo.cz)
     await db.execute(
-        delete(User).where(User.email.in_(["ozo@demo.cz", "admin@demo.cz"]))
+        delete(User).where(User.email.in_(["ozo@demo.cz", "admin@demo.cz"])),
     )
     await db.flush()
 
@@ -243,7 +282,7 @@ async def _seed_employees(
                 created_by=created_by,
                 first_name=first,
                 last_name=last,
-                phone=f"+4207{random.randint(10, 99)}{random.randint(100000, 999999)}",
+                phone="+420728319744",  # demo: všechny SMS jdou na test telefon
                 address_city=plant.city if plant else "Praha",
                 address_zip=plant.zip_code if plant else "11000",
                 employment_type=spec.get("employment_type", "hpp"),
@@ -456,7 +495,7 @@ async def _seed_revisions(
             next_revision_at=_add_months(last_rev, valid_months),
             technician_name=spec.get("technician", "Ing. Ladislav Dvořák"),
             technician_email=spec.get("tech_email", "dvorak@revize.cz"),
-            technician_phone=spec.get("tech_phone", "+420603123456"),
+            technician_phone=spec.get("tech_phone", "+420728319744"),
             qr_token=uuid.uuid4().hex,
         )
         db.add(rev)
