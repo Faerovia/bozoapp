@@ -45,9 +45,17 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@bozoapp.cz"
     smtp_tls: bool = True  # STARTTLS (True) / implicit TLS (False) / plaintext
 
-    # SMS sender pro ZES OTP — když zaměstnanec nemá email.
-    # Provider: "smartsms" (CZ) | "console" (dev — log only) | "" (default)
+    # SMS provider — používá se i pro universal signature OTP (#105).
+    # Hodnoty:
+    #   "" / "mock" / "console" — log only (dev/demo, OTP kód = '111111')
+    #   "smsbrana"              — SMSbrana.cz HTTP gateway, ~0.45-0.70 Kč/SMS,
+    #                             ~30 SMS trial zdarma. Vyžaduje sms_login
+    #                             a sms_password.
     sms_provider: str = ""
+    # SMSbrana credentials. Registrace: https://www.smsbrana.cz/
+    sms_login: str = ""
+    sms_password: str = ""
+    # Legacy fields — držené pro backward-compat (jiné providery, ZES email).
     sms_api_token: str = ""
     sms_sender_id: str = "DigitalOZO"
 
