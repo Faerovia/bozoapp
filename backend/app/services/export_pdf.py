@@ -458,15 +458,16 @@ def generate_oopp_issues_pdf(
     pdf = _ExportPDF("PŘEHLED VYDANÝCH OOPP", tenant_name)
 
     cols = [
-        ("Jméno + os. číslo",  60),
-        ("OOPP",               50),
-        ("Část těla",          25),
-        ("Velikost",           20),
-        ("Mn.",                10),
-        ("Vydáno",             22),
-        ("Platí do",           22),
-        ("Status",             24),
-        ("Sériové č.",         44),
+        ("Jméno + os. číslo",  56),
+        ("OOPP",               46),
+        ("Část těla",          22),
+        ("Velikost",           18),
+        ("Mn.",                 9),
+        ("Vydáno",             20),
+        ("Platí do",           20),
+        ("Status",             22),
+        ("Podpis",             24),
+        ("Sériové č.",         40),
     ]
     pdf.table_header(cols)
 
@@ -475,16 +476,20 @@ def generate_oopp_issues_pdf(
         personal = iss.get("personal_number") or ""
         emp_label = f"{emp_name} ({personal})" if personal else emp_name
         validity = iss.get("validity_status") or "no_expiry"
+        # Podpis — pokud má signature_id, zobrazíme krátkou stopu chain.
+        # Plný hash je v audit logu, tady stačí značka existence.
+        sig_label = "✓ podepsáno" if iss.get("is_signed") else "—"
         pdf.table_row([
-            (emp_label, 60),
-            (iss.get("oopp_name") or "—", 50),
-            (iss.get("body_part") or "—", 25),
-            (iss.get("size_spec") or "—", 20),
-            (str(iss.get("quantity", 1)), 10),
-            (_fmt_date(iss.get("issued_at")), 22),
-            (_fmt_date(iss.get("valid_until")), 22),
-            (VALIDITY_LABELS.get(validity, validity), 24),
-            (iss.get("serial_number") or "—", 44),
+            (emp_label, 56),
+            (iss.get("oopp_name") or "—", 46),
+            (iss.get("body_part") or "—", 22),
+            (iss.get("size_spec") or "—", 18),
+            (str(iss.get("quantity", 1)), 9),
+            (_fmt_date(iss.get("issued_at")), 20),
+            (_fmt_date(iss.get("valid_until")), 20),
+            (VALIDITY_LABELS.get(validity, validity), 22),
+            (sig_label, 24),
+            (iss.get("serial_number") or "—", 40),
         ], shade=i % 2 == 1)
 
     expired_count = sum(
@@ -493,9 +498,11 @@ def generate_oopp_issues_pdf(
     expiring_count = sum(
         1 for i in issues if i.get("validity_status") == "expiring_soon"
     )
+    signed_count = sum(1 for i in issues if i.get("is_signed"))
     pdf.section_note(
         f"Celkem výdejů: {len(issues)}   |   "
-        f"Prošlé: {expired_count}   |   Brzy vyprší: {expiring_count}"
+        f"Prošlé: {expired_count}   |   Brzy vyprší: {expiring_count}   |   "
+        f"Digitálně podepsáno: {signed_count}/{len(issues)}"
     )
     return bytes(pdf.output())
 

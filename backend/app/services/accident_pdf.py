@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fpdf import FPDF
 
@@ -149,7 +149,11 @@ class _ReportPDF(FPDF):
         _ = sig_top
 
 
-def generate_accident_report_pdf(report: AccidentReport, tenant_name: str) -> bytes:
+def generate_accident_report_pdf(
+    report: AccidentReport,
+    tenant_name: str,
+    signatures: list[dict[str, Any]] | None = None,
+) -> bytes:
     """
     Vygeneruje PDF záznamu o pracovním úrazu.
 
@@ -288,6 +292,39 @@ def generate_accident_report_pdf(report: AccidentReport, tenant_name: str) -> by
         report.supervisor_name,
         report.supervisor_signed_at,
     )
+
+    # ── Digitální podpisy (#105) ─────────────────────────────────────────────
+    # Pokud byly k záznamu pořízeny podpisy přes universal signatures
+    # (heslo / SMS), vytiskneme tabulku s tamper-evident metadaty:
+    # seq v hash chainu + zkrácený chain_hash + signed_at + employee +
+    # auth_method. Plný hash je v audit logu.
+    if signatures:
+        pdf.ln(4)
+        pdf.set_font(_ReportPDF.FONT, style="B", size=9)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(
+            _ReportPDF.PAGE_W, 5,
+            "Digitální podpisy (tamper-evident):",
+            new_x="LMARGIN", new_y="NEXT",
+        )
+        pdf.ln(1)
+        pdf.set_font(_ReportPDF.FONT, style="", size=7)
+        pdf.set_text_color(60, 60, 60)
+        for sig in signatures:
+            seq = sig.get("seq")
+            chain = sig.get("chain_hash") or ""
+            signed_at = sig.get("signed_at") or ""
+            name = sig.get("employee_full_name_snapshot") or "—"
+            method = sig.get("auth_method") or ""
+            method_label = "heslo" if method == "password" else (
+                "SMS kód" if method == "sms_otp" else method
+            )
+            pdf.cell(
+                _ReportPDF.PAGE_W, 4,
+                f"#{seq}  {name}  ·  {method_label}  ·  {signed_at}  ·  "
+                f"chain={chain[:16]}…",
+                new_x="LMARGIN", new_y="NEXT",
+            )
 
     # ── Patička ───────────────────────────────────────────────────────────────
     pdf.ln(5)

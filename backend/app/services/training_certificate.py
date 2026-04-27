@@ -59,8 +59,15 @@ def generate_certificate_pdf(
     assignment: TrainingAssignment,
     employee: Employee,
     issuer_name: str | None = None,
+    universal_signature: dict[str, object] | None = None,
 ) -> bytes:
-    """Vrací PDF bytes. issuer_name = jméno osoby která školení vystavila (OZO user)."""
+    """Vrací PDF bytes. issuer_name = jméno osoby která školení vystavila (OZO user).
+
+    universal_signature (volitelné): pokud zaměstnanec podepsal absolvování
+    přes universal flow (heslo / SMS), vykreslí se v patičce informace o
+    podpisu — seq v hash chainu, zkrácený chain_hash, signed_at, auth_method.
+    Tím má certifikát tamper-evident stopu.
+    """
     if assignment.last_completed_at is None:
         raise ValueError("Assignment nebyl dosud splněn")
 
@@ -143,6 +150,34 @@ def generate_certificate_pdf(
         pdf.set_x(60)
 
     pdf.ln(10)
+
+    # ── Univerzální digitální podpis (#105) ─────────────────────────────────
+    # Pokud byl zaměstnanecký podpis pořízen přes /signatures/verify
+    # (heslo / SMS), vykreslíme tamper-evident metadata.
+    if universal_signature:
+        pdf.ln(6)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(
+            0, 5,
+            _sanitize("Digitální podpis (tamper-evident):"),
+            align="C", new_x="LMARGIN", new_y="NEXT",
+        )
+        pdf.set_font("Helvetica", "", 8)
+        seq = universal_signature.get("seq")
+        chain = str(universal_signature.get("chain_hash") or "")
+        signed_at = str(universal_signature.get("signed_at") or "")
+        method = str(universal_signature.get("auth_method") or "")
+        method_label = "heslo" if method == "password" else (
+            "SMS kód" if method == "sms_otp" else method
+        )
+        pdf.cell(
+            0, 4,
+            _sanitize(
+                f"#{seq}  ·  {method_label}  ·  {signed_at}  ·  "
+                f"chain={chain[:16]}…",
+            ),
+            align="C", new_x="LMARGIN", new_y="NEXT",
+        )
 
     # ── Podpisová oblast ────────────────────────────────────────────────────
     pdf.set_font("Helvetica", "", 10)

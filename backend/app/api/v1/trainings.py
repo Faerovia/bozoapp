@@ -371,12 +371,28 @@ async def download_certificate(
         select(User).where(User.id == a.assigned_by)
     )).scalar_one_or_none()
 
+    # Pokud assignment má napojený univerzální podpis (#105), přiložíme
+    # tamper-evident metadata (seq + chain_hash) do certifikátu.
+    universal_signature: dict[str, object] | None = None
+    if a.universal_signature_id:
+        sig_row = (await db.execute(
+            select(Signature).where(Signature.id == a.universal_signature_id),
+        )).scalar_one_or_none()
+        if sig_row is not None:
+            universal_signature = {
+                "seq": int(sig_row.seq),
+                "chain_hash": sig_row.chain_hash,
+                "signed_at": sig_row.signed_at.strftime("%d.%m.%Y %H:%M"),
+                "auth_method": sig_row.auth_method,
+            }
+
     pdf_bytes = generate_certificate_pdf(
         tenant=tenant,
         training=training,
         assignment=a,
         employee=emp,
         issuer_name=issuer.full_name if issuer else None,
+        universal_signature=universal_signature,
     )
     safe_title = training.title[:40].replace(" ", "_")
     filename = f"certifikat_{safe_title}_{emp.last_name}_{a.last_completed_at.date()}.pdf"

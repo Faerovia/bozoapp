@@ -326,7 +326,30 @@ async def get_accident_report_pdf(
     tenant = tenant_result.scalar_one_or_none()
     tenant_name = tenant.name if tenant else str(current_user.tenant_id)
 
-    pdf_bytes = generate_accident_report_pdf(report, tenant_name)
+    # Načti digitální podpisy spojené s tímto úrazem (universal signatures)
+    sig_rows = (await db.execute(
+        select(Signature)
+        .where(
+            Signature.tenant_id == current_user.tenant_id,
+            Signature.doc_type == DOC_TYPE_ACCIDENT_REPORT,
+            Signature.doc_id == report_id,
+        )
+        .order_by(Signature.seq.asc()),
+    )).scalars().all()
+    signatures_for_pdf = [
+        {
+            "seq": int(s.seq),
+            "chain_hash": s.chain_hash,
+            "signed_at": s.signed_at.strftime("%d.%m.%Y %H:%M"),
+            "employee_full_name_snapshot": s.employee_full_name_snapshot,
+            "auth_method": s.auth_method,
+        }
+        for s in sig_rows
+    ]
+
+    pdf_bytes = generate_accident_report_pdf(
+        report, tenant_name, signatures=signatures_for_pdf,
+    )
 
     filename = f"uraz_{report.accident_date}_{report_id}.pdf"
 
