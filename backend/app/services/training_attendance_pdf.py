@@ -168,8 +168,8 @@ def render_attendance_list_pdf(
 
     # Předgenerovaný image podpisu školitele (pokud má v profilu — zatím ho
     # tam nemáme, dáme jen jméno textem)
-    trainer_name = (
-        (trainer.full_name or trainer.email) if trainer else "—"
+    trainer_name: str = (
+        (trainer.full_name or trainer.email or "—") if trainer else "—"
     )
 
     row_h = 18  # výška řádku — místo na canvas image

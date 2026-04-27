@@ -58,6 +58,11 @@ async def request_reset(
 
     if user is None:
         return
+    # User bez emailu (subdomain login po osobním čísle) nemá kam poslat
+    # reset link — silently no-op (zachovává enumeration resistance, ale
+    # admin musí takovým uživatelům resetnout heslo přes /users/{id}/regenerate-password).
+    if user.email is None:
+        return
 
     cleartext_token = secrets.token_urlsafe(32)
     token_hash = _hash_token(cleartext_token)

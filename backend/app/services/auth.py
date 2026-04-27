@@ -53,14 +53,14 @@ async def _find_user_by_identifier(
 
     if tenant_id is not None:
         # Personal number v rámci tenantu — Employee.personal_number → user_id
-        result = await db.execute(
+        emp_result = await db.execute(
             select(Employee).where(
                 Employee.tenant_id == tenant_id,
                 Employee.personal_number == identifier,
                 Employee.user_id.is_not(None),
             ).limit(1),
         )
-        emp = result.scalar_one_or_none()
+        emp = emp_result.scalar_one_or_none()
         if emp is not None and emp.user_id is not None:
             return (await db.execute(
                 select(User).where(

@@ -93,13 +93,13 @@ async def _find_user_by_identifier(
     if is_phone:
         # Telefon — najdi přes Employee.phone, pak User
         phone = _normalize_phone(identifier)
-        query = select(Employee).where(
+        emp_query = select(Employee).where(
             Employee.phone == phone,
             Employee.user_id.is_not(None),
         ).limit(1)
         if tenant_id is not None:
-            query = query.where(Employee.tenant_id == tenant_id)
-        emp = (await db.execute(query)).scalar_one_or_none()
+            emp_query = emp_query.where(Employee.tenant_id == tenant_id)
+        emp = (await db.execute(emp_query)).scalar_one_or_none()
         if emp is None or emp.user_id is None:
             return None
         return (await db.execute(
@@ -111,17 +111,17 @@ async def _find_user_by_identifier(
 
     if tenant_id is not None:
         # Personal number v rámci tenantu
-        emp = (await db.execute(
+        emp_pn = (await db.execute(
             select(Employee).where(
                 Employee.tenant_id == tenant_id,
                 Employee.personal_number == identifier,
                 Employee.user_id.is_not(None),
             ).limit(1),
         )).scalar_one_or_none()
-        if emp is not None and emp.user_id is not None:
+        if emp_pn is not None and emp_pn.user_id is not None:
             return (await db.execute(
                 select(User).where(
-                    User.id == emp.user_id,
+                    User.id == emp_pn.user_id,
                     User.is_active == True,  # noqa: E712
                 ),
             )).scalar_one_or_none()
