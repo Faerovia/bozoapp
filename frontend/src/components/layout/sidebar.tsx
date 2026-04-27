@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -238,6 +239,29 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
 
 
 export function Sidebar() {
+  // useSearchParams() vyžaduje Suspense pro Next.js prerender (statická
+  // generace by jinak selhala). Wrapper drží zbytek sidebaru, vnitřní
+  // komponenta čte query string.
+  return (
+    <Suspense fallback={<SidebarShell />}>
+      <SidebarInner />
+    </Suspense>
+  );
+}
+
+// Loading skeleton — minimalistická kostra (žádné useSearchParams).
+function SidebarShell() {
+  return (
+    <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
+      <div className="flex h-14 items-center border-b border-gray-200 px-5">
+        <span className="text-lg font-bold text-blue-600">DigitalOZO</span>
+      </div>
+      <div className="flex-1 px-3 py-4 text-xs text-gray-300">Načítám…</div>
+    </aside>
+  );
+}
+
+function SidebarInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentView = searchParams.get("view");
