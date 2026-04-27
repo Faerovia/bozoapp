@@ -258,7 +258,7 @@ async def update_rfa_endpoint(
     rfa = await get_rfa_by_id(db, rfa_id, current_user.tenant_id)
     if rfa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hodnocení nenalezeno")
-    return await update_rfa(db, rfa, data)
+    return await update_rfa(db, rfa, data, created_by=current_user.id)
 
 
 @router.delete("/risk-factors/{rfa_id}", status_code=status.HTTP_204_NO_CONTENT)

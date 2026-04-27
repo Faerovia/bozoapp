@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.risk_factor_assessment import RiskFactorAssessment
+from app.models.risk_factor_assessment import RF_FIELDS, RiskFactorAssessment
 from app.models.workplace import Plant, Workplace
 from app.schemas.workplaces import (
     PlantCreateRequest,
@@ -225,15 +225,71 @@ async def create_rfa(
     )
     db.add(rfa)
     await db.flush()
+
+    # Reconciliace: pokud na pozici už jsou aktivní zaměstnanci, vygeneruj
+    # jim odborné prohlídky podle nové RFA (a smaž stávající pending, které
+    # už neodpovídají — pro nové RFA jich většinou není, ale generic helper
+    # se postará).
+    from app.services.medical_exams import (
+        reconcile_exams_for_employees_on_position,
+    )
+    await reconcile_exams_for_employees_on_position(
+        db,
+        job_position_id=jp.id,
+        tenant_id=tenant_id,
+        created_by=created_by,
+    )
+
     return rfa
 
 
 async def update_rfa(
-    db: AsyncSession, rfa: RiskFactorAssessment, data: RiskFactorAssessmentUpdateRequest
+    db: AsyncSession,
+    rfa: RiskFactorAssessment,
+    data: RiskFactorAssessmentUpdateRequest,
+    *,
+    created_by: uuid.UUID | None = None,
 ) -> RiskFactorAssessment:
-    for field, value in data.model_dump(exclude_unset=True).items():
+    """Update RFA + reconciliace lékařských prohlídek.
+
+    Když se mění hodnoty rizikových faktorů, propsat do plánu lékařských
+    prohlídek všech zaměstnanců na napojené pozici:
+    - Smazat (archived) pending odborné prohlídky pro faktory, které
+      pominuly (např. rf_hluk: 3 → 1 → audiometrie není potřeba).
+    - Přidat nové pending prohlídky pro nově required faktory.
+
+    Reconciliace se spustí jen když se některé `rf_*` pole skutečně změnilo
+    (porovnáme staré × nové hodnoty). Bez RFA změn (jen profese, kategorie
+    overrideu apod.) reconciliace neběží.
+    """
+    update_dict = data.model_dump(exclude_unset=True)
+
+    # Snapshot starých hodnot rizikových faktorů PŘED změnou
+    rf_changed = False
+    for field in update_dict:
+        if field in RF_FIELDS or field == "category_override":
+            old = getattr(rfa, field, None)
+            new = update_dict[field]
+            if old != new:
+                rf_changed = True
+                break
+
+    for field, value in update_dict.items():
         setattr(rfa, field, value)
     await db.flush()
+
+    # Reconciliace prohlídek (jen když se faktory skutečně změnily)
+    if rf_changed and rfa.job_position_id is not None and created_by is not None:
+        from app.services.medical_exams import (
+            reconcile_exams_for_employees_on_position,
+        )
+        await reconcile_exams_for_employees_on_position(
+            db,
+            job_position_id=rfa.job_position_id,
+            tenant_id=rfa.tenant_id,
+            created_by=created_by,
+        )
+
     return rfa
 
 
@@ -338,6 +394,7 @@ async def bulk_update_workplace_rfa(
     )
     positions = list(pos_res.scalars().all())
 
+    affected_position_ids: list[uuid.UUID] = []
     for pos in positions:
         # Najdi nebo vytvoř RFA pro pozici
         rfa = await get_rfa_by_job_position(db, pos.id, tenant_id)
@@ -353,10 +410,29 @@ async def bulk_update_workplace_rfa(
             )
             db.add(rfa)
             await db.flush()
-        # Nastav daný faktor
+        # Pokud se hodnota faktoru skutečně mění, poznamenej si pozici
+        # pro reconciliaci lékařských prohlídek.
+        if getattr(rfa, factor, None) != rating:
+            affected_position_ids.append(pos.id)
         setattr(rfa, factor, rating)
 
     await db.flush()
+
+    # Reconciliace lékařských prohlídek pro každou pozici, kde se faktor
+    # skutečně změnil. Bez toho zůstávaly pending odborné prohlídky
+    # i po snížení rizik na všech pozicích pracoviště.
+    if affected_position_ids:
+        from app.services.medical_exams import (
+            reconcile_exams_for_employees_on_position,
+        )
+        for pos_id in affected_position_ids:
+            await reconcile_exams_for_employees_on_position(
+                db,
+                job_position_id=pos_id,
+                tenant_id=tenant_id,
+                created_by=created_by,
+            )
+
     return await get_workplace_aggregated_rfa(db, workplace_id, tenant_id)
 
 

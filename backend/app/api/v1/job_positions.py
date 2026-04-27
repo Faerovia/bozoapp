@@ -131,7 +131,7 @@ async def update_job_position_endpoint(
     jp = await get_job_position_by_id(db, jp_id, current_user.tenant_id)
     if jp is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pozice nenalezena")
-    updated = await update_job_position(db, jp, data)
+    updated = await update_job_position(db, jp, data, created_by=current_user.id)
     return await _position_to_response(db, updated)
 
 

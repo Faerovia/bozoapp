@@ -81,15 +81,45 @@ async def create_job_position(
 
 
 async def update_job_position(
-    db: AsyncSession, jp: JobPosition, data: JobPositionUpdateRequest
+    db: AsyncSession,
+    jp: JobPosition,
+    data: JobPositionUpdateRequest,
+    *,
+    created_by: uuid.UUID | None = None,
 ) -> JobPosition:
+    """Update JobPosition + reconciliace lékařských prohlídek.
+
+    Pokud se mění `work_category`, propsat do plánu lékařských prohlídek
+    (preventivní cat 1 = volitelné, jinak povinná periodicita).
+    Reconciliace běží i tady, aby pokryla scénář "snížím kategorii pozice
+    na 1 a chci, aby se vyčistily nepotřebné odborné prohlídky" — i když
+    samotné odborné se vážou na rf_* faktory na RFA, ne na work_category.
+    """
     update_fields = data.model_dump(exclude_unset=True)
     if "workplace_id" in update_fields and update_fields["workplace_id"] is not None:
         await assert_in_tenant(
             db, Workplace, update_fields["workplace_id"], jp.tenant_id,
             field_name="workplace_id",
         )
+
+    work_category_changed = (
+        "work_category" in update_fields
+        and update_fields["work_category"] != jp.work_category
+    )
+
     for field, value in update_fields.items():
         setattr(jp, field, value)
     await db.flush()
+
+    if work_category_changed and created_by is not None:
+        from app.services.medical_exams import (
+            reconcile_exams_for_employees_on_position,
+        )
+        await reconcile_exams_for_employees_on_position(
+            db,
+            job_position_id=jp.id,
+            tenant_id=jp.tenant_id,
+            created_by=created_by,
+        )
+
     return jp

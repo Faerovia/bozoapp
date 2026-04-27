@@ -18,6 +18,8 @@ class JobPositionCreateRequest(BaseModel):
     work_category: WorkCategory = None
     medical_exam_period_months: int | None = Field(None, gt=0, le=120)
     notes: str | None = None
+    # Opt-out vstupní prohlídky pro cat 1 bez rizik (admin/HR rozhodnutí).
+    skip_vstupni_exam: bool = False
 
 
 class JobPositionUpdateRequest(BaseModel):
@@ -28,6 +30,7 @@ class JobPositionUpdateRequest(BaseModel):
     medical_exam_period_months: int | None = Field(None, gt=0, le=120)
     notes: str | None = None
     status: str | None = Field(None, pattern="^(active|archived)$")
+    skip_vstupni_exam: bool | None = None
 
 
 class JobPositionResponse(BaseModel):
@@ -45,6 +48,7 @@ class JobPositionResponse(BaseModel):
     effective_exam_period_months: int | None
     notes: str | None
     status: str
+    skip_vstupni_exam: bool = False
     created_by: uuid.UUID
 
     model_config = {"from_attributes": True}

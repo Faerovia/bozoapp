@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -389,6 +389,14 @@ export default function MedicalExamsPage() {
   const qc = useQueryClient();
   const [validityFilter, setValidityFilter] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<"all" | "preventivni" | "odborna">("all");
+  // Active/archived toggle. Default 'active' = záznamy, kterými musí OZO řešit;
+  // archivované jsou ty, které reconcile zarchivoval po snížení rizik.
+  const [statusFilter, setStatusFilter] = useState<"active" | "archived">("active");
+  // Column filters
+  const [filterEmployee, setFilterEmployee] = useState<string>("");
+  const [filterExamType, setFilterExamType] = useState<string>("");
+  const [filterSpecialty, setFilterSpecialty] = useState<string>("");
+  const [filterPhysician, setFilterPhysician] = useState<string>("");
   const [editExam, setEditExam] = useState<MedicalExam | null>(null);
   const [createPreventiveOpen, setCreatePreventiveOpen] = useState(false);
   const [createOdbornaOpen, setCreateOdbornaOpen] = useState(false);
@@ -396,17 +404,31 @@ export default function MedicalExamsPage() {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const { data: examsRaw = [], isLoading } = useQuery<MedicalExam[]>({
-    queryKey: ["medical-exams", validityFilter, categoryFilter],
+    queryKey: ["medical-exams", validityFilter, categoryFilter, statusFilter],
     queryFn: () => {
       const qs = new URLSearchParams();
       if (validityFilter) qs.set("validity_status", validityFilter);
       if (categoryFilter !== "all") qs.set("exam_category", categoryFilter);
+      qs.set("me_status", statusFilter);
       return api.get(`/medical-exams${qs.toString() ? `?${qs.toString()}` : ""}`);
     },
   });
 
+  // Apply column filters klient-side (po sortu)
+  const examsFiltered = useMemo(() => {
+    const empNeedle = filterEmployee.trim().toLowerCase();
+    const physNeedle = filterPhysician.trim().toLowerCase();
+    return examsRaw.filter((e) => {
+      if (empNeedle && !(e.employee_name ?? "").toLowerCase().includes(empNeedle)) return false;
+      if (filterExamType && e.exam_type !== filterExamType) return false;
+      if (filterSpecialty && e.specialty !== filterSpecialty) return false;
+      if (physNeedle && !(e.physician_name ?? "").toLowerCase().includes(physNeedle)) return false;
+      return true;
+    });
+  }, [examsRaw, filterEmployee, filterExamType, filterSpecialty, filterPhysician]);
+
   const { sortedItems: exams, sortKey, sortDir, toggleSort } =
-    useTableSort<MedicalExam>(examsRaw, "exam_date", "desc");
+    useTableSort<MedicalExam>(examsFiltered, "exam_date", "desc");
 
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["employees"],
@@ -563,8 +585,8 @@ export default function MedicalExamsPage() {
           ))}
         </div>
 
-        {/* Filtry validity */}
-        <div className="flex items-center gap-2">
+        {/* Filtry validity + status (active/archived) */}
+        <div className="flex items-center gap-2 flex-wrap">
           {(["", "valid", "expiring_soon", "expired"] as const).map(val => (
             <button
               key={val}
@@ -579,7 +601,36 @@ export default function MedicalExamsPage() {
               {val === "" ? "Všechny" : VALIDITY_STATUS_LABELS[val]}
             </button>
           ))}
-          <span className="ml-auto text-xs text-gray-400">{exams.length} záznamů</span>
+
+          {/* Aktivní / Archivované toggle — napravo. Archivované jsou prohlídky,
+              které reconcile zarchivoval po snížení rizik na pozici. Default 'active'
+              aby OZO viděl jen to, co opravdu musí řešit. */}
+          <div className="ml-auto flex items-center gap-0 rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+            {(["active", "archived"] as const).map(s => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                className={cn(
+                  "px-3 py-1 text-xs font-medium transition-colors",
+                  statusFilter === s
+                    ? s === "archived"
+                      ? "bg-gray-700 text-white"
+                      : "bg-emerald-600 text-white"
+                    : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700",
+                )}
+                title={
+                  s === "active"
+                    ? "Záznamy, které platí — je potřeba je řešit"
+                    : "Záznamy archivované (např. po snížení rizik na pozici)"
+                }
+              >
+                {s === "active" ? "Aktivní prohlídky" : "Archivované prohlídky"}
+              </button>
+            ))}
+          </div>
+
+          <span className="text-xs text-gray-400">{exams.length} záznamů</span>
           <Tooltip label="Stáhnout kompletní přehled prohlídek jako PDF">
             <Button
               variant="outline" size="sm"
@@ -618,6 +669,59 @@ export default function MedicalExamsPage() {
                       <SortableHeader sortKey="validity_status" current={sortKey} dir={sortDir} onSort={toggleSort}>Stav</SortableHeader>
                       <th className="py-3 px-4">Zpráva</th>
                       <th className="py-3 px-4" />
+                    </tr>
+                    {/* Column filtry — text/dropdown per sloupec */}
+                    <tr className="border-b border-gray-100 bg-white">
+                      <th className="py-1.5 px-2">
+                        <input
+                          type="text"
+                          value={filterEmployee}
+                          onChange={(e) => setFilterEmployee(e.target.value)}
+                          placeholder="Hledat jméno…"
+                          className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                      </th>
+                      <th className="py-1.5 px-2">
+                        <select
+                          value={filterExamType}
+                          onChange={(e) => setFilterExamType(e.target.value)}
+                          className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        >
+                          <option value="">Vše</option>
+                          <option value="vstupni">Vstupní</option>
+                          <option value="periodicka">Periodická</option>
+                          <option value="vystupni">Výstupní</option>
+                          <option value="mimoradna">Mimořádná</option>
+                          <option value="odborna">Odborná</option>
+                        </select>
+                      </th>
+                      <th className="py-1.5 px-2" />
+                      <th className="py-1.5 px-2" />
+                      <th className="py-1.5 px-2" />
+                      <th className="py-1.5 px-2">
+                        <input
+                          type="text"
+                          value={filterPhysician}
+                          onChange={(e) => setFilterPhysician(e.target.value)}
+                          placeholder="Hledat lékaře…"
+                          className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                      </th>
+                      <th className="py-1.5 px-2">
+                        <select
+                          value={filterSpecialty}
+                          onChange={(e) => setFilterSpecialty(e.target.value)}
+                          className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          title="Filtr odbornosti (jen u odborných prohlídek)"
+                        >
+                          <option value="">Vše</option>
+                          {(specialtyCatalog?.specialties ?? []).map((s) => (
+                            <option key={s.key} value={s.key}>{s.label}</option>
+                          ))}
+                        </select>
+                      </th>
+                      <th className="py-1.5 px-2" />
+                      <th className="py-1.5 px-2" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">

@@ -20,7 +20,7 @@ Výchozí lhůty periodické prohlídky (vyhláška 79/2013 Sb. §11):
 
 import uuid
 
-from sqlalchemy import ForeignKey, SmallInteger, String, Text
+from sqlalchemy import Boolean, ForeignKey, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -94,6 +94,13 @@ class JobPosition(Base, TimestampMixin):
 
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+
+    # Opt-out vstupní prohlídky pro pozice kategorie 1 bez rizik
+    # (např. čistě administrativní). Default False = vstupní se vyžaduje.
+    # Pro cat 2+ se ignoruje (vstupní vždy povinná dle vyhlášky 79/2013).
+    skip_vstupni_exam: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )
 
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False

@@ -192,12 +192,16 @@ function PositionForm({
   onSubmit: (data: {
     workplace_id: string; name: string; description: string | null;
     work_category: string | null; medical_exam_period_months: number | null;
+    skip_vstupni_exam: boolean;
   }) => void;
   isSubmitting: boolean;
   error: string | null;
 }) {
   const [name, setName] = useState(defaultValues?.name ?? "");
   const [description, setDescription] = useState(defaultValues?.description ?? "");
+  const [skipVstupni, setSkipVstupni] = useState(
+    defaultValues?.skip_vstupni_exam ?? false,
+  );
 
   return (
     <form
@@ -212,6 +216,7 @@ function PositionForm({
           //   - lhůta LP z (kategorie + věk zaměstnance) podle vyhlášky 79/2013 Sb.
           work_category: null,
           medical_exam_period_months: null,
+          skip_vstupni_exam: skipVstupni,
         });
       }}
       className="space-y-3"
@@ -234,6 +239,26 @@ function PositionForm({
           rows={2}
           className={cn(INPUT_CLS, "resize-none")}
         />
+      </div>
+      <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+        <Label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={skipVstupni}
+            onChange={(e) => setSkipVstupni(e.target.checked)}
+            className="mt-0.5 rounded border-gray-300"
+          />
+          <span className="text-sm">
+            <span className="font-medium text-amber-900 block">
+              Pozice nevyžaduje vstupní lékařskou prohlídku
+            </span>
+            <span className="text-xs text-amber-700">
+              Použít jen pro pozice kategorie 1 bez rizikových faktorů
+              (např. čistě administrativní). Pro cat 2+ se ignoruje —
+              vstupní je tam vždy povinná dle vyhlášky 79/2013.
+            </span>
+          </span>
+        </Label>
       </div>
       <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
         Kategorie práce se odvozuje z hodnocení rizik (RFA) — vyplníte ji
@@ -602,6 +627,7 @@ export default function WorkplacesPage() {
     mutationFn: (data: {
       workplace_id: string; name: string; description: string | null;
       work_category: string | null; medical_exam_period_months: number | null;
+      skip_vstupni_exam: boolean;
     }) => api.post("/job-positions", data),
     onSuccess: (_res, vars) => {
       qc.invalidateQueries({ queryKey: ["positions", vars.workplace_id] });
