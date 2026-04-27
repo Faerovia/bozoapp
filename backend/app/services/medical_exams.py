@@ -321,6 +321,7 @@ async def generate_initial_exam_requests(
     job_position_id: uuid.UUID | None = emp.job_position_id
     work_category: str | None = None
     factor_ratings: dict[str, str | None] = {}
+    pos: JobPosition | None = None
 
     if job_position_id is not None:
         pos = (await db.execute(
@@ -355,10 +356,17 @@ async def generate_initial_exam_requests(
     created_exams: list[MedicalExam] = []
     skipped: list[str] = []
 
-    # 1) Vstupní preventivní prohlídka — vždy
-    # Auto-generovaná: exam_date a valid_until zůstávají NULL → status 'expired'
-    # = prohlídka byla naplánována, ale neproběhla (musí být provedena).
-    if not has_vstupni:
+    # 1) Vstupní preventivní prohlídka.
+    # Default: vždy (vyhláška 79/2013). Výjimka: pozice cat 1 s flagem
+    # `skip_vstupni_exam=True` (OZO/HR opt-out pro pozice bez rizik).
+    skip_vstupni = False
+    if pos is not None and getattr(pos, "skip_vstupni_exam", False):
+        if work_category == "1" or work_category is None:
+            skip_vstupni = True
+
+    if skip_vstupni:
+        skipped.append("vstupni_skipped_by_position_flag")
+    elif not has_vstupni:
         exam = MedicalExam(
             tenant_id=tenant_id,
             created_by=created_by,
@@ -378,8 +386,14 @@ async def generate_initial_exam_requests(
     # 2) Odborné prohlídky podle JEDNOTLIVÝCH rizikových faktorů.
     #    Mapování faktor → specialties čteme z platform_settings (admin může
     #    upravit přes UI). Fallback na hardcoded mapu z medical_specialty_catalog.
+    #
+    #    Speciální případ: pozice s work_category='1' = bez pracovně-zdravotních
+    #    rizik (vyhláška 79/2013). Odborné se negenerují, i kdyby rf_* pole
+    #    obsahovala hodnoty (např. legacy data z importu). Logika je sladěná s
+    #    reconcile_exams_for_employees_on_position.
+    is_low_risk_position = work_category == "1"
     triggered: list[tuple[str, str, str]] = []  # (specialty, factor, rating)
-    if factor_ratings:
+    if factor_ratings and not is_low_risk_position:
         custom_mapping = await get_setting(
             db, "medical_exam.factor_to_specialties", None,
         )
@@ -441,6 +455,146 @@ async def generate_initial_exam_requests(
             {"specialty": s, "factor": f, "rating": r} for s, f, r in triggered
         ],
         "rfa_present":          bool(factor_ratings),
+    }
+
+
+async def reconcile_exams_for_employees_on_position(
+    db: AsyncSession,
+    *,
+    job_position_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    created_by: uuid.UUID,
+) -> dict[str, Any]:
+    """Reconcile pending lékařské prohlídky všech zaměstnanců na dané pozici.
+
+    Volá se po změně RFA / job_position rizikových faktorů. Princip:
+
+    1. Spočti aktuálně required specialties z RFA pozice.
+    2. Pro každého aktivního zaměstnance na pozici:
+       a) **Smaž** (status='archived') pending odborné prohlídky
+          (`exam_type='odborna'`, `exam_date IS NULL`), jejichž specialty
+          už není v required setu — riziko pominulo, prohlídka není nutná.
+       b) **Přidej** nové pending prohlídky pro chybějící required specialties
+          (zavolá `generate_initial_exam_requests`, který je idempotentní:
+          přeskočí specialty, kde už aktivní záznam existuje).
+       c) Nemažeme **completed** prohlídky (`exam_date IS NOT NULL`) ani
+          vstupní prohlídku — historie zůstává, jen plán se mění.
+
+    Vrací statistiku: počet archivovaných + nově vytvořených exams + list
+    affected employees.
+    """
+    # Aktuální stav pozice — kategorie + RFA
+    pos = (await db.execute(
+        select(JobPosition).where(JobPosition.id == job_position_id),
+    )).scalar_one_or_none()
+    work_category = pos.work_category if pos is not None else None
+
+    rfa = (await db.execute(
+        select(RiskFactorAssessment).where(
+            RiskFactorAssessment.job_position_id == job_position_id,
+            RiskFactorAssessment.tenant_id == tenant_id,
+        ),
+    )).scalar_one_or_none()
+    factor_ratings: dict[str, str | None] = {}
+    if rfa is not None:
+        factor_ratings = {f: getattr(rfa, f, None) for f in RF_FIELDS}
+
+    # Speciální případ: pozice je kategorie 1 (žádná rizika).
+    # Bez ohledu na RFA: zaměstnanec nepotřebuje žádné odborné prohlídky
+    # (vyhláška 79/2013 — cat 1 = volitelné). Tohle pokrývá UX kdy uživatel
+    # "snížil kategorii na 1" a očekává, že se vyčistí naplánované odborné.
+    # Pokud user wantsmít přesto odborné, musí buď zvýšit work_category,
+    # nebo nechat work_category na NULL (ne nastavit explicitně "1").
+    is_low_risk_position = work_category == "1"
+
+    custom_mapping = await get_setting(
+        db, "medical_exam.factor_to_specialties", None,
+    )
+    triggered: list[tuple[str, str, str]] = []
+    if factor_ratings and not is_low_risk_position:
+        triggered = get_required_specialties_for_factors(
+            factor_ratings, mapping=custom_mapping,
+        )
+    required_specialties = {s for s, _f, _r in triggered}
+
+    # Zaměstnanci na pozici (aktivní)
+    employees = (await db.execute(
+        select(Employee).where(
+            Employee.job_position_id == job_position_id,
+            Employee.tenant_id == tenant_id,
+            Employee.status == "active",
+        ),
+    )).scalars().all()
+
+    archived_total = 0
+    created_total = 0
+    affected_employee_ids: list[uuid.UUID] = []
+
+    # Skip vstupní opt-out: pozice cat 1 + flag na pozici. Když je aktivní,
+    # archivujeme i pending vstupní (uživatel rozhodl, že pro tuto pozici
+    # není povinná, viz JobPosition.skip_vstupni_exam).
+    skip_vstupni_for_this_position = (
+        pos is not None
+        and getattr(pos, "skip_vstupni_exam", False)
+        and (work_category == "1" or work_category is None)
+    )
+
+    for emp in employees:
+        # Pending odborné prohlídky tohoto zaměstnance (exam_date IS NULL)
+        pending_odborne = (await db.execute(
+            select(MedicalExam).where(
+                MedicalExam.employee_id == emp.id,
+                MedicalExam.tenant_id == tenant_id,
+                MedicalExam.status == "active",
+                MedicalExam.exam_type == "odborna",
+                MedicalExam.exam_date.is_(None),
+            ),
+        )).scalars().all()
+
+        archived_for_this = 0
+        for exam in pending_odborne:
+            if exam.specialty and exam.specialty not in required_specialties:
+                # Riziko pominulo — soft-delete (zachovává audit trail).
+                exam.status = "archived"
+                archived_for_this += 1
+                archived_total += 1
+
+        # Pending vstupní — archivuj jen pokud OZO opt-outoval pro tuto pozici
+        if skip_vstupni_for_this_position:
+            pending_vstupni = (await db.execute(
+                select(MedicalExam).where(
+                    MedicalExam.employee_id == emp.id,
+                    MedicalExam.tenant_id == tenant_id,
+                    MedicalExam.status == "active",
+                    MedicalExam.exam_type == "vstupni",
+                    MedicalExam.exam_date.is_(None),
+                ),
+            )).scalars().all()
+            for exam in pending_vstupni:
+                exam.status = "archived"
+                archived_for_this += 1
+                archived_total += 1
+
+        # Idempotent regenerace nových required prohlídek (skipuje stávající
+        # aktivní). Volá také reset last_exam_auto_check_at.
+        result = await generate_initial_exam_requests(
+            db,
+            employee_id=emp.id,
+            tenant_id=tenant_id,
+            created_by=created_by,
+        )
+        new_count = result.get("created", 0)
+        created_total += int(new_count)
+
+        if archived_for_this > 0 or int(new_count) > 0:
+            affected_employee_ids.append(emp.id)
+
+    await db.flush()
+    return {
+        "archived":              archived_total,
+        "created":               created_total,
+        "affected_employees":    [str(e) for e in affected_employee_ids],
+        "required_specialties":  sorted(required_specialties),
     }
 
 
