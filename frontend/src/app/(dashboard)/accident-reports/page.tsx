@@ -12,7 +12,7 @@ import { MultiSignerPanel } from "@/components/signature/multi-signer-panel";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
-import type { AccidentReport, Employee } from "@/types/api";
+import type { AccidentReport, Employee, Workplace } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,7 +52,10 @@ const schema = z.object({
   // Zaměstnanec
   employee_id:           z.string().uuid().or(z.literal("")).optional(),
   employee_name:         z.string().min(1, "Jméno zraněného je povinné").max(255),
-  workplace:             z.string().min(1, "Pracoviště je povinné").max(255),
+  // Pracoviště — dropdown z workplaces tenantu, nebo prázdný řetězec pro
+  // "Místo úrazu mimo provozovnu" (workplace_external_description nutný).
+  workplace_id:          z.string().uuid().or(z.literal("")).optional(),
+  workplace_external_description: z.string().max(2000).optional(),
 
   // Čas
   accident_date:         z.string().min(1, "Datum úrazu je povinné"),
@@ -113,12 +116,18 @@ function AccidentForm({
   isSubmitting,
   serverError,
   employees,
+  leadWorkers,
+  workplaces,
 }: {
   defaultValues?: Partial<FormData>;
   onSubmit: (data: FormData) => void;
   isSubmitting: boolean;
   serverError: string | null;
   employees: Employee[];
+  /** Filtrované jen na User.role='lead_worker' — pro supervisor dropdown. */
+  leadWorkers: Employee[];
+  /** Pracoviště v tenantu — pro výběr v poli "Pracoviště". */
+  workplaces: Workplace[];
 }) {
   const {
     register, handleSubmit, control, watch, setValue,
@@ -212,9 +221,36 @@ function AccidentForm({
             {errors.employee_name && <p className="text-xs text-red-600">{errors.employee_name.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="workplace">Pracoviště *</Label>
-            <Input id="workplace" placeholder="např. Hala A — provoz lis" {...register("workplace")} />
-            {errors.workplace && <p className="text-xs text-red-600">{errors.workplace.message}</p>}
+            <Label htmlFor="workplace_id">Pracoviště *</Label>
+            <select
+              id="workplace_id"
+              {...register("workplace_id")}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Místo úrazu mimo provozovnu —</option>
+              {workplaces.map((wp) => (
+                <option key={wp.id} value={wp.id}>
+                  {wp.plant_name ? `${wp.plant_name} — ${wp.name}` : wp.name}
+                </option>
+              ))}
+            </select>
+            {errors.workplace_id && (
+              <p className="text-xs text-red-600">{errors.workplace_id.message}</p>
+            )}
+            {!watch("workplace_id") && (
+              <div className="mt-2">
+                <Label htmlFor="workplace_external_description" className="text-xs">
+                  Popis místa úrazu (mimo provozovnu) *
+                </Label>
+                <textarea
+                  id="workplace_external_description"
+                  rows={2}
+                  placeholder="např. Stavba Olomouc, ul. Wolkerova 5, lešení 3. patro"
+                  {...register("workplace_external_description")}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
           </div>
         </div>
       </fieldset>
@@ -387,11 +423,10 @@ function AccidentForm({
       <fieldset className="space-y-3">
         <legend className="text-sm font-semibold text-gray-700 mb-1">Podpisy</legend>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="injured_signed_at">Datum podpisu zraněného</Label>
-            <Input id="injured_signed_at" type="date" {...register("injured_signed_at")} />
-          </div>
+        <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 px-3 py-2 text-xs text-blue-800 dark:text-blue-200">
+          Datum podpisu se vyplňuje automaticky při digitálním podpisu zraněného,
+          vedoucího a svědků. Pro externího zraněného (mimo evidenci) podpis
+          probíhá fyzickým tiskem a datum se nezadává.
         </div>
 
         <div className="space-y-1.5">
@@ -467,7 +502,7 @@ function AccidentForm({
         <div className="space-y-2 rounded-md border border-gray-200 dark:border-gray-700 p-2">
           <div className="space-y-1">
             <Label htmlFor="supervisor_employee_id" className="text-xs">
-              Vedoucí pracovník (z evidence) — pokud externí, nech prázdné
+              Vedoucí pracovník (jen role „lead_worker") — pokud externí, nech prázdné
             </Label>
             <Controller
               name="supervisor_employee_id"
@@ -480,29 +515,32 @@ function AccidentForm({
                   onChange={(v) => {
                     field.onChange(v ?? "");
                     if (v) {
-                      const e = employees.find((emp) => emp.id === v);
+                      const e = leadWorkers.find((emp) => emp.id === v);
                       if (e) {
                         setValue("supervisor_name", `${e.first_name} ${e.last_name}`.trim());
                       }
                     }
                   }}
-                  options={employees.map((e) => ({
+                  options={leadWorkers.map((e) => ({
                     value: e.id,
                     label: `${e.last_name} ${e.first_name}`,
                   }))}
                 />
               )}
             />
+            {leadWorkers.length === 0 && (
+              <p className="text-xs text-amber-600">
+                Žádný zaměstnanec nemá roli „vedoucí pracovník". Pokud chceš
+                interního vedoucího, nastav mu roli v modulu Zaměstnanci.
+              </p>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="supervisor_name" className="text-xs">Jméno vedoucího</Label>
-              <Input id="supervisor_name" {...register("supervisor_name")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="supervisor_signed_at" className="text-xs">Datum podpisu vedoucího</Label>
-              <Input id="supervisor_signed_at" type="date" {...register("supervisor_signed_at")} />
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="supervisor_name" className="text-xs">Jméno vedoucího</Label>
+            <Input id="supervisor_name" {...register("supervisor_name")} />
+            <p className="text-xs text-gray-500">
+              Datum podpisu vedoucího se vyplní automaticky při digitálním podpisu.
+            </p>
           </div>
         </div>
 
@@ -545,6 +583,7 @@ function cleanFormData(data: FormData): Record<string, unknown> {
     "violated_regulations", "supervisor_name", "supervisor_employee_id",
     "supervisor_signed_at",
     "injured_signed_at", "alcohol_test_result", "alcohol_test_value", "drug_test_result",
+    "workplace_id", "workplace_external_description", "workplace",
   ];
   for (const f of optionalFields) {
     if (clean[f] === "" || clean[f] === undefined) clean[f] = null;
@@ -605,6 +644,19 @@ export default function AccidentReportsPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["employees"],
     queryFn: () => api.get("/employees?emp_status=active"),
+    staleTime: 5 * 60 * 1000,
+  });
+  // Vedoucí pracovníci — jen User.role='lead_worker'. Pro filtr v dropdownu
+  // "Vedoucí pracovník (z evidence)".
+  const { data: leadWorkers = [] } = useQuery<Employee[]>({
+    queryKey: ["employees", "lead-workers"],
+    queryFn: () => api.get("/employees?emp_status=active&user_role=lead_worker"),
+    staleTime: 5 * 60 * 1000,
+  });
+  // Workplaces pro dropdown "Pracoviště" (s plant_name pro hierarchii).
+  const { data: workplaces = [] } = useQuery<Workplace[]>({
+    queryKey: ["workplaces", "active"],
+    queryFn: () => api.get("/workplaces?wp_status=active"),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -863,6 +915,8 @@ export default function AccidentReportsPage() {
           isSubmitting={createMutation.isPending}
           serverError={serverError}
           employees={employees}
+          leadWorkers={leadWorkers}
+          workplaces={workplaces}
         />
       </Dialog>
 
@@ -878,7 +932,8 @@ export default function AccidentReportsPage() {
             defaultValues={{
               employee_id:             editReport.employee_id ?? "",
               employee_name:           editReport.employee_name,
-              workplace:               editReport.workplace,
+              workplace_id:            editReport.workplace_id ?? "",
+              workplace_external_description: editReport.workplace_external_description ?? "",
               accident_date:           editReport.accident_date,
               accident_time:           editReport.accident_time?.slice(0, 5) ?? "",
               shift_start_time:        editReport.shift_start_time?.slice(0, 5) ?? "",
@@ -920,6 +975,8 @@ export default function AccidentReportsPage() {
             isSubmitting={updateMutation.isPending}
             serverError={serverError}
             employees={employees}
+            leadWorkers={leadWorkers}
+            workplaces={workplaces}
           />
         )}
       </Dialog>

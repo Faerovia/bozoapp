@@ -60,12 +60,18 @@ async def list_employees(
     workplace_id: uuid.UUID | None = Query(None),
     job_position_id: uuid.UUID | None = Query(None),
     gender: str | None = Query(None, pattern="^(M|F|X)$"),
+    user_role: str | None = Query(
+        None,
+        pattern="^(ozo|hr_manager|lead_worker|equipment_responsible|employee)$",
+    ),
     current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> list[Any]:
     """
     Vrátí seznam zaměstnanců tenantu.
-    Filtry: emp_status, employment_type, plant_id, workplace_id, job_position_id, gender (M/F/X).
+    Filtry: emp_status, employment_type, plant_id, workplace_id,
+    job_position_id, gender (M/F/X), user_role (např. 'lead_worker'
+    pro filtr vedoucích pracovníků).
     Přístup: ozo, manager.
     """
     return await get_employees(
@@ -76,6 +82,7 @@ async def list_employees(
         workplace_id=workplace_id,
         job_position_id=job_position_id,
         gender=gender,
+        user_role=user_role,
     )
 
 

@@ -21,7 +21,12 @@ class AccidentReportCreateRequest(BaseModel):
     # Zaměstnanec
     employee_id: uuid.UUID | None = None
     employee_name: str = Field(..., min_length=1, max_length=255)
-    workplace: str = Field(..., min_length=1, max_length=255)
+    # Pracoviště — buď FK na Workplace v tenantu, nebo NULL pro mimo provozovnu.
+    workplace_id: uuid.UUID | None = None
+    workplace_external_description: str | None = Field(None, max_length=2000)
+    # Snapshot text — pro PDF i back-compat. Service ho dopočítá z workplace_id
+    # nebo workplace_external_description, klient ho nemusí posílat.
+    workplace: str | None = Field(None, max_length=255)
 
     # Čas
     accident_date: date
@@ -93,7 +98,9 @@ class AccidentReportUpdateRequest(BaseModel):
     """Editace je povolena pouze ve stavu draft."""
     employee_id: uuid.UUID | None = None
     employee_name: str | None = Field(None, min_length=1, max_length=255)
-    workplace: str | None = Field(None, min_length=1, max_length=255)
+    workplace_id: uuid.UUID | None = None
+    workplace_external_description: str | None = Field(None, max_length=2000)
+    workplace: str | None = Field(None, max_length=255)
     accident_date: date | None = None
     accident_time: time | None = None
     shift_start_time: time | None = None
@@ -129,6 +136,8 @@ class AccidentReportResponse(BaseModel):
     employee_id: uuid.UUID | None
     employee_name: str
     workplace: str
+    workplace_id: uuid.UUID | None = None
+    workplace_external_description: str | None = None
 
     accident_date: date
     accident_time: time

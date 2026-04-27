@@ -38,7 +38,17 @@ class AccidentReport(Base, TimestampMixin):
         ForeignKey("employees.id", ondelete="SET NULL")
     )
     employee_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Snapshot názvu pracoviště pro PDF (vyplňuje service podle workplace_id
+    # nebo workplace_external_description). Zachováno NOT NULL pro backward compat.
     workplace: Mapped[str] = mapped_column(String(255), nullable=False)
+    # FK na konkrétní pracoviště v tenantu. NULL → úraz se stal mimo provozovnu
+    # (typicky externí montáž, doprava, terén) — viz `workplace_external_description`.
+    workplace_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("workplaces.id", ondelete="SET NULL"),
+    )
+    # Když workplace_id IS NULL: textový popis místa úrazu mimo provozovnu.
+    # (např. „Stavba Olomouc, ulice Wolkerova 5, lešení 3. patro").
+    workplace_external_description: Mapped[str | None] = mapped_column(Text)
 
     # Čas
     accident_date: Mapped[date] = mapped_column(Date, nullable=False)

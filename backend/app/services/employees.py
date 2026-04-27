@@ -51,6 +51,7 @@ async def get_employees(
     workplace_id: uuid.UUID | None = None,
     job_position_id: uuid.UUID | None = None,
     gender: str | None = None,
+    user_role: str | None = None,
 ) -> list[Employee]:
     query = (
         select(Employee)
@@ -69,6 +70,13 @@ async def get_employees(
         query = query.where(Employee.job_position_id == job_position_id)
     if gender is not None:
         query = query.where(Employee.gender == gender)
+    if user_role is not None:
+        # Join na User pro filtr podle User.role (např. 'lead_worker' pro
+        # výběr vedoucího pracovníka v záznamu o úrazu).
+        query = (
+            query.join(User, User.id == Employee.user_id)
+            .where(User.role == user_role)
+        )
 
     result = await db.execute(query)
     return list(result.scalars().all())

@@ -141,6 +141,8 @@ export interface JobPosition {
   effective_exam_period_months: number | null;
   notes: string | null;
   status: "active" | "archived";
+  // Opt-out vstupní prohlídky (jen pro cat 1). Default false = vyžaduje se.
+  skip_vstupni_exam: boolean;
   created_by: string;
 }
 
@@ -656,6 +658,8 @@ export interface AccidentReport {
   employee_id: string | null;
   employee_name: string;
   workplace: string;
+  workplace_id: string | null;
+  workplace_external_description: string | null;
 
   accident_date: string;
   accident_time: string;

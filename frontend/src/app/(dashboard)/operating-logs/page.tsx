@@ -13,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useFieldArray } from "react-hook-form";
 import {
   Plus, Pencil, Trash2, BookOpenCheck, ClipboardList, Info,
-  CheckCircle2, XCircle, ArrowUp, ArrowDown, QrCode, AlertTriangle,
+  CheckCircle2, XCircle, ArrowUp, ArrowDown, QrCode, AlertTriangle, Copy,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -43,6 +43,116 @@ const CATEGORY_OPTIONS: { value: DeviceCategory; label: string }[] =
 const PERIOD_OPTIONS: { value: OperatingPeriod; label: string }[] =
   (Object.entries(OPERATING_PERIOD_LABELS) as [OperatingPeriod, string][])
     .map(([value, label]) => ({ value, label }));
+
+// ── Tlačítko + dialog: převzít kontrolní úkony z jiného zařízení ───────────
+//
+// Při zakládání nebo úpravě zařízení (typicky stejné kategorie — např.
+// Vysokozdvižný vozík) si OZO/HR může vybrat jiné existující zařízení a
+// zkopírovat z něj `check_items`. Šetří čas a sjednocuje úkony napříč
+// stejnými typy zařízení (vyhláška + interní směrnice typicky vyžadují
+// totéž).
+//
+// Filter: podle aktuálně vybrané kategorie (selectedCategory). Klient může
+// zatrhnout přepínač pro „všechna zařízení" pokud chce úkony z jiné kategorie.
+
+function CopyItemsFromDevice({
+  category,
+  onPick,
+}: {
+  category: DeviceCategory;
+  onPick: (items: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [allCategories, setAllCategories] = useState(false);
+
+  const { data: devices = [] } = useQuery<OperatingLogDevice[]>({
+    queryKey: ["operating-log-devices-all", allCategories ? "all" : category],
+    queryFn: () => {
+      const qs = new URLSearchParams({ device_status: "active" });
+      if (!allCategories && category) qs.set("category", category);
+      return api.get(`/operating-logs/devices?${qs.toString()}`);
+    },
+    enabled: open,
+  });
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        title="Zkopíruje úkony z existujícího zařízení (přepíše stávající)"
+      >
+        <Copy className="h-3.5 w-3.5 mr-1" /> Převzít z jiného zařízení
+      </Button>
+
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Převzít kontrolní úkony"
+        description={
+          allCategories
+            ? "Všechna aktivní zařízení v tenantu"
+            : `Aktivní zařízení kategorie „${DEVICE_CATEGORY_LABELS[category] ?? category}"`
+        }
+        size="md"
+      >
+        <div className="space-y-3">
+          <Label className="flex items-center gap-2 cursor-pointer text-xs">
+            <input
+              type="checkbox"
+              checked={allCategories}
+              onChange={(e) => setAllCategories(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            <span>Zobrazit zařízení všech kategorií</span>
+          </Label>
+
+          {devices.length === 0 ? (
+            <div className="rounded-md bg-gray-50 dark:bg-gray-800 p-4 text-center text-sm text-gray-500">
+              Žádná jiná zařízení této kategorie zatím neexistují.
+            </div>
+          ) : (
+            <div className="max-h-80 overflow-auto divide-y divide-gray-100 dark:divide-gray-700 rounded-md border border-gray-200 dark:border-gray-700">
+              {devices.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => {
+                    onPick(d.check_items ?? []);
+                    setOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
+                        {d.title}
+                        {d.device_code && (
+                          <span className="ml-1 text-xs text-gray-400">
+                            ({d.device_code})
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        {DEVICE_CATEGORY_LABELS[d.category as DeviceCategory] ?? d.category}
+                        {" · "}
+                        {(d.check_items?.length ?? 0)} úkonů
+                      </div>
+                    </div>
+                    <Copy className="h-4 w-4 text-gray-300 shrink-0" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Dialog>
+    </>
+  );
+}
+
 
 // ── Form: zařízení (1-20 kontrolních úkonů) ────────────────────────────────
 
@@ -163,7 +273,22 @@ function DeviceForm({
       <div className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2">
         <div className="flex items-center justify-between">
           <Label>Kontrolní úkony (1–20 položek) *</Label>
-          <span className="text-xs text-blue-700">{fields.length} / 20</span>
+          <div className="flex items-center gap-2">
+            <CopyItemsFromDevice
+              category={selectedCategory}
+              onPick={(items) => {
+                // Replace existing items s úkony z vybraného zařízení.
+                // Trim na 20 (limit modelu).
+                const trimmed = items.slice(0, 20).map((v) => ({ value: v }));
+                setValue(
+                  "check_items",
+                  trimmed.length > 0 ? trimmed : [{ value: "" }],
+                  { shouldDirty: true },
+                );
+              }}
+            />
+            <span className="text-xs text-blue-700">{fields.length} / 20</span>
+          </div>
         </div>
         {fields.map((f, i) => (
           <div key={f.id} className="flex items-center gap-2">

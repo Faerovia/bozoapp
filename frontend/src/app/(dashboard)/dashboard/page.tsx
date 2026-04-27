@@ -234,11 +234,11 @@ export default function DashboardPage() {
               description="Vyprší do 30 dnů"
             />
             <StatCard
-              title="Prošlé revize"
+              title="Prošlé kontroly a revize"
               value={data.overdue_revisions}
               icon={Wrench}
               color="red"
-              description="Po termínu revize"
+              description="Po termínu nebo do 30 dnů"
             />
             <StatCard
               title="Rozpracované záznamy"

@@ -166,6 +166,47 @@ async def get_accident_report_by_id(
     return result.scalar_one_or_none()
 
 
+async def _resolve_workplace_snapshot(
+    db: AsyncSession,
+    *,
+    workplace_id: uuid.UUID | None,
+    workplace_external_description: str | None,
+    fallback: str | None,
+    tenant_id: uuid.UUID,
+) -> str:
+    """Vrací textový snapshot názvu pracoviště pro AccidentReport.workplace.
+
+    Priorita:
+    1. workplace_id → načti Workplace.name z DB (per tenant) → vrať Plant + " — " + Workplace.name
+    2. workplace_external_description → "Mimo provozovnu — {popis}"
+    3. fallback (legacy free-text z update / starý klient)
+    Pokud nic z toho, vyhodí ValueError.
+    """
+    if workplace_id is not None:
+        from app.models.workplace import Plant, Workplace
+        wp = (await db.execute(
+            select(Workplace).where(
+                Workplace.id == workplace_id,
+                Workplace.tenant_id == tenant_id,
+            ),
+        )).scalar_one_or_none()
+        if wp is None:
+            raise ValueError(f"Pracoviště {workplace_id} nenalezeno v tenantu")
+        plant = (await db.execute(
+            select(Plant).where(Plant.id == wp.plant_id),
+        )).scalar_one_or_none() if wp.plant_id else None
+        plant_name = plant.name if plant is not None else None
+        return f"{plant_name} — {wp.name}" if plant_name else wp.name
+    if workplace_external_description and workplace_external_description.strip():
+        return f"Mimo provozovnu — {workplace_external_description.strip()}"[:255]
+    if fallback and fallback.strip():
+        return fallback.strip()[:255]
+    raise ValueError(
+        "Pracoviště musí být specifikované — buď workplace_id z evidence, "
+        "nebo workplace_external_description (mimo provozovnu).",
+    )
+
+
 async def create_accident_report(
     db: AsyncSession,
     data: AccidentReportCreateRequest,
@@ -176,6 +217,13 @@ async def create_accident_report(
         db,
         employee_id=data.employee_id,
         risk_id=data.risk_id,
+        tenant_id=tenant_id,
+    )
+    workplace_text = await _resolve_workplace_snapshot(
+        db,
+        workplace_id=data.workplace_id,
+        workplace_external_description=data.workplace_external_description,
+        fallback=data.workplace,
         tenant_id=tenant_id,
     )
     # Svědky serializuj do JSONB-friendly formátu (employee_id = None
@@ -204,7 +252,9 @@ async def create_accident_report(
         created_by=created_by,
         employee_id=data.employee_id,
         employee_name=data.employee_name,
-        workplace=data.workplace,
+        workplace=workplace_text,
+        workplace_id=data.workplace_id,
+        workplace_external_description=data.workplace_external_description,
         accident_date=data.accident_date,
         accident_time=data.accident_time,
         shift_start_time=data.shift_start_time,
@@ -329,8 +379,24 @@ async def update_accident_report(
             for w in update_fields["witnesses"]
         ]
 
+    # Pokud klient mění workplace (id nebo external description), přepočítej
+    # textový snapshot. Klient nemusí workplace text posílat — service ho dopočítá.
+    workplace_changed = (
+        "workplace_id" in update_fields
+        or "workplace_external_description" in update_fields
+    )
+
     for field, value in update_fields.items():
         setattr(report, field, value)
+
+    if workplace_changed:
+        report.workplace = await _resolve_workplace_snapshot(
+            db,
+            workplace_id=report.workplace_id,
+            workplace_external_description=report.workplace_external_description,
+            fallback=report.workplace,
+            tenant_id=report.tenant_id,
+        )
 
     # Přepočítej signature meta po update (může se změnit kdokoliv ze
     # signers — postižený, svědci, vedoucí, injured_external).

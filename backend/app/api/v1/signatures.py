@@ -240,6 +240,39 @@ async def verify_endpoint(
         auth_proof=auth_proof,
     )
 
+    # Propagace signed_at do AccidentReport — pro UX (PDF + záznam o úrazu)
+    # potřebujeme `injured_signed_at` / `supervisor_signed_at` resp. položku
+    # ve `witnesses[].signed_at`. Datum se bere z signature.signed_at, takže
+    # uživatel ho už nemusí psát ručně. Pro externí zraněné se datum nesetuje
+    # (digitální podpis tam není možný; tisk + ruční podpis na papíře).
+    if data.doc_type == "accident_report":
+        from app.models.accident_report import AccidentReport
+        report = (await db.execute(
+            select(AccidentReport).where(
+                AccidentReport.id == data.doc_id,
+                AccidentReport.tenant_id == current_user.tenant_id,
+            ),
+        )).scalar_one_or_none()
+        if report is not None:
+            sig_date = sig.signed_at.date()
+            if report.employee_id == emp.id and not report.injured_external:
+                report.injured_signed_at = sig_date
+            if report.supervisor_employee_id == emp.id:
+                report.supervisor_signed_at = sig_date
+            # Svědci — najdi v JSONB list a doplň signed_at
+            if report.witnesses:
+                updated_witnesses = []
+                for w in report.witnesses:
+                    if (
+                        w.get("employee_id")
+                        and str(w["employee_id"]) == str(emp.id)
+                        and not w.get("signed_at")
+                    ):
+                        w = {**w, "signed_at": sig_date.isoformat()}
+                    updated_witnesses.append(w)
+                report.witnesses = updated_witnesses
+            await db.flush()
+
     return SignatureResponse(
         id=sig.id,
         doc_type=sig.doc_type,

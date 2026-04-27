@@ -8,12 +8,18 @@ from app.models.accident_report import AccidentReport
 from app.models.job_position import JobPosition
 from app.models.medical_exam import EXPIRING_SOON_DAYS as ME_EXPIRING_SOON_DAYS
 from app.models.medical_exam import MedicalExam
+from app.models.periodic_check import PeriodicCheck
 from app.models.revision import Revision
 from app.models.risk_factor_assessment import RiskFactorAssessment
 from app.models.training import EXPIRING_SOON_DAYS, TrainingAssignment
 from app.models.workplace import Workplace
 from app.schemas.dashboard import DashboardResponse
 from app.services.revisions import get_calendar_items
+
+# Pro Dashboard kartu "Prošlé kontroly a revize" — horizont expirace.
+# Revize/kontroly s next_*_at v intervalu (today, today+30] jsou „expirují brzy",
+# starší než today jsou „prošlé". Karta agreguje obojí.
+INSPECTIONS_EXPIRING_SOON_DAYS = 30
 
 
 async def get_dashboard(db: AsyncSession, tenant_id: uuid.UUID) -> DashboardResponse:
@@ -46,17 +52,33 @@ async def get_dashboard(db: AsyncSession, tenant_id: uuid.UUID) -> DashboardResp
         )
     ).scalar_one()
 
-    # 3. Aktivní revize s prošlým termínem
+    # 3. „Prošlé kontroly a revize" — agregovaný počet revizí + periodic_checks,
+    # které jsou: prošlé (next_*_at < today) NEBO expirují do 30 dnů.
+    # Sjednoceno do jednoho čísla pro Dashboard kartu (název UI:
+    # „Prošlé kontroly a revize"). Pole se v API stále jmenuje
+    # `overdue_revisions` z důvodu kompatibility s existujícími klienty.
+    inspection_horizon = today + timedelta(days=INSPECTIONS_EXPIRING_SOON_DAYS)
     overdue_revisions: int = (
         await db.execute(
             select(func.count()).where(
                 Revision.tenant_id == tenant_id,
                 Revision.status == "active",
                 Revision.next_revision_at.is_not(None),
-                Revision.next_revision_at < today,
+                Revision.next_revision_at <= inspection_horizon,
             )
         )
     ).scalar_one()
+    overdue_periodic_checks: int = (
+        await db.execute(
+            select(func.count()).where(
+                PeriodicCheck.tenant_id == tenant_id,
+                PeriodicCheck.status == "active",
+                PeriodicCheck.next_check_at.is_not(None),
+                PeriodicCheck.next_check_at <= inspection_horizon,
+            )
+        )
+    ).scalar_one()
+    overdue_revisions = overdue_revisions + overdue_periodic_checks
 
     # 4. Záznamy o úrazech ve stavu draft
     draft_accident_reports: int = (
