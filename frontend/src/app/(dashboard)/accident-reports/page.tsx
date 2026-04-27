@@ -502,7 +502,7 @@ function AccidentForm({
         <div className="space-y-2 rounded-md border border-gray-200 dark:border-gray-700 p-2">
           <div className="space-y-1">
             <Label htmlFor="supervisor_employee_id" className="text-xs">
-              Vedoucí pracovník (jen role „lead_worker") — pokud externí, nech prázdné
+              Vedoucí pracovník (jen role &bdquo;lead_worker&ldquo;) — pokud externí, nech prázdné
             </Label>
             <Controller
               name="supervisor_employee_id"
@@ -530,7 +530,7 @@ function AccidentForm({
             />
             {leadWorkers.length === 0 && (
               <p className="text-xs text-amber-600">
-                Žádný zaměstnanec nemá roli „vedoucí pracovník". Pokud chceš
+                Žádný zaměstnanec nemá roli &bdquo;vedoucí pracovník&ldquo;. Pokud chceš
                 interního vedoucího, nastav mu roli v modulu Zaměstnanci.
               </p>
             )}
