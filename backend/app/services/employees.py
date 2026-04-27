@@ -134,27 +134,54 @@ async def create_employee(
         )
 
     # Auto-vytvoření user účtu.
-    # Policy od commitu 9c: pokud je zadán email a není existující user_id,
-    # service automaticky vytvoří auth účet s vygenerovaným heslem. Heslo
-    # se vrátí jednou v `generated_password` (frontend ho zobrazí OZO).
-    # Bez emailu (brigádník bez přístupu) se účet nevytvoří — backward compat.
+    # Login identity: BUĎ email, NEBO personal_number (subdomain login).
+    # Účet se založí když je k dispozici alespoň jeden identifier.
+    # Bez ani jednoho (brigádník bez přístupu) → jen Employee, žádný User.
     generated_password: str | None = None
     linked_user_id = data.user_id
-    if data.user_id is None and data.email:
-        # Duplicita emailu v rámci tenantu
-        existing = (await db.execute(
-            select(User).where(User.email == data.email, User.tenant_id == tenant_id)
-        )).scalar_one_or_none()
-        if existing is not None:
+    has_login_identity = bool(data.email) or bool(data.personal_number)
+    wants_account = (
+        data.create_user_account
+        or data.is_equipment_responsible
+        or bool(data.email)  # Backward compat: email implicitně chce účet
+    )
+    if data.user_id is None and wants_account:
+        if not has_login_identity:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Uživatel s emailem {data.email} již existuje v tomto tenantu",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Pro vytvoření přihlašovacího účtu vyplň email NEBO osobní "
+                       "číslo. Bez identifieru se zaměstnanec nepřihlásí.",
             )
 
+        # Duplicita: per-tenant email + per-tenant personal_number
+        if data.email:
+            existing = (await db.execute(
+                select(User).where(
+                    User.email == data.email,
+                    User.tenant_id == tenant_id,
+                ),
+            )).scalar_one_or_none()
+            if existing is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Uživatel s emailem {data.email} už existuje v tomto tenantu",
+                )
+        if data.personal_number:
+            existing_pn = (await db.execute(
+                select(Employee).where(
+                    Employee.personal_number == data.personal_number,
+                    Employee.tenant_id == tenant_id,
+                ),
+            )).scalar_one_or_none()
+            if existing_pn is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Osobní číslo {data.personal_number} už v tenantu existuje",
+                )
+
         password = data.user_password or _generate_password()
-        # Pokud server heslo vygeneroval, vrátíme ho jednou přes response.
-        # Pokud OZO zadal vlastní, taky ho ukážeme zpět (OZO ho může chtít
-        # zkopírovat a předat zaměstnanci stejným kanálem jako generované).
+        # Heslo vrátíme jednou — frontend ho zobrazí OZO/HR aby ho mohl
+        # předat zaměstnanci (ten ho potom v aplikaci může změnit).
         generated_password = password
 
         # Priorita: explicitní assigned_role > legacy is_equipment_responsible flag.
@@ -167,7 +194,7 @@ async def create_employee(
         full_name = f"{data.first_name} {data.last_name}".strip()
         new_user = User(
             tenant_id=tenant_id,
-            email=data.email,
+            email=data.email,  # může být None
             hashed_password=hash_password(password),
             full_name=full_name,
             role=role,

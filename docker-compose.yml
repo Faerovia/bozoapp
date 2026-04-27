@@ -45,6 +45,13 @@ services:
       # Alembic (DDL): jako owner bozoapp. Fallback na DATABASE_URL když není set.
       MIGRATION_DATABASE_URL: postgresql+asyncpg://bozoapp:bozoapp_secret@db:5432/bozoapp_dev
       REDIS_URL: redis://redis:6379/0
+      # Subdomain config — viz docs/SUBDOMAIN.md
+      # *.localhost:3000 funguje v Chrome/Firefox (RFC 6761). Safari může
+      # vyžadovat /etc/hosts override.
+      BASE_DOMAIN: ".localhost"
+      COOKIE_DOMAIN: ""
+      APP_URL_SCHEME: "http"
+      APP_URL_PORT: ":3000"
     depends_on:
       db:
         condition: service_healthy
@@ -69,6 +76,10 @@ services:
       BACKEND_INTERNAL_URL: http://backend:8000
       # Browser-side URL (aktuálně nevyužíváno, všechno jde přes Next.js proxy).
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      # Subdomain config — klient extrahuje tenant slug ze subdomény.
+      NEXT_PUBLIC_BASE_DOMAIN: ".localhost"
+      NEXT_PUBLIC_APP_URL_SCHEME: "http"
+      NEXT_PUBLIC_APP_URL_PORT: ":3000"
     depends_on:
       - backend
 

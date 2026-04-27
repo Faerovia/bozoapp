@@ -21,6 +21,7 @@ export interface UserResponse {
 
 export interface Membership {
   tenant_id: string;
+  tenant_slug: string;
   tenant_name: string;
   role: string;
   is_default: boolean;

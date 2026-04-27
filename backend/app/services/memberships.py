@@ -39,6 +39,7 @@ async def get_user_memberships(
         for membership, tenant in result.all():
             rows.append({
                 "tenant_id": membership.tenant_id,
+                "tenant_slug": tenant.slug,
                 "tenant_name": tenant.name,
                 "role": membership.role,
                 "is_default": membership.is_default,

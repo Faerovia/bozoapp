@@ -84,6 +84,20 @@ class Settings(BaseSettings):
     # a v obsahu QR kódů (sken vede na /devices/{qr_token}/record).
     app_public_url: str = "http://localhost:3000"
 
+    # Subdomain-based multi-tenancy.
+    # base_domain: doména, ze které se extrahuje tenant slug.
+    #   Prod: ".digitalozo.cz" → 'strojirny-abc.digitalozo.cz' = tenant
+    #   Dev:  ".localhost"     → 'strojirny-abc.localhost:3000' = tenant
+    base_domain: str = ".localhost"
+    # cookie_domain: scope pro JWT/CSRF cookies. Prázdný = scopováno na
+    # konkrétní subdomain (Safari/dev fallback bez cross-subdomain SSO).
+    # Prod: ".digitalozo.cz" pro sdílení mezi *.digitalozo.cz subdomains.
+    cookie_domain: str = ""
+    # app_url_scheme + app_url_port: pro client switcher redirect na jiný
+    # subdomain (window.location.assign(scheme + slug + base + port + path)).
+    app_url_scheme: str = "http"
+    app_url_port: str = ":3000"
+
     # Claude API (Anthropic) pro generátor BOZP/PO dokumentů.
     # Sdílený platformový klíč — fair-use limit per tenant je v aplikaci.
     # Pokud prázdný, /documents/generate vrátí 503 Service Unavailable.

@@ -64,6 +64,9 @@ class CreateTenantResponse(BaseModel):
 
 class TenantPatchRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
+    # Subdomain slug — definuje URL `{slug}.digitalozo.cz`. Validace v setteru
+    # admin endpointu (regex + RESERVED + unique).
+    slug: str | None = Field(None, min_length=2, max_length=63)
     is_active: bool | None = None
     # Service level (free|basic|standard|pro|enterprise) — admin definuje
     # katalog v platform_settings 'service_levels.catalog'.
@@ -157,6 +160,48 @@ async def admin_update_tenant(
     if data.is_frozen is not None:
         update_fields["frozen_at"] = datetime.now(UTC) if data.is_frozen else None
 
+    # Slug validace + invalidace subdomain cache
+    old_slug = tenant.slug
+    new_slug = update_fields.get("slug")
+    if new_slug is not None and new_slug != old_slug:
+        import re
+        from app.core.tenant_subdomain import (
+            RESERVED_SUBDOMAINS,
+            invalidate_cache,
+        )
+
+        normalized = new_slug.strip().lower()
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", normalized):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    "Slug musí obsahovat jen malá písmena, číslice a pomlčky "
+                    "(2–63 znaků, nesmí začínat/končit pomlčkou)."
+                ),
+            )
+        if normalized in RESERVED_SUBDOMAINS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Slug '{normalized}' je rezervovaný a nelze ho použít.",
+            )
+        await db.execute(
+            text("SELECT set_config('app.is_superadmin', 'true', true)"),
+        )
+        existing = (await db.execute(
+            select(Tenant).where(
+                Tenant.slug == normalized, Tenant.id != tenant.id,
+            ),
+        )).scalar_one_or_none()
+        if existing is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Slug '{normalized}' už používá jiný klient.",
+            )
+        update_fields["slug"] = normalized
+        # Vyhodit ze subdomain cache aby se nečetl starý slug
+        invalidate_cache(old_slug)
+        invalidate_cache(normalized)
+
     if update_fields:
         await db.execute(text("SELECT set_config('app.is_superadmin', 'true', true)"))
         for k, v in update_fields.items():
@@ -171,6 +216,7 @@ async def admin_update_tenant(
 class TenantOverviewItem(BaseModel):
     id: uuid.UUID
     name: str
+    slug: str  # subdomain — zobrazuje se v admin UI
     is_active: bool
     created_at: datetime
     employee_count: int          # aktivní zaměstnanci (= "zákazníci" pro billing)
@@ -249,6 +295,7 @@ async def admin_tenant_overview(
         TenantOverviewItem(
             id=t.id,
             name=t.name,
+            slug=t.slug,
             is_active=getattr(t, "is_active", True),
             created_at=t.created_at,
             employee_count=employee_counts.get(t.id, 0),

@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, Briefcase, GraduationCap, ExternalLink, AlertTriangle,
   Loader2, ChevronDown, ChevronRight, Save, CreditCard, Plus, Building2,
+  Globe,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Header } from "@/components/layout/header";
@@ -21,10 +22,12 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { SubdomainEditor } from "@/components/admin/subdomain-editor";
 
 interface TenantOverviewItem {
   id: string;
   name: string;
+  slug: string;
   is_active: boolean;
   created_at: string;
   employee_count: number;
@@ -493,7 +496,12 @@ export default function AdminPage() {
                               {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             </td>
                             <td className="py-3 px-4 font-medium text-gray-900">
-                              {t.name}
+                              <div className="flex flex-col">
+                                <span>{t.name}</span>
+                                <span className="text-[11px] font-mono font-normal text-gray-400">
+                                  {t.slug}
+                                </span>
+                              </div>
                               {!t.is_active && (
                                 <span className="ml-2 inline-flex rounded-full bg-gray-100 text-gray-500 px-1.5 py-0.5 text-[10px] font-medium">
                                   pozastaven
@@ -534,7 +542,19 @@ export default function AdminPage() {
                           {expanded && (
                             <tr>
                               <td colSpan={8} className="p-0">
-                                <BillingEditor tenant={t} />
+                                <div className="border-t border-gray-100 bg-gray-50/30 p-4 space-y-4">
+                                  <div className="rounded-md bg-white border border-gray-200 p-4">
+                                    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                      <Globe className="h-4 w-4 text-blue-600" />
+                                      Subdomain
+                                    </h3>
+                                    <SubdomainEditor
+                                      tenantId={t.id}
+                                      currentSlug={t.slug}
+                                    />
+                                  </div>
+                                  <BillingEditor tenant={t} />
+                                </div>
                               </td>
                             </tr>
                           )}

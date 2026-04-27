@@ -3,9 +3,10 @@
 /**
  * Client switcher — dropdown v sidebaru pro OZO multi-client.
  *
- * Zobrazí se jen pokud user má 2+ memberships. Po výběru zavolá
- * /auth/select-tenant a uloží nový access token do cookie přes opětovný
- * fetch /auth/me (server obnoví CSRF + cookie).
+ * Subdomain model: switch = redirect na druhý subdomain. JWT cookie je
+ * sdílený mezi *.digitalozo.cz subdomains (settings.cookie_domain), takže
+ * uživatel je rovnou přihlášený. Pokud cookie_domain nesdílí (dev),
+ * fallback je /auth/select-tenant + reload na stejné stránce.
  */
 
 import { useState } from "react";
@@ -14,6 +15,7 @@ import { Building2, ChevronDown, Check } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Membership, UserResponse } from "@/types/api";
 import { cn } from "@/lib/utils";
+import { subdomainUrl } from "@/hooks/use-tenant-context";
 
 export function ClientSwitcher() {
   const qc = useQueryClient();
@@ -31,22 +33,32 @@ export function ClientSwitcher() {
     staleTime: 60_000,
   });
 
+  // Detekce, jestli cookie_domain umožní cross-subdomain SSO. Pokud ano,
+  // můžeme prostě window.location.assign('https://druhy-tenant.digitalozo.cz/...')
+  // a server tam nás přihlásí podle existující cookie. Pokud ne (dev),
+  // zavoláme /auth/select-tenant a děláme reload.
+  const cookieDomain = process.env.NEXT_PUBLIC_COOKIE_DOMAIN || "";
+  const supportsCrossSubdomainSso = !!cookieDomain;
+
   const selectTenant = useMutation({
-    mutationFn: (tenant_id: string) =>
-      api.post<{ access_token: string }>("/auth/select-tenant", { tenant_id }),
-    onSuccess: async (resp) => {
-      // Uložíme nový access token jako Bearer i do cookie. Backend cookie
-      // sám neobnovil (jen access_token vrátil v body) — frontend si
-      // přidá do localStorage jako fallback. Lepší je zavolat /auth/me
-      // s novým tokenem, čímž backend potvrdí novou identitu.
-      if (typeof document !== "undefined" && resp.access_token) {
-        // Pošleme refresh přes cookie — backend cookie mění my; tady
-        // cookie přímo přepíšeme (httpOnly false varianta dev-only).
-        document.cookie = `access_token=${resp.access_token}; path=/; max-age=1800`;
+    mutationFn: (membership: Membership) => {
+      if (supportsCrossSubdomainSso) {
+        // Subdomain redirect — JWT cookie přejde s námi
+        return Promise.resolve(membership);
+      }
+      // Same-subdomain mode: vyměníme JWT za nový s vybraným tenant_id
+      return api.post<{ access_token: string }>("/auth/select-tenant", {
+        tenant_id: membership.tenant_id,
+      }).then(() => membership);
+    },
+    onSuccess: async (membership: Membership) => {
+      if (supportsCrossSubdomainSso) {
+        const url = subdomainUrl(membership.tenant_slug, "/dashboard");
+        window.location.assign(url);
+        return;
       }
       await qc.invalidateQueries();
       setOpen(false);
-      // Reload pro jistotu — některé queries už mají v paměti starý kontext
       if (typeof window !== "undefined") window.location.reload();
     },
   });
@@ -88,7 +100,7 @@ export function ClientSwitcher() {
             return (
               <button
                 key={m.tenant_id}
-                onClick={() => selectTenant.mutate(m.tenant_id)}
+                onClick={() => selectTenant.mutate(m)}
                 disabled={isCurrent || selectTenant.isPending}
                 className={cn(
                   "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors",

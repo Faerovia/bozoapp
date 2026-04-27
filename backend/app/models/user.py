@@ -15,7 +15,10 @@ class User(Base, TimestampMixin):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Email je teď NULLABLE — zaměstnanci bez emailu se přihlašují
+    # přes Employee.personal_number (per-tenant unique). Viz migrace 063
+    # a subdomain login flow.
+    email: Mapped[str | None] = mapped_column(String(255))
     # Volitelné username pro platform-admin login bez emailu.
     # Per uživatel UNIQUE napříč tenantů (partial unique index na username IS NOT NULL).
     username: Mapped[str | None] = mapped_column(String(50))
