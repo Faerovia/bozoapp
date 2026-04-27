@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,10 @@ from app.services.job_positions import (
     get_job_position_by_id,
     get_job_positions,
     update_job_position,
+)
+from app.services.workplaces_import import (
+    generate_job_positions_template,
+    import_job_positions_csv,
 )
 
 router = APIRouter()
@@ -77,6 +81,53 @@ async def _position_to_response(
         "notes": jp.notes,
         "status": jp.status,
         "created_by": jp.created_by,
+    }
+
+
+# ── CSV import (před /job-positions/{jp_id}) ────────────────────────────────
+
+@router.get("/job-positions/import/template")
+async def download_job_positions_template(
+    current_user: User = Depends(require_role("ozo", "hr_manager")),  # noqa: ARG001
+) -> Response:
+    content = generate_job_positions_template()
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="pozice_vzor.csv"'},
+    )
+
+
+@router.post("/job-positions/import")
+async def import_job_positions(
+    file: UploadFile,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    raw = await file.read()
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CSV musí být v UTF-8 (případně s BOM).",
+        ) from e
+    result = await import_job_positions_csv(
+        db, content, current_user.tenant_id, current_user.id,
+    )
+    rows: list[dict[str, Any]] = [
+        {"row_index": s.row, "success": True, "error": None, "title": s.label}
+        for s in result.created
+    ] + [
+        {"row_index": e.row, "success": False, "error": e.error, "title": None}
+        for e in result.errors
+    ]
+    rows.sort(key=lambda r: int(r["row_index"]))
+    return {
+        "total_rows": result.total_rows,
+        "created_count": len(result.created),
+        "failed_count": len(result.errors),
+        "rows": rows,
     }
 
 

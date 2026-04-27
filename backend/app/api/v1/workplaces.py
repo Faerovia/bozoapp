@@ -51,8 +51,64 @@ from app.services.workplaces import (
     update_rfa,
     update_workplace,
 )
+from app.services.workplaces_import import (
+    generate_plants_template,
+    generate_workplaces_template,
+    import_plants_csv,
+    import_workplaces_csv,
+)
 
 router = APIRouter()
+
+
+# ── CSV import — Plants ──────────────────────────────────────────────────────
+# Tyto endpointy musí být registrovány DŘÍV než /plants/{plant_id}, jinak
+# by FastAPI matchoval "import" jako UUID parametr.
+
+@router.get("/plants/import/template")
+async def download_plants_template(
+    current_user: User = Depends(require_role("ozo", "hr_manager")),  # noqa: ARG001
+) -> Response:
+    """Vzorový CSV soubor s hlavičkou + 1 příkladovým řádkem."""
+    content = generate_plants_template()
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="provozovny_vzor.csv"'},
+    )
+
+
+@router.post("/plants/import")
+async def import_plants(
+    file: UploadFile,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    raw = await file.read()
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CSV musí být v UTF-8 (případně s BOM).",
+        ) from e
+    result = await import_plants_csv(
+        db, content, current_user.tenant_id, current_user.id,
+    )
+    rows: list[dict[str, Any]] = [
+        {"row_index": s.row, "success": True, "error": None, "title": s.label}
+        for s in result.created
+    ] + [
+        {"row_index": e.row, "success": False, "error": e.error, "title": None}
+        for e in result.errors
+    ]
+    rows.sort(key=lambda r: int(r["row_index"]))
+    return {
+        "total_rows": result.total_rows,
+        "created_count": len(result.created),
+        "failed_count": len(result.errors),
+        "rows": rows,
+    }
 
 
 # ── Plants ────────────────────────────────────────────────────────────────────
@@ -111,6 +167,54 @@ async def archive_plant(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Závod nenalezen")
     plant.status = "archived"
     await db.flush()
+
+
+# ── CSV import — Workplaces ─────────────────────────────────────────────────
+# (před /workplaces/{workplace_id}, jinak path matching)
+
+@router.get("/workplaces/import/template")
+async def download_workplaces_template(
+    current_user: User = Depends(require_role("ozo", "hr_manager")),  # noqa: ARG001
+) -> Response:
+    content = generate_workplaces_template()
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="pracoviste_vzor.csv"'},
+    )
+
+
+@router.post("/workplaces/import")
+async def import_workplaces(
+    file: UploadFile,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    raw = await file.read()
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CSV musí být v UTF-8 (případně s BOM).",
+        ) from e
+    result = await import_workplaces_csv(
+        db, content, current_user.tenant_id, current_user.id,
+    )
+    rows: list[dict[str, Any]] = [
+        {"row_index": s.row, "success": True, "error": None, "title": s.label}
+        for s in result.created
+    ] + [
+        {"row_index": e.row, "success": False, "error": e.error, "title": None}
+        for e in result.errors
+    ]
+    rows.sort(key=lambda r: int(r["row_index"]))
+    return {
+        "total_rows": result.total_rows,
+        "created_count": len(result.created),
+        "failed_count": len(result.errors),
+        "rows": rows,
+    }
 
 
 # ── Workplaces ────────────────────────────────────────────────────────────────

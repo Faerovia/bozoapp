@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
+import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { cn } from "@/lib/utils";
 
 const INPUT_CLS = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
@@ -567,6 +568,9 @@ export default function WorkplacesPage() {
   const [posModal, setPosModal] = useState<{ mode: "create" | "edit"; workplaceId: string; jp?: JobPosition } | null>(null);
   const [rfaModal, setRfaModal] = useState<Workplace | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [importPlantsOpen, setImportPlantsOpen] = useState(false);
+  const [importWorkplacesOpen, setImportWorkplacesOpen] = useState(false);
+  const [importPositionsOpen, setImportPositionsOpen] = useState(false);
 
   const { data: plants = [], isLoading } = useQuery<Plant[]>({
     queryKey: ["plants", "active"],
@@ -665,13 +669,87 @@ export default function WorkplacesPage() {
       <Header
         title="Provozovny, pracoviště, pozice"
         actions={
-          <Button
-            size="sm"
-            onClick={() => { setFormError(null); setPlantModal({ mode: "create" }); }}
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Přidat provozovnu
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setImportPlantsOpen(true)}
+              title="Hromadný import provozoven z CSV"
+            >
+              Import provozoven
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setImportWorkplacesOpen(true)}
+              title="Hromadný import pracovišť z CSV"
+            >
+              Import pracovišť
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setImportPositionsOpen(true)}
+              title="Hromadný import pracovních pozic z CSV"
+            >
+              Import pozic
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => { setFormError(null); setPlantModal({ mode: "create" }); }}
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              Přidat provozovnu
+            </Button>
+          </div>
+        }
+      />
+
+      <CsvImportDialog
+        open={importPlantsOpen}
+        onClose={() => setImportPlantsOpen(false)}
+        onImported={() => qc.invalidateQueries({ queryKey: ["plants"] })}
+        title="Import provozoven z CSV"
+        templateUrl="/api/v1/plants/import/template"
+        uploadEndpoint="/plants/import"
+        requirements={
+          <ul className="list-disc list-inside space-y-0.5 pl-2">
+            <li>Povinné pole: <code className="bg-gray-100 px-1 rounded">name</code> (název provozovny)</li>
+            <li>Volitelné: ico, address, city, zip_code, plant_number, notes</li>
+            <li>Provozovna musí mít unikátní název v rámci tenantu</li>
+          </ul>
+        }
+      />
+      <CsvImportDialog
+        open={importWorkplacesOpen}
+        onClose={() => setImportWorkplacesOpen(false)}
+        onImported={() => qc.invalidateQueries({ queryKey: ["workplaces"] })}
+        title="Import pracovišť z CSV"
+        templateUrl="/api/v1/workplaces/import/template"
+        uploadEndpoint="/workplaces/import"
+        requirements={
+          <ul className="list-disc list-inside space-y-0.5 pl-2">
+            <li>Povinné: <code className="bg-gray-100 px-1 rounded">plant_name</code>, <code className="bg-gray-100 px-1 rounded">name</code></li>
+            <li>Provozovna (plant_name) musí už existovat v evidenci</li>
+            <li>Pracoviště musí být unikátní v rámci provozovny</li>
+          </ul>
+        }
+      />
+      <CsvImportDialog
+        open={importPositionsOpen}
+        onClose={() => setImportPositionsOpen(false)}
+        onImported={() => qc.invalidateQueries({ queryKey: ["positions"] })}
+        title="Import pracovních pozic z CSV"
+        templateUrl="/api/v1/job-positions/import/template"
+        uploadEndpoint="/job-positions/import"
+        requirements={
+          <ul className="list-disc list-inside space-y-0.5 pl-2">
+            <li>Povinné: <code className="bg-gray-100 px-1 rounded">plant_name</code>, <code className="bg-gray-100 px-1 rounded">workplace_name</code>, <code className="bg-gray-100 px-1 rounded">name</code></li>
+            <li>Provozovna i pracoviště musí už existovat</li>
+            <li>work_category: 1 / 2 / 2R / 3 / 4 nebo prázdné (derivuje se z RFA)</li>
+            <li>medical_exam_period_months: 1–120 nebo prázdné</li>
+            <li>skip_vstupni_exam: true/false (jen pro cat 1)</li>
+          </ul>
         }
       />
 
