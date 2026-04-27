@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -860,6 +860,18 @@ export default function EmployeesPage() {
       return api.get(`/employees${qs ? `?${qs}` : ""}`);
     },
   });
+  // Pro počty u filter chips — vše bez statusFilter
+  const { data: employeesAll = [] } = useQuery<Employee[]>({
+    queryKey: ["employees", "all"],
+    queryFn: () => api.get("/employees"),
+    staleTime: 60_000,
+  });
+  const statusCounts = useMemo(() => ({
+    all: employeesAll.length,
+    active: employeesAll.filter((e) => e.status === "active").length,
+    terminated: employeesAll.filter((e) => e.status === "terminated").length,
+    on_leave: employeesAll.filter((e) => e.status === "on_leave").length,
+  }), [employeesAll]);
   const {
     sortedItems: employees,
     sortKey, sortDir, toggleSort,
@@ -958,7 +970,12 @@ export default function EmployeesPage() {
       <div className="p-6 space-y-4">
         {/* Statusový filtr (rychlé záložky) */}
         <div className="flex items-center gap-2">
-          {(["", "active", "terminated", "on_leave"] as const).map(val => (
+          {([
+            { val: "",           label: "Všichni",                   count: statusCounts.all },
+            { val: "active",     label: STATUS_LABELS.active,        count: statusCounts.active },
+            { val: "terminated", label: STATUS_LABELS.terminated,    count: statusCounts.terminated },
+            { val: "on_leave",   label: STATUS_LABELS.on_leave,      count: statusCounts.on_leave },
+          ] as const).map(({ val, label, count }) => (
             <button
               key={val}
               onClick={() => setStatusFilter(val)}
@@ -969,10 +986,10 @@ export default function EmployeesPage() {
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               )}
             >
-              {val === "" ? "Všichni" : STATUS_LABELS[val]}
+              {label} ({count})
             </button>
           ))}
-          <span className="ml-auto text-xs text-gray-400">{employees.length} záznamů</span>
+          <span className="ml-auto text-xs text-gray-400">{employees.length} zobrazeno</span>
           <Button
             variant="outline"
             size="sm"

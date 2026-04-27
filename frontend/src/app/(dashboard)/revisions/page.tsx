@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -245,6 +245,19 @@ export default function RevisionsPage() {
     queryKey: ["revisions", dueFilter, plantFilter, typeFilter],
     queryFn: () => api.get(`/revisions${queryStr ? `?${queryStr}` : ""}`),
   });
+  // Pro počty u filter chips — bez filtru due_status
+  const { data: revisionsAll = [] } = useQuery<Revision[]>({
+    queryKey: ["revisions", "all"],
+    queryFn: () => api.get("/revisions"),
+    staleTime: 60_000,
+  });
+  const dueCounts = useMemo(() => ({
+    all: revisionsAll.length,
+    overdue: revisionsAll.filter((r) => r.due_status === "overdue").length,
+    due_soon: revisionsAll.filter((r) => r.due_status === "due_soon").length,
+    ok: revisionsAll.filter((r) => r.due_status === "ok").length,
+    no_schedule: revisionsAll.filter((r) => r.due_status === "no_schedule").length,
+  }), [revisionsAll]);
   const {
     sortedItems: revisions,
     sortKey, sortDir, toggleSort,
@@ -315,7 +328,13 @@ export default function RevisionsPage() {
           </select>
 
           <div className="flex items-center gap-1">
-            {(["", "overdue", "due_soon", "ok", "no_schedule"] as const).map(val => (
+            {([
+              { val: "",            label: "Všechny",                  count: dueCounts.all },
+              { val: "overdue",     label: DUE_STATUS_LABELS.overdue,     count: dueCounts.overdue },
+              { val: "due_soon",    label: DUE_STATUS_LABELS.due_soon,    count: dueCounts.due_soon },
+              { val: "ok",          label: DUE_STATUS_LABELS.ok,          count: dueCounts.ok },
+              { val: "no_schedule", label: DUE_STATUS_LABELS.no_schedule, count: dueCounts.no_schedule },
+            ] as const).map(({ val, label, count }) => (
               <button
                 key={val}
                 onClick={() => setDueFilter(val)}
@@ -326,7 +345,7 @@ export default function RevisionsPage() {
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 )}
               >
-                {val === "" ? "Všechny" : DUE_STATUS_LABELS[val]}
+                {label} ({count})
               </button>
             ))}
           </div>

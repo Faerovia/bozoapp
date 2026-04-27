@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -636,6 +636,25 @@ export default function AccidentReportsPage() {
       return api.get(`/accident-reports${qs ? `?${qs}` : ""}`);
     },
   });
+  // Všechny záznamy (bez filtrů) — pro výpočet počtů u filter chips.
+  const { data: reportsAll = [] } = useQuery<AccidentReport[]>({
+    queryKey: ["accident-reports", "all"],
+    queryFn: () => api.get("/accident-reports"),
+    staleTime: 60_000,
+  });
+  const statusCounts = useMemo(() => ({
+    all: reportsAll.length,
+    draft: reportsAll.filter((r) => r.status === "draft").length,
+    final: reportsAll.filter((r) => r.status === "final").length,
+    archived: reportsAll.filter((r) => r.status === "archived").length,
+  }), [reportsAll]);
+  const signedCounts = useMemo(() => ({
+    all: reportsAll.length,
+    signed: reportsAll.filter((r) => r.is_fully_signed).length,
+    unsigned: reportsAll.filter(
+      (r) => r.signature_required && !r.is_fully_signed,
+    ).length,
+  }), [reportsAll]);
   const {
     sortedItems: reports,
     sortKey, sortDir, toggleSort,
@@ -705,7 +724,12 @@ export default function AccidentReportsPage() {
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 dark:text-gray-400 mr-1 w-16">Stav:</span>
-            {(["", "draft", "final", "archived"] as const).map((val) => (
+            {([
+              { val: "",         label: "Všechny",     count: statusCounts.all },
+              { val: "draft",    label: "Rozpracované", count: statusCounts.draft },
+              { val: "final",    label: "Finální",     count: statusCounts.final },
+              { val: "archived", label: "Archivované", count: statusCounts.archived },
+            ] as const).map(({ val, label, count }) => (
               <button
                 key={val}
                 onClick={() => setStatusFilter(val)}
@@ -716,18 +740,18 @@ export default function AccidentReportsPage() {
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
                 )}
               >
-                {val === "" ? "Všechny" : val === "draft" ? "Rozpracované" : val === "final" ? "Finální" : "Archivované"}
+                {label} ({count})
               </button>
             ))}
-            <span className="ml-auto text-xs text-gray-400">{reports.length} záznamů</span>
+            <span className="ml-auto text-xs text-gray-400">{reports.length} zobrazeno</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 dark:text-gray-400 mr-1 w-16">Podpis:</span>
             {([
-              { val: "", label: "Vše" },
-              { val: "signed", label: "Podepsané" },
-              { val: "unsigned", label: "Nepodepsané" },
-            ] as const).map(({ val, label }) => (
+              { val: "", label: "Vše", count: signedCounts.all },
+              { val: "signed", label: "Podepsané", count: signedCounts.signed },
+              { val: "unsigned", label: "Nepodepsané", count: signedCounts.unsigned },
+            ] as const).map(({ val, label, count }) => (
               <button
                 key={val}
                 onClick={() => setSignedFilter(val)}
@@ -738,7 +762,7 @@ export default function AccidentReportsPage() {
                     : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
                 )}
               >
-                {label}
+                {label} ({count})
               </button>
             ))}
           </div>

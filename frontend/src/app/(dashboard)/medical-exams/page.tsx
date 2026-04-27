@@ -416,6 +416,38 @@ export default function MedicalExamsPage() {
     },
   });
 
+  // Pro počty u filter chips — fetch BEZ filtrů. (Ignoruje me_status,
+  // takže active + archived spočítáme z jednoho fetche pomocí dvou volání.)
+  const { data: examsAllActive = [] } = useQuery<MedicalExam[]>({
+    queryKey: ["medical-exams", "all", "active"],
+    queryFn: () => api.get("/medical-exams?me_status=active"),
+    staleTime: 60_000,
+  });
+  const { data: examsAllArchived = [] } = useQuery<MedicalExam[]>({
+    queryKey: ["medical-exams", "all", "archived"],
+    queryFn: () => api.get("/medical-exams?me_status=archived"),
+    staleTime: 60_000,
+  });
+  const examsAll = useMemo(
+    () => (statusFilter === "active" ? examsAllActive : examsAllArchived),
+    [statusFilter, examsAllActive, examsAllArchived],
+  );
+  const validityCounts = useMemo(() => ({
+    all: examsAll.length,
+    valid: examsAll.filter((e) => e.validity_status === "valid").length,
+    expiring_soon: examsAll.filter((e) => e.validity_status === "expiring_soon").length,
+    expired: examsAll.filter((e) => e.validity_status === "expired").length,
+  }), [examsAll]);
+  const categoryCounts = useMemo(() => ({
+    all: examsAll.length,
+    preventivni: examsAll.filter((e) => e.exam_category === "preventivni").length,
+    odborna: examsAll.filter((e) => e.exam_category === "odborna").length,
+  }), [examsAll]);
+  const statusCounts = useMemo(() => ({
+    active: examsAllActive.length,
+    archived: examsAllArchived.length,
+  }), [examsAllActive, examsAllArchived]);
+
   // Apply column filters klient-side (po sortu)
   const examsFiltered = useMemo(() => {
     const empNeedle = filterEmployee.trim().toLowerCase();
@@ -568,10 +600,10 @@ export default function MedicalExamsPage() {
         {/* Tab: kategorie + tlačítko Nastavení (úprava period) */}
         <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
           {([
-            { val: "all",          label: "Vše" },
-            { val: "preventivni",  label: "Preventivní (vstupní/periodické/výstupní/mimořádné)" },
-            { val: "odborna",      label: "Odborné" },
-          ] as const).map(({ val, label }) => (
+            { val: "all",          label: "Vše",                                                    count: categoryCounts.all },
+            { val: "preventivni",  label: "Preventivní (vstupní/periodické/výstupní/mimořádné)",   count: categoryCounts.preventivni },
+            { val: "odborna",      label: "Odborné",                                                count: categoryCounts.odborna },
+          ] as const).map(({ val, label, count }) => (
             <button
               key={val}
               onClick={() => setCategoryFilter(val)}
@@ -582,7 +614,7 @@ export default function MedicalExamsPage() {
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200",
               )}
             >
-              {label}
+              {label} ({count})
             </button>
           ))}
           <button
@@ -598,7 +630,12 @@ export default function MedicalExamsPage() {
 
         {/* Filtry validity + status (active/archived) */}
         <div className="flex items-center gap-2 flex-wrap">
-          {(["", "valid", "expiring_soon", "expired"] as const).map(val => (
+          {([
+            { val: "",              label: "Všechny",      count: validityCounts.all },
+            { val: "valid",         label: VALIDITY_STATUS_LABELS.valid,         count: validityCounts.valid },
+            { val: "expiring_soon", label: VALIDITY_STATUS_LABELS.expiring_soon, count: validityCounts.expiring_soon },
+            { val: "expired",       label: VALIDITY_STATUS_LABELS.expired,       count: validityCounts.expired },
+          ] as const).map(({ val, label, count }) => (
             <button
               key={val}
               onClick={() => setValidityFilter(val)}
@@ -609,7 +646,7 @@ export default function MedicalExamsPage() {
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200",
               )}
             >
-              {val === "" ? "Všechny" : VALIDITY_STATUS_LABELS[val]}
+              {label} ({count})
             </button>
           ))}
 
@@ -636,7 +673,9 @@ export default function MedicalExamsPage() {
                     : "Záznamy archivované (např. po snížení rizik na pozici)"
                 }
               >
-                {s === "active" ? "Aktivní prohlídky" : "Archivované prohlídky"}
+                {s === "active"
+                  ? `Aktivní prohlídky (${statusCounts.active})`
+                  : `Archivované prohlídky (${statusCounts.archived})`}
               </button>
             ))}
           </div>
