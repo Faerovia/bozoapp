@@ -230,7 +230,7 @@ function AccidentForm({
               <option value="">— Místo úrazu mimo provozovnu —</option>
               {workplaces.map((wp) => (
                 <option key={wp.id} value={wp.id}>
-                  {wp.plant_name ? `${wp.plant_name} — ${wp.name}` : wp.name}
+                  {wp.name}
                 </option>
               ))}
             </select>
