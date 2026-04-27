@@ -133,7 +133,19 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             ip_address=self._client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
-        token = self._extract_token(request)
+        # Pre-auth endpointy (login/register/SMS request) ignorují JWT v cookies,
+        # i kdyby tam byl. Důvod: stale cookie z předchozí session se zde nesmí
+        # propagovat do audit/RLS kontextu — způsobilo by to FK violation
+        # v audit_log (user_id z tokenu už neexistuje v DB po reseed/cleanup).
+        path = request.url.path
+        is_pre_auth = (
+            path.startswith("/api/v1/auth/login")
+            or path.startswith("/api/v1/auth/register")
+            or path.startswith("/api/v1/auth/sms/")
+            or path.startswith("/api/v1/auth/forgot-password")
+            or path.startswith("/api/v1/auth/reset-password")
+        )
+        token = None if is_pre_auth else self._extract_token(request)
         if token:
             try:
                 payload = decode_token(token)
@@ -178,6 +190,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestContextMiddleware)
 
+# Subdomain → tenant resolver. Spouští se PŘED CSRF a auditem, aby
+# downstream věděl request.state.tenant_from_subdomain.
+from app.core.tenant_subdomain import TenantSubdomainMiddleware  # noqa: E402
+
+app.add_middleware(TenantSubdomainMiddleware, base_domain=settings.base_domain)
+
 # CSRF middleware. POZOR: middlewares se spouští v opačném pořadí deklarace,
 # tedy zde CSRF poběží PŘED AuditContextMiddleware (early rejection = neaudituj
 # neplatné requesty). Pokud bys chtěl audit i failed CSRF pokusů, prohoď pořadí.
@@ -187,10 +205,17 @@ _dev_origins = ["http://localhost:3000", "http://localhost:3001"]
 _cors_origins = (
     settings.cors_origins_list if settings.is_production else _dev_origins
 )
+# Subdomain support: v dev kdy frontend žije na *.localhost:3000 musíme
+# allowovat všechny subdomény. allow_origin_regex pokrývá libovolný slug.
+_dev_origin_regex = r"https?://([a-z0-9-]+\.)?localhost(:[0-9]+)?"
+_prod_origin_regex = (
+    r"https?://([a-z0-9-]+\.)?digitalozo\.cz" if settings.is_production else None
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=_prod_origin_regex if settings.is_production else _dev_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

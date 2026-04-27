@@ -12,7 +12,6 @@ import {
   HardHat,
   Building2,
   Stethoscope,
-  LogOut,
   Briefcase,
   FileText,
   ShieldAlert,
@@ -29,9 +28,10 @@ import {
   Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { api, logout } from "@/lib/api";
+import { api } from "@/lib/api";
 import type { UserResponse } from "@/types/api";
 import { ClientSwitcher } from "./client-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 // ── Role model (sjednocené s backend/permissions.py) ─────────────────────────
 type Role =
@@ -326,15 +326,10 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      {/* Logout */}
-      <div className="border-t border-gray-200 p-3">
-        <button
-          onClick={() => logout()}
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
-        >
-          <LogOut className="h-4 w-4 shrink-0" />
-          Odhlásit se
-        </button>
+      {/* Theme toggle (dříve zde bylo "Odhlásit se" — to je teď v headeru). */}
+      <div className="border-t border-gray-200 dark:border-gray-700 p-3 flex items-center justify-between">
+        <span className="text-xs text-gray-500 dark:text-gray-400">Vzhled</span>
+        <ThemeToggle />
       </div>
     </aside>
   );

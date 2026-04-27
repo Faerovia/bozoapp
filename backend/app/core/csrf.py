@@ -44,6 +44,10 @@ CSRF_EXEMPT_PATHS = frozenset({
     "/api/v1/auth/logout",
     "/api/v1/auth/forgot-password",
     "/api/v1/auth/reset-password",
+    # SMS OTP login je pre-auth — uživatel ještě nemá CSRF cookie.
+    # Rate-limit (5/hod request, 20/min verify) + OTP entropie chrání.
+    "/api/v1/auth/sms/request",
+    "/api/v1/auth/sms/verify",
 })
 
 
@@ -53,7 +57,13 @@ def generate_csrf_token() -> str:
 
 
 def set_csrf_cookie(response: Response, token: str, *, is_production: bool) -> None:
-    """Setuje CSRF cookie — NON-httpOnly (klient musí přečíst z JS)."""
+    """Setuje CSRF cookie — NON-httpOnly (klient musí přečíst z JS).
+
+    Domain scope se bere z settings.cookie_domain (např. '.digitalozo.cz')
+    aby cookie sdílel subdomény (OZO multi-client).
+    """
+    from app.core.config import get_settings
+    domain = get_settings().cookie_domain or None
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=token,
@@ -61,6 +71,7 @@ def set_csrf_cookie(response: Response, token: str, *, is_production: bool) -> N
         secure=is_production,
         samesite="lax",
         path="/",
+        domain=domain,
     )
 
 

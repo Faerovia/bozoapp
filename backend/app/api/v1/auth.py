@@ -17,16 +17,25 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
     MembershipResponse,
     RegisterRequest,
     ResetPasswordRequest,
     SelectTenantRequest,
+    SmsLoginRequest,
+    SmsLoginVerifyRequest,
     TokenResponse,
     UserResponse,
 )
 from app.services.auth import _TotpRequiredError, login_user, register_user
+from app.services.login_otp import (
+    request_login_otp as svc_login_otp_request,
+)
+from app.services.login_otp import (
+    verify_login_otp as svc_login_otp_verify,
+)
 from app.services.memberships import (
     get_user_memberships,
     has_membership,
@@ -48,8 +57,14 @@ _REFRESH_MAX_AGE = settings.refresh_token_expire_days * 86400
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
-    """Nastaví httpOnly cookies s JWT tokeny + non-httpOnly CSRF cookie."""
+    """Nastaví httpOnly cookies s JWT tokeny + non-httpOnly CSRF cookie.
+
+    Cookie scope: pokud settings.cookie_domain je nastavený (např.
+    '.digitalozo.cz' v prod), cookie platí pro všechny subdomény →
+    OZO multi-client switcher může jen redirect bez re-login.
+    """
     is_prod = settings.is_production
+    domain = settings.cookie_domain or None
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -58,6 +73,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         secure=is_prod,
         samesite="lax",
         path="/",
+        domain=domain,
     )
     response.set_cookie(
         key="refresh_token",
@@ -67,6 +83,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         secure=is_prod,
         samesite="lax",
         path="/api/v1/auth/refresh",
+        domain=domain,
     )
     # CSRF double-submit cookie. Frontend si ji přečte z JS a pošle
     # v X-CSRF-Token hlavičce pro každý state-changing request.
@@ -98,20 +115,35 @@ async def register(
 @router.post("/auth/login", response_model=TokenResponse)
 @limiter.limit("20/minute")
 async def login(
-    request: Request,  # noqa: ARG001  # required by slowapi
+    request: Request,
     data: LoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    if not data.email and not data.username:
+    # Sjednocení identifieru: nový API přijímá `identifier`, legacy klienti
+    # posílají `email` nebo `username` — oba sjednoceně do `identifier`.
+    identifier = data.identifier or data.email or data.username
+    if not identifier:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Pošlete buď email nebo username",
+            detail="Pošlete identifier (email, osobní číslo nebo přihlašovací jméno)",
         )
+
+    # Tenant kontext: priorita 1) explicit pole tenant_slug v body,
+    # 2) subdomain (request.state.tenant_from_subdomain).
+    tenant_id = None
+    if data.tenant_slug:
+        from app.core.tenant_subdomain import _resolve_slug
+        resolved = await _resolve_slug(data.tenant_slug)
+        if resolved:
+            tenant_id = resolved[0]
+    if tenant_id is None:
+        tenant_id = getattr(request.state, "tenant_from_subdomain", None)
+
     try:
         result = await login_user(
-            db, data.email, data.password,
-            username=data.username,
+            db, identifier, data.password,
+            tenant_id=tenant_id,
             totp_code=data.totp_code,
         )
     except _TotpRequiredError:
@@ -124,10 +156,32 @@ async def login(
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Nesprávný email nebo heslo",
+            detail="Nesprávné přihlašovací údaje",
         )
-    user, access_token, _legacy_refresh = result
-    refresh_token = await issue_family(db, user.id, user.tenant_id)
+    user, _legacy_access, _legacy_refresh = result
+
+    # Subdomain scope: pokud je login na tenant subdoméně (jiné než user.tenant_id),
+    # zvalidujeme že user má v té tenantě membership a vystavíme JWT s tím
+    # tenant_id (a rolí z membership). Bez tohoto by OZO multi-client nemohl
+    # přihlásit na sekundární tenant subdoménu.
+    effective_tenant_id = user.tenant_id
+    effective_role = user.role
+    if tenant_id is not None and tenant_id != user.tenant_id:
+        # Platform admin se může přihlásit kamkoli (s jeho role 'admin')
+        if not user.is_platform_admin:
+            membership = await has_membership(db, user.id, tenant_id)
+            if membership is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Nemáš přístup k tomuto klientovi",
+                )
+            effective_tenant_id = tenant_id
+            effective_role = membership.role
+        else:
+            effective_tenant_id = tenant_id
+
+    access_token = create_access_token(user.id, effective_tenant_id, effective_role)
+    refresh_token = await issue_family(db, user.id, effective_tenant_id)
     _set_auth_cookies(response, access_token, refresh_token)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -211,12 +265,14 @@ async def logout(
     await revoke_user_tokens(db, current_user.id)
 
     is_prod = settings.is_production
+    domain = settings.cookie_domain or None
     response.delete_cookie(
         "access_token",
         path="/",
         httponly=True,
         secure=is_prod,
         samesite="lax",
+        domain=domain,
     )
     response.delete_cookie(
         "refresh_token",
@@ -224,6 +280,7 @@ async def logout(
         httponly=True,
         secure=is_prod,
         samesite="lax",
+        domain=domain,
     )
     response.delete_cookie(
         "csrf_token",
@@ -231,6 +288,7 @@ async def logout(
         httponly=False,
         secure=is_prod,
         samesite="lax",
+        domain=domain,
     )
 
 
@@ -326,6 +384,26 @@ async def select_tenant(
 
 # ── Password reset ────────────────────────────────────────────────────────────
 
+# ── Public tenant info pro branded login UI ─────────────────────────────────
+
+@router.get("/auth/tenant-info")
+async def auth_tenant_info(request: Request) -> dict[str, str | None]:
+    """Vrátí název tenantu z aktuální subdomény (pro login page branding).
+
+    Response:
+        {"slug": "strojirny-abc-s-r-o", "name": "Strojírny ABC s.r.o.",
+         "is_admin": false}
+
+    Pokud subdomain neodpovídá tenantu (root, neznámý slug), vrátí None
+    pole — frontend pak ukáže generic login.
+    """
+    return {
+        "slug": getattr(request.state, "tenant_slug", None),
+        "name": getattr(request.state, "tenant_name", None),
+        "is_admin": str(getattr(request.state, "is_admin_subdomain", False)).lower(),
+    }
+
+
 @router.post("/auth/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("5/hour")
 async def forgot_password(
@@ -354,3 +432,91 @@ async def reset_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Neplatný nebo expirovaný token",
         )
+
+
+# ── SMS OTP login (passwordless) ─────────────────────────────────────────────
+
+async def _resolve_tenant_for_login(
+    request: Request, body_slug: str | None,
+) -> uuid.UUID | None:
+    """Vyřeší tenant_id pro login (priorita: body slug > subdomain)."""
+    if body_slug:
+        from app.core.tenant_subdomain import _resolve_slug
+        resolved = await _resolve_slug(body_slug)
+        if resolved:
+            return resolved[0]
+    return getattr(request.state, "tenant_from_subdomain", None)
+
+
+@router.post("/auth/sms/request", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/hour")
+async def sms_login_request(
+    request: Request,  # noqa: ARG001  # required by slowapi
+    data: SmsLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Pošle 6-místný OTP kód SMS na telefon zaměstnance napojeného
+    na uživatele s daným identifierem (email/username/personal_number/telefon).
+
+    Anti-enumeration: vrací 204 vždy (i když identifier neexistuje).
+    """
+    tenant_id = await _resolve_tenant_for_login(request, data.tenant_slug)
+    await svc_login_otp_request(db, data.identifier, tenant_id=tenant_id)
+
+
+@router.post("/auth/sms/verify", response_model=TokenResponse)
+@limiter.limit("20/minute")
+async def sms_login_verify(
+    request: Request,
+    data: SmsLoginVerifyRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """Ověří OTP kód a vystaví JWT (access + refresh) cookies."""
+    tenant_id = await _resolve_tenant_for_login(request, data.tenant_slug)
+    user = await svc_login_otp_verify(
+        db, data.identifier, data.code, tenant_id=tenant_id,
+    )
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Nesprávný nebo expirovaný kód",
+        )
+    access_token = create_access_token(user.id, user.tenant_id, user.role)
+    refresh_token = await issue_family(db, user.id, user.tenant_id)
+    _set_auth_cookies(response, access_token, refresh_token)
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+# ── Self-service změna hesla ─────────────────────────────────────────────────
+
+@router.post("/auth/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/hour")
+async def change_password(
+    request: Request,  # noqa: ARG001  # required by slowapi
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Změna vlastního hesla. Vyžaduje současné heslo pro ověření.
+
+    Po změně revokuje všechny refresh tokeny mimo aktuální session
+    (current session zůstává, jiná zařízení musí re-login).
+    """
+    from app.core.security import hash_password, verify_password
+
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Současné heslo je nesprávné",
+        )
+    if data.current_password == data.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nové heslo se musí lišit od současného",
+        )
+
+    current_user.hashed_password = hash_password(data.new_password)
+    await db.flush()
+    # Force re-login na ostatních zařízeních.
+    await revoke_user_tokens(db, current_user.id)

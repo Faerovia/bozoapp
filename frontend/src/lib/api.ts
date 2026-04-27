@@ -30,6 +30,41 @@ function getCsrfToken(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/**
+ * Redirect na /login po 401. Aby se nezacyklili přes middleware (vidí
+ * access_token cookie → propustí → /auth/me 401 → loop), pošleme nejdřív
+ * fire-and-forget /auth/logout (smaže httpOnly cookies serverovou cestou)
+ * a teprve pak přesměrujeme. Query ?logout=1 dává /login signál ignorovat
+ * případně reziduální cookie.
+ */
+function redirectToLoginOn401(): void {
+  if (typeof window === "undefined") return;
+  // CSRF je non-httpOnly — vyčistíme ho z JS pro jistotu.
+  document.cookie = "csrf_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  // httpOnly cookies smaže backend přes /auth/logout (delete_cookie).
+  // Fire-and-forget: nečekáme na výsledek, abychom nezdrželi navigaci.
+  void fetch(`${BASE}/auth/logout`, {
+    method: "POST",
+    credentials: "same-origin",
+  }).catch(() => {});
+  window.location.href = "/login?logout=1";
+}
+
+/**
+ * Vrátí tenant slug z aktuální subdomény (např. 'strojirny-abc' z
+ * 'strojirny-abc.localhost:3000'). Posíláme ho jako X-Tenant-Slug header
+ * pro backend, protože Next.js proxy může Host hlavičku přepsat.
+ */
+function getTenantSlugFromLocation(): string | null {
+  if (typeof window === "undefined") return null;
+  const host = window.location.hostname;
+  const baseDomain = (process.env.NEXT_PUBLIC_BASE_DOMAIN || ".localhost").replace(/^\./, "");
+  if (!host.endsWith(baseDomain)) return null;
+  const prefix = host.slice(0, -baseDomain.length).replace(/\.$/, "");
+  if (!prefix) return null;
+  return prefix.split(".")[0];
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -43,6 +78,9 @@ async function request<T>(
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
 
+  const slug = getTenantSlugFromLocation();
+  if (slug) headers["X-Tenant-Slug"] = slug;
+
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers,
@@ -51,10 +89,10 @@ async function request<T>(
   });
 
   if (res.status === 401) {
-    // Token expiroval nebo chybí → přesměruj na přihlášení
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
+    // Token expiroval/chybí/je neplatný → vyčisti cookies a přesměruj.
+    // Bez vyčištění cookies by middleware vyhodnotil "token existuje" a
+    // přesměroval z /login zpět na /, což by způsobilo redirect loop.
+    redirectToLoginOn401();
     throw new ApiError(401, "Neautorizovaný přístup");
   }
 

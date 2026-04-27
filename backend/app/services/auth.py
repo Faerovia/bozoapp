@@ -1,4 +1,5 @@
 import re
+import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
@@ -15,9 +16,67 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from app.models.employee import Employee
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.auth import RegisterRequest
+
+
+async def _find_user_by_identifier(
+    db: AsyncSession,
+    identifier: str,
+    *,
+    tenant_id: uuid.UUID | None = None,
+) -> User | None:
+    """Najde User podle identifieru (email/personal_number/username).
+
+    Důležité (subdomain login):
+    - **Email**: hledá se GLOBÁLNĚ, ne per-tenant. Důvod: OZO multi-client
+      má User.tenant_id na primárním tenantu, ale potřebuje se přihlásit
+      i na subdoménách jiných tenantů, kde má jen membership. Per-tenant
+      lookup by ho zde nenašel. Kontrola, že uživatel má v subdoméně
+      membership, se dělá až v login endpointu (po nalezení usera).
+    - **Personal_number**: per-tenant (vyžaduje tenant_id). Bez tenantu
+      nelze rozlišit různé lidi se stejným osobním číslem.
+    - **Username**: globálně unikát (platform admin).
+    """
+    is_email = "@" in identifier
+
+    if is_email:
+        result = await db.execute(
+            select(User).where(
+                User.email == identifier,
+                User.is_active == True,  # noqa: E712
+            ),
+        )
+        return result.scalar_one_or_none()
+
+    if tenant_id is not None:
+        # Personal number v rámci tenantu — Employee.personal_number → user_id
+        result = await db.execute(
+            select(Employee).where(
+                Employee.tenant_id == tenant_id,
+                Employee.personal_number == identifier,
+                Employee.user_id.is_not(None),
+            ).limit(1),
+        )
+        emp = result.scalar_one_or_none()
+        if emp is not None and emp.user_id is not None:
+            return (await db.execute(
+                select(User).where(
+                    User.id == emp.user_id,
+                    User.is_active == True,  # noqa: E712
+                ),
+            )).scalar_one_or_none()
+
+    # Fallback: username (platform admin, globálně unikát)
+    result = await db.execute(
+        select(User).where(
+            User.username == identifier,
+            User.is_active == True,  # noqa: E712
+        ),
+    )
+    return result.scalar_one_or_none()
 
 # Pre-computed Argon2 hash libovolné hodnoty. Používáme ho v login flow,
 # pokud uživatel neexistuje — `verify_password` musí stejně proběhnout
@@ -80,27 +139,29 @@ async def register_user(
 
 async def login_user(
     db: AsyncSession,
-    email: str | None,
+    identifier: str,
     password: str,
     *,
-    username: str | None = None,
+    tenant_id: uuid.UUID | None = None,
     totp_code: str | None = None,
 ) -> tuple[User, str, str] | None:
     """
-    Ověří přihlašovací údaje. Najde uživatele buď podle emailu (per-tenant
-    unique) nebo username (global unique pro platform admina).
+    Ověří přihlašovací údaje. `identifier` může být:
+
+    1. Email (obsahuje '@') — najde User.email. Pokud `tenant_id` je dán,
+       hledá per-tenant; jinak globálně.
+    2. Personal_number — vyžaduje `tenant_id`. Najde Employee přes
+       (tenant_id, personal_number) → user_id → User.
+    3. Username — globálně unikátní (platform admin).
+
     Vrátí (user, access_token, refresh_token) nebo None.
 
     Ochrany:
-    - **Progressive delay**: před ověřením spi úměrně počtu fail pokusů
-      pro daný identifier (Redis counter). Nad prahem → 429.
-    - **Timing attack resistance**: při neexistujícím identifieru voláme
-      verify_password proti dummy hashi, aby celkový čas byl stejný jako
-      pro existujícího uživatele se špatným heslem.
+    - **Progressive delay**: před ověřením spi úměrně počtu fail pokusů.
+    - **Timing attack resistance**: dummy hash check pro neexistující user.
 
     RLS bypass: hledáme uživatele napříč tenanty (tenant_id ještě neznáme).
     """
-    identifier = email or username or ""
     # 1) Progressive delay podle fail countu. Volá se PŘED jakýmkoli DB/crypto
     #    dotazem, aby attacker platil čas i kdyby o identifier nic nevěděl.
     can_proceed = await apply_login_delay(identifier)
@@ -114,16 +175,7 @@ async def login_user(
         text("SELECT set_config('app.is_superadmin', 'true', true)")
     )
 
-    if email:
-        query = select(User).where(
-            User.email == email, User.is_active == True,  # noqa: E712
-        )
-    else:
-        query = select(User).where(
-            User.username == username, User.is_active == True,  # noqa: E712
-        )
-    result = await db.execute(query)
-    user = result.scalar_one_or_none()
+    user = await _find_user_by_identifier(db, identifier, tenant_id=tenant_id)
 
     # 2) Timing attack ochrana: pokud user neexistuje, ověřujeme dummy hash,
     #    abychom spotřebovali stejný Argon2 time jako legit login.

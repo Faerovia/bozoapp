@@ -25,9 +25,23 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    # Buď email nebo username — klient pošle jen jedno z nich.
-    # Email je per-tenant unikátní (běžní uživatelé), username je globálně
-    # unikátní (slouží pro platform admina).
+    """Login podporuje 3 typy identifierů (priorita podle obsahu):
+
+    1. **Email** (obsahuje '@') — per-tenant unique. Backend zjistí tenant
+       podle subdomain (X-Tenant-Slug header / Host) NEBO podle pole
+       `tenant_slug` v body. Bez tenantu se email hledá globálně.
+    2. **Username** (krátký řetězec, jen pro platform admina) — globálně unikát.
+    3. **Personal_number** (osobní číslo zaměstnance) — vyžaduje tenant_slug.
+
+    Backwards compat: `email` a `username` pole pořád fungují (deprecated,
+    nový kód má posílat `identifier`).
+    """
+    # Nový sjednocený identifier (email, username, nebo personal_number).
+    identifier: str | None = None
+    # Tenant slug ze subdomény nebo formuláře. Vyžadováno pro personal_number,
+    # volitelné pro email (kde rozlišení per-tenant pomáhá).
+    tenant_slug: str | None = None
+    # Legacy pole — pokud klient pošle email/username, převedeme na identifier
     email: EmailStr | None = None
     username: str | None = None
     password: str
@@ -63,6 +77,7 @@ class UserResponse(BaseModel):
 class MembershipResponse(BaseModel):
     """Klient × role pro current_user. Pro client switcher."""
     tenant_id: uuid.UUID
+    tenant_slug: str
     tenant_name: str
     role: str
     is_default: bool
@@ -87,4 +102,36 @@ class ResetPasswordRequest(BaseModel):
     def password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Heslo musí mít alespoň 8 znaků")
+        return v
+
+
+class SmsLoginRequest(BaseModel):
+    """Identifier pro request OTP. Email, username, personal_number nebo telefon.
+
+    `tenant_slug` je volitelný — když chybí, backend se pokusí najít z
+    Host hlavičky (subdomain). Pro personal_number je tenant_slug povinný
+    (jinak nelze zjistit, který tenant — různí lidi mohou mít stejný
+    personal_number v různých firmách).
+    """
+    identifier: str
+    tenant_slug: str | None = None
+
+
+class SmsLoginVerifyRequest(BaseModel):
+    """Identifier + 6-místný OTP kód + volitelný tenant_slug."""
+    identifier: str
+    code: str
+    tenant_slug: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    """Self-service změna hesla. Vyžaduje staré heslo pro ověření."""
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Nové heslo musí mít alespoň 8 znaků")
         return v
