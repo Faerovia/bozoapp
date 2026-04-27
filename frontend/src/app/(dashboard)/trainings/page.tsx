@@ -399,7 +399,6 @@ function AdminView() {
           onSubmit={(d) => createMutation.mutate(d)}
           isSubmitting={createMutation.isPending}
           serverError={serverError}
-          authorIsOzo={authorIsOzo}
         />
       </Dialog>
 
@@ -415,7 +414,6 @@ function AdminView() {
             onSubmit={(d) => updateMutation.mutate({ id: editTraining.id, data: d })}
             isSubmitting={updateMutation.isPending}
             serverError={serverError}
-            authorIsOzo={authorIsOzo}
           />
         )}
       </Dialog>
@@ -706,14 +704,11 @@ function TrainingForm({
   onSubmit,
   isSubmitting,
   serverError,
-  authorIsOzo = false,
 }: {
   defaultValues?: Partial<TrainingFormData>;
   onSubmit: (d: TrainingFormData) => void;
   isSubmitting: boolean;
   serverError: string | null;
-  /** Pokud false, autor není OZO → nabídneme checkbox „Nechat schválit OZO". */
-  authorIsOzo?: boolean;
 }) {
   const {
     register,
@@ -863,13 +858,11 @@ function EditTrainingBody({
   onSubmit,
   isSubmitting,
   serverError,
-  authorIsOzo = false,
 }: {
   training: Training;
   onSubmit: (d: TrainingFormData) => void;
   isSubmitting: boolean;
   serverError: string | null;
-  authorIsOzo?: boolean;
 }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["trainings"] });
@@ -925,7 +918,6 @@ function EditTrainingBody({
         onSubmit={onSubmit}
         isSubmitting={isSubmitting}
         serverError={serverError}
-        authorIsOzo={authorIsOzo}
       />
 
       <div className="border-t border-gray-100 pt-4">
