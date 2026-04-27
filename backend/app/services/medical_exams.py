@@ -90,8 +90,15 @@ async def _resolve_periodic_months(
         if rfa is not None and rfa.category_proposed:
             category = rfa.category_proposed
 
-    # Načti pravidla z platform_settings
-    rules = await get_setting(db, "medical_exam.periodicity_months", None)
+    # Načti pravidla — priorita: per-tenant override > platform default >
+    # hardcoded vyhláška 79/2013 (compute_periodic_exam_months).
+    # Per-tenant key: 'tenant:{tenant_id}:medical_exam.periodicity_months'
+    tenant_rules = await get_setting(
+        db, f"tenant:{tenant_id}:medical_exam.periodicity_months", None,
+    )
+    rules = tenant_rules or await get_setting(
+        db, "medical_exam.periodicity_months", None,
+    )
     if rules and category and isinstance(rules, dict):
         cat_rule = rules.get(category)
         if isinstance(cat_rule, dict):
@@ -182,6 +189,9 @@ async def attach_employee_info(
             ),
             "employee_personal_id": (
                 emp.personal_id if (emp and include_personal_id) else None
+            ),
+            "employee_personal_number": (
+                emp.personal_number if emp else None
             ),
             "job_position_name": pos.name if pos else None,
             "work_category":     pos.work_category if pos else None,

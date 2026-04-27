@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -99,19 +100,39 @@ function formatDateTime(iso: string | null) {
   return `${d.toLocaleDateString("cs-CZ")} ${d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-// ── Router podle role ────────────────────────────────────────────────────────
+// ── Router podle role + URL parametru ───────────────────────────────────────
+//
+// Sidebar má 2 položky:
+//   - "Školení"          → /trainings           (admin pohled — správa šablon)
+//   - "Školící centrum"  → /trainings?view=my   (employee pohled — moje přiřazená)
+//
+// Logika:
+//   - non-admin role (employee/lead_worker/equipment_responsible) → vždy EmployeeView
+//   - admin role (OZO/HR) → AdminView (default) NEBO EmployeeView (?view=my)
 
-export default function TrainingsPage() {
+function TrainingsPageInner() {
   const { data: me, isLoading } = useQuery<UserResponse>({
     queryKey: ["me"],
     queryFn: () => api.get("/auth/me"),
     staleTime: 5 * 60 * 1000,
   });
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view");
 
   if (isLoading || !me)
     return <div className="p-6 text-sm text-gray-400">Načítám…</div>;
 
-  return ADMIN_ROLES.includes(me.role) ? <AdminView /> : <EmployeeView />;
+  if (!ADMIN_ROLES.includes(me.role)) return <EmployeeView />;
+  return view === "my" ? <EmployeeView /> : <AdminView />;
+}
+
+export default function TrainingsPage() {
+  // useSearchParams() musí být uvnitř <Suspense> (Next.js 15 prerender rule).
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-gray-400">Načítám…</div>}>
+      <TrainingsPageInner />
+    </Suspense>
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════

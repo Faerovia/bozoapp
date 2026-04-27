@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
@@ -55,6 +55,22 @@ interface NavItem {
   roles: Role[];
 }
 
+// Pořadí + role per spec (BOZP/PO SaaS multi-tenant):
+//  1. Moji klienti           — jen OZO (a admin)
+//  2. Dashboard              — OZO + HR
+//  3. Zaměstnanci            — OZO + HR
+//  4. Lékařské prohlídky     — OZO + HR
+//  5. OOPP                   — OZO + HR + lead_worker
+//  6. Pracovní úrazy         — OZO + HR + lead_worker
+//  7. Školení                — OZO + HR (admin pohled — správa šablon)
+//  8. Školící centrum        — všechny tenant role (absolvování přiřazených)
+//  9. Revize                 — OZO + HR + equipment_responsible
+// 10. Pravidelné kontroly    — všichni (zobrazí se jen co mají přiřazené)
+// 11. Provozní deníky        — všichni
+// 12. Provozovny, pracoviště — OZO + HR
+// 13. Úroveň rizik           — OZO + HR
+// 14. Dokumenty              — OZO + HR
+// 15. Fakturace              — OZO + HR
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/my-clients",
@@ -75,44 +91,53 @@ const NAV_ITEMS: NavItem[] = [
     roles: MANAGERS,
   },
   {
-    href: "/trainings",
-    // OZO/HR spravují školení, zaměstnanec/equipment_responsible je absolvuje
-    label: (role) =>
-      role === "employee" || role === "equipment_responsible"
-        ? "Školící centrum"
-        : "Školení",
-    icon: GraduationCap,
-    roles: ALL_TENANT,
-  },
-  {
-    href: "/revisions",
-    label: "Revize",
-    icon: Wrench,
-    // OZO/HR + equipment_responsible (správa svých vyhrazených zařízení)
-    roles: ["ozo", "hr_manager", "equipment_responsible"],
-  },
-  {
-    href: "/periodic-checks",
-    label: "Pravidelné kontroly",
-    icon: ClipboardCheck,
-    roles: ["ozo", "hr_manager", "equipment_responsible", "employee"],
-  },
-  {
-    href: "/operating-logs",
-    label: "Provozní deníky",
-    icon: BookOpenCheck,
-    roles: ["ozo", "hr_manager", "equipment_responsible", "employee"],
-  },
-  {
-    href: "/accident-reports",
-    label: "Pracovní úrazy",
-    icon: AlertTriangle,
+    href: "/medical-exams",
+    label: "Lékařské prohlídky",
+    icon: Stethoscope,
     roles: MANAGERS,
   },
   {
     href: "/oopp",
     label: "OOPP",
     icon: HardHat,
+    roles: ["ozo", "hr_manager", "lead_worker"],
+  },
+  {
+    href: "/accident-reports",
+    label: "Pracovní úrazy",
+    icon: AlertTriangle,
+    roles: ["ozo", "hr_manager", "lead_worker"],
+  },
+  {
+    href: "/trainings",
+    label: "Školení",
+    icon: GraduationCap,
+    roles: MANAGERS,
+  },
+  {
+    // Stejná stránka /trainings s tabem "Mé přiřazené" — absolvování školení.
+    // Zobrazuje se VŠEM rolím včetně OZO/HR (i management se musí proškolit).
+    href: "/trainings?view=my",
+    label: "Školící centrum",
+    icon: BookOpen,
+    roles: ALL_TENANT,
+  },
+  {
+    href: "/revisions",
+    label: "Revize",
+    icon: Wrench,
+    roles: ["ozo", "hr_manager", "equipment_responsible"],
+  },
+  {
+    href: "/periodic-checks",
+    label: "Pravidelné kontroly",
+    icon: ClipboardCheck,
+    roles: ALL_TENANT,
+  },
+  {
+    href: "/operating-logs",
+    label: "Provozní deníky",
+    icon: BookOpenCheck,
     roles: ALL_TENANT,
   },
   {
@@ -126,12 +151,6 @@ const NAV_ITEMS: NavItem[] = [
     label: "Úroveň rizik na pracovištích",
     icon: ShieldAlert,
     roles: MANAGERS,
-  },
-  {
-    href: "/medical-exams",
-    label: "Lékařské prohlídky",
-    icon: Stethoscope,
-    roles: ALL_TENANT,
   },
   {
     href: "/documents",
@@ -220,6 +239,8 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get("view");
 
   const { data: user } = useQuery<UserResponse>({
     queryKey: ["me"],
@@ -304,7 +325,15 @@ export function Sidebar() {
             </li>
           )}
           {!adminMode && visible.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(href + "/");
+            // Href může mít query string (např. "/trainings?view=my").
+            // Active state musí matchnout pathname + view param zvlášť.
+            const [hrefPath, hrefQuery] = href.split("?");
+            const targetView = hrefQuery
+              ? new URLSearchParams(hrefQuery).get("view")
+              : null;
+            const pathMatches =
+              pathname === hrefPath || pathname.startsWith(hrefPath + "/");
+            const active = pathMatches && currentView === targetView;
             const labelText = typeof label === "function" ? label(role!) : label;
             return (
               <li key={href}>

@@ -34,7 +34,16 @@ export function Header({ title, actions }: HeaderProps) {
           {actions}
           {showBell && <NotificationBell />}
 
-          {/* Změna hesla — vedle notifikací (dle specu) */}
+          {user && (
+            <div className="flex items-center gap-2 pl-3 border-l border-gray-200 dark:border-gray-700">
+              <span className="text-sm text-gray-500 dark:text-gray-400">{user.email}</span>
+              <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 uppercase">
+                {user.role}
+              </span>
+            </div>
+          )}
+
+          {/* Změna hesla + Odhlásit — úplně doprava, ZA badge role */}
           <button
             type="button"
             onClick={() => setPwdOpen(true)}
@@ -44,8 +53,6 @@ export function Header({ title, actions }: HeaderProps) {
             <KeyRound className="h-3.5 w-3.5" />
             Změna hesla
           </button>
-
-          {/* Odhlásit — vedle notifikací (dle specu) */}
           <button
             type="button"
             onClick={() => logout()}
@@ -55,15 +62,6 @@ export function Header({ title, actions }: HeaderProps) {
             <LogOut className="h-3.5 w-3.5" />
             Odhlásit
           </button>
-
-          {user && (
-            <div className="flex items-center gap-2 pl-3 border-l border-gray-200 dark:border-gray-700">
-              <span className="text-sm text-gray-500 dark:text-gray-400">{user.email}</span>
-              <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 uppercase">
-                {user.role}
-              </span>
-            </div>
-          )}
         </div>
       </header>
 

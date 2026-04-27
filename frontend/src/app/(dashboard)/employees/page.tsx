@@ -9,7 +9,7 @@ import { UserPlus, Pencil, UserX, Download, RefreshCw, Copy, Upload, FileText } 
 import { api, ApiError, uploadFile } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
-import type { Employee, EmploymentType, JobPosition, Plant, Workplace } from "@/types/api";
+import type { Employee, EmploymentType, JobPosition, Plant, UserResponse, Workplace } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -200,6 +200,7 @@ function EmployeeForm({
   isEdit = false,
   editUserId = null,
   onRegeneratePassword,
+  currentUserRole = "ozo",
 }: {
   defaultValues?: Partial<FormData>;
   onSubmit: (data: FormData) => void;
@@ -211,6 +212,8 @@ function EmployeeForm({
   isEdit?: boolean;
   editUserId?: string | null;
   onRegeneratePassword?: (userId: string) => void;
+  /** Role aktuálního uživatele — určuje, jaké role smí přidělit. */
+  currentUserRole?: "ozo" | "hr_manager" | string;
 }) {
   const { register, handleSubmit, watch, setValue, formState: { errors } } =
     useForm<FormData>({
@@ -267,11 +270,21 @@ function EmployeeForm({
             <option value="employee">Zaměstnanec</option>
             <option value="lead_worker">Vedoucí pracovník</option>
             <option value="equipment_responsible">Zaměstnanec — zodpovědný za vyhrazená zařízení</option>
-            <option value="hr_manager">HR manager</option>
-            <option value="ozo">OZO BOZP/PO</option>
+            {/* HR + OZO role smí přidělit jen OZO. Backend stejně guarduje. */}
+            {currentUserRole === "ozo" && (
+              <>
+                <option value="hr_manager">HR manager</option>
+                <option value="ozo">OZO BOZP/PO</option>
+              </>
+            )}
           </select>
           <p className="text-xs text-gray-400">
             Určuje co všechno zaměstnanec vidí v aplikaci po přihlášení.
+            {currentUserRole !== "ozo" && (
+              <span className="block mt-0.5">
+                Role HR manager a OZO může nastavit jen jiný OZO.
+              </span>
+            )}
           </p>
         </div>
       </div>
@@ -870,6 +883,15 @@ export default function EmployeesPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Aktuální uživatel — pro role-based gating přidělování rolí
+  // (HR nesmí přidělit OZO/HR, jen OZO může všechno).
+  const { data: me } = useQuery<UserResponse>({
+    queryKey: ["me"],
+    queryFn: () => api.get("/auth/me"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const currentUserRole = me?.role ?? "ozo";
+
   const createMutation = useMutation({
     // Backend auto-creates user account when email is provided (povinné od
     // commitu 9c). Heslo vygeneruje server a vrátí v response.generated_password.
@@ -961,18 +983,18 @@ export default function EmployeesPage() {
           </Button>
         </div>
 
-        {/* Pokročilé filtry: provozovna → pracoviště → pozice + pohlaví */}
+        {/* Pokročilé filtry: provozovna / pracoviště / pozice + pohlaví.
+            Filtry jsou nezávislé — uživatel může vybrat libovolnou kombinaci
+            (např. jen "Pozice = Soustružník" bez aktivní provozovny). Když je
+            ale vybraná provozovna, dropdown pracoviště/pozic se zúží na
+            související záznamy (cascade je jen UI hint, ne hard dependence). */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end bg-gray-50 border border-gray-200 rounded-md p-3">
           <div>
             <Label htmlFor="f-plant" className="text-xs text-gray-600">Provozovna</Label>
             <select
               id="f-plant"
               value={plantFilter}
-              onChange={(e) => {
-                setPlantFilter(e.target.value);
-                setWorkplaceFilter("");
-                setPositionFilter("");
-              }}
+              onChange={(e) => setPlantFilter(e.target.value)}
               className={SELECT_CLS}
             >
               <option value="">— vše —</option>
@@ -987,11 +1009,7 @@ export default function EmployeesPage() {
             <select
               id="f-workplace"
               value={workplaceFilter}
-              onChange={(e) => {
-                setWorkplaceFilter(e.target.value);
-                setPositionFilter("");
-              }}
-              disabled={!plantFilter}
+              onChange={(e) => setWorkplaceFilter(e.target.value)}
               className={SELECT_CLS}
             >
               <option value="">— vše —</option>
@@ -1009,12 +1027,17 @@ export default function EmployeesPage() {
               id="f-position"
               value={positionFilter}
               onChange={(e) => setPositionFilter(e.target.value)}
-              disabled={!workplaceFilter}
               className={SELECT_CLS}
             >
               <option value="">— vše —</option>
               {jobPositions
-                .filter((p) => !workplaceFilter || p.workplace_id === workplaceFilter)
+                .filter((p) =>
+                  workplaceFilter
+                    ? p.workplace_id === workplaceFilter
+                    : plantFilter
+                      ? p.plant_id === plantFilter
+                      : true,
+                )
                 .map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -1170,6 +1193,7 @@ export default function EmployeesPage() {
           jobPositions={jobPositions}
           plants={plants}
           workplaces={workplaces}
+          currentUserRole={currentUserRole}
         />
       </Dialog>
 
@@ -1193,6 +1217,7 @@ export default function EmployeesPage() {
             isSubmitting={updateMutation.isPending}
             serverError={serverError}
             onRegeneratePassword={(uid) => regenerateMutation.mutate(uid)}
+            currentUserRole={currentUserRole}
           />
         )}
       </Dialog>
@@ -1230,6 +1255,7 @@ function EditEmployeeBody({
   isSubmitting,
   serverError,
   onRegeneratePassword,
+  currentUserRole = "ozo",
 }: {
   employee: Employee;
   plants: Plant[];
@@ -1239,6 +1265,7 @@ function EditEmployeeBody({
   isSubmitting: boolean;
   serverError: string | null;
   onRegeneratePassword: (uid: string) => void;
+  currentUserRole?: string;
 }) {
   const { data: resp, isLoading } = useQuery<{ employee_id: string; plant_ids: string[] }>({
     queryKey: ["employee-responsibilities", employee.id],
@@ -1285,6 +1312,7 @@ function EditEmployeeBody({
       jobPositions={jobPositions}
       plants={plants}
       workplaces={workplaces}
+      currentUserRole={currentUserRole}
     />
   );
 }

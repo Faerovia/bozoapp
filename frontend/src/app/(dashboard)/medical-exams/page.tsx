@@ -7,11 +7,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   Pencil, Trash2, Download, FileText, Upload, Sparkles,
-  Stethoscope, Activity,
+  Stethoscope, Activity, Settings,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { PeriodicitySettingsModal } from "@/components/medical-exams/periodicity-settings-modal";
 import type { MedicalExam, Employee, SpecialtyCatalogEntry } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -401,6 +402,7 @@ export default function MedicalExamsPage() {
   const [createPreventiveOpen, setCreatePreventiveOpen] = useState(false);
   const [createOdbornaOpen, setCreateOdbornaOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [periodicityOpen, setPeriodicityOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const { data: examsRaw = [], isLoading } = useQuery<MedicalExam[]>({
@@ -563,7 +565,7 @@ export default function MedicalExamsPage() {
       />
 
       <div className="p-6 space-y-4">
-        {/* Tab: kategorie */}
+        {/* Tab: kategorie + tlačítko Nastavení (úprava period) */}
         <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
           {([
             { val: "all",          label: "Vše" },
@@ -583,6 +585,15 @@ export default function MedicalExamsPage() {
               {label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setPeriodicityOpen(true)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            title="Upravit periody lékařských prohlídek pro tenant"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Nastavení
+          </button>
         </div>
 
         {/* Filtry validity + status (active/archived) */}
@@ -661,6 +672,7 @@ export default function MedicalExamsPage() {
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
                       <SortableHeader sortKey="employee_name" current={sortKey} dir={sortDir} onSort={toggleSort}>Zaměstnanec</SortableHeader>
+                      <SortableHeader sortKey="employee_personal_number" current={sortKey} dir={sortDir} onSort={toggleSort}>Os. č.</SortableHeader>
                       <SortableHeader sortKey="exam_category" current={sortKey} dir={sortDir} onSort={toggleSort}>Druh</SortableHeader>
                       <SortableHeader sortKey="exam_date" current={sortKey} dir={sortDir} onSort={toggleSort}>Datum</SortableHeader>
                       <SortableHeader sortKey="valid_until" current={sortKey} dir={sortDir} onSort={toggleSort}>Platí do</SortableHeader>
@@ -681,6 +693,7 @@ export default function MedicalExamsPage() {
                           className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
                         />
                       </th>
+                      <th className="py-1.5 px-2" />{/* Os. č. — bez filtru, lze sortovat */}
                       <th className="py-1.5 px-2">
                         <select
                           value={filterExamType}
@@ -736,6 +749,9 @@ export default function MedicalExamsPage() {
                               RČ: {exam.employee_personal_id}
                             </div>
                           )}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono text-gray-600">
+                          {exam.employee_personal_number || "—"}
                         </td>
                         <td className="py-3 px-4">
                           <span className={cn(
@@ -930,6 +946,11 @@ export default function MedicalExamsPage() {
       <GenerateBulkDialog
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
+      />
+
+      <PeriodicitySettingsModal
+        open={periodicityOpen}
+        onClose={() => setPeriodicityOpen(false)}
       />
     </div>
   );

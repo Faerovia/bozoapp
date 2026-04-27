@@ -621,6 +621,7 @@ export interface MedicalExam {
   employee_id: string;
   employee_name: string | null;
   employee_personal_id: string | null;
+  employee_personal_number: string | null;
   job_position_id: string | null;
   job_position_name: string | null;
   work_category: string | null;

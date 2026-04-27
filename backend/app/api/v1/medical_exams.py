@@ -110,6 +110,56 @@ async def get_specialty_catalog(
     }
 
 
+# ── Per-tenant nastavení period lékařských prohlídek ─────────────────────────
+#
+# Priorita pravidel pro výpočet periody:
+#   1. per-tenant override (tenant:{id}:medical_exam.periodicity_months)
+#   2. platform default (medical_exam.periodicity_months)
+#   3. hardcoded vyhláška 79/2013 (compute_periodic_exam_months)
+#
+# OZO/HR může přes UI Nastavení přepsat periody pro svůj tenant — užitečné
+# pokud chtějí přísnější (každý 12 měsíců místo 24/48 dle vyhlášky).
+
+@router.get("/medical-exams/settings/periodicity")
+async def get_tenant_periodicity_settings(
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Vrátí aktuální periody pro tento tenant + platform default + zákonný."""
+    from app.services.platform_settings import get_setting
+    tenant_key = f"tenant:{current_user.tenant_id}:medical_exam.periodicity_months"
+    tenant_rules = await get_setting(db, tenant_key, None)
+    platform_rules = await get_setting(
+        db, "medical_exam.periodicity_months", None,
+    )
+    # Zákonný default — viz compute_periodic_exam_months v models/job_position.py
+    legal_default = {
+        "1": {"under_50": None, "from_50": None},
+        "2": {"under_50": 48, "from_50": 24},
+        "2R": {"under_50": 24, "from_50": 24},
+        "3": {"under_50": 24, "from_50": 24},
+        "4": {"under_50": 12, "from_50": 12},
+    }
+    return {
+        "tenant_override": tenant_rules,
+        "platform_default": platform_rules,
+        "legal_default": legal_default,
+    }
+
+
+@router.patch("/medical-exams/settings/periodicity")
+async def update_tenant_periodicity_settings(
+    rules: dict[str, Any],
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Uloží per-tenant override period. Předá NULL pro vyresetování."""
+    from app.services.platform_settings import set_setting
+    tenant_key = f"tenant:{current_user.tenant_id}:medical_exam.periodicity_months"
+    await set_setting(db, tenant_key, rules)
+    return {"saved": True, "tenant_override": rules}
+
+
 # DŮLEŽITÉ: /medical-exams/export/pdf musí být před /medical-exams/{exam_id}
 @router.get("/medical-exams/export/pdf")
 async def export_medical_exams_pdf(

@@ -99,11 +99,26 @@ async def create_employee_endpoint(
     """
     Vytvoří nový záznam zaměstnance.
 
-    Pokud data.create_user_account=True nebo data.is_equipment_responsible=True
-    a zároveň user_id nezadáno, service vytvoří propojený auth User účet.
-    Heslo (pokud se vygenerovalo) je vráceno v response.generated_password
-    jednorázově — OZO ho předá uživateli, do DB už jde jen Argon2 hash.
+    Role-based přiřazení (assigned_role):
+    - **OZO** může nastavit jakoukoliv roli (ozo, hr_manager, lead_worker,
+      equipment_responsible, employee)
+    - **HR manager** může nastavit jen lead_worker, equipment_responsible,
+      employee — NESMÍ vytvořit dalšího OZO ani HR manager
     """
+    # Role assignment guard
+    if data.assigned_role is not None and current_user.role != "ozo":
+        # HR manager — povolené role
+        hr_allowed = {"lead_worker", "equipment_responsible", "employee"}
+        if data.assigned_role not in hr_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "HR manager může nastavit jen role: lead_worker, "
+                    "equipment_responsible, employee. Pro role 'ozo' nebo "
+                    "'hr_manager' musí zaměstnance vytvořit OZO."
+                ),
+            )
+
     employee, generated_password = await create_employee(
         db, data, current_user.tenant_id, current_user.id
     )
