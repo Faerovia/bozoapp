@@ -42,7 +42,9 @@ log = logging.getLogger("api.signatures")
 
 router = APIRouter()
 
-DocType = Literal["oopp_issue", "accident_report", "training_attempt"]
+DocType = Literal[
+    "oopp_issue", "accident_report", "training_attempt", "training_content",
+]
 AuthMethod = Literal["password", "sms_otp"]
 
 

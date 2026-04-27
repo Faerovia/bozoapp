@@ -19,9 +19,12 @@ class Employee(Base, TimestampMixin):
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
 
-    # Vazba na auth účet (volitelná)
+    # Vazba na auth účet (volitelná).
+    # Unikátní per-tenant (composite UNIQUE (tenant_id, user_id) přes partial
+    # index uq_employees_tenant_user — viz migrace 062). OZO multi-client user
+    # musí mít Employee záznam v každém tenantu, kde má membership.
     user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, unique=True
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
     )
 
     # Identifikace

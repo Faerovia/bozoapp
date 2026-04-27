@@ -297,18 +297,21 @@ async def _seed_employees(
             employees.append(emp)
             continue
 
-        # Auth user
-        email = spec.get("email") or f"{first.lower()}.{last.lower()}@demo.cz"
-        # Kontrola duplicit
-        existing = (await db.execute(
-            select(User).where(User.email == email)
-        )).scalar_one_or_none()
-        if existing:
-            email = f"{first.lower()}.{last.lower()}.{tenant_id.hex[:6]}@demo.cz"
+        # Auth user — varianta s emailem nebo bez (subdomain login flow)
+        no_email = spec.get("no_email", False)
+        email: str | None = None
+        if not no_email:
+            email = spec.get("email") or f"{first.lower()}.{last.lower()}@demo.cz"
+            # Kontrola duplicit jen s emailem
+            existing = (await db.execute(
+                select(User).where(User.email == email)
+            )).scalar_one_or_none()
+            if existing:
+                email = f"{first.lower()}.{last.lower()}.{tenant_id.hex[:6]}@demo.cz"
 
         user = User(
             tenant_id=tenant_id,
-            email=email,
+            email=email,  # může být None — login pak přes personal_number
             hashed_password=hash_password(PASSWORD),
             full_name=f"{first} {last}",
             role=spec.get("role", "employee"),
@@ -330,8 +333,8 @@ async def _seed_employees(
             created_by=created_by,
             first_name=first,
             last_name=last,
-            email=email,
-            phone=f"+4207{random.randint(10, 99)}{random.randint(100000, 999999)}",
+            email=email,  # může být None pro no_email variantu
+            phone="+420728319744",  # demo: všechny SMS jdou na test telefon
             address_street=f"{random.choice(['Hlavní', 'Náměstí Míru', 'Vrchlického', 'Komenského'])} {random.randint(1, 200)}",
             address_city=plant.city if plant else "Praha",
             address_zip=plant.zip_code if plant else "11000",
@@ -356,6 +359,46 @@ async def _seed_employees(
 
     await db.flush()
     return employees
+
+
+async def _seed_ozo_employee_record(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    ozo_user: User,
+    plants: dict[str, Plant],
+) -> Employee:
+    """Vytvoří Employee záznam pro OZO usera v daném tenantu.
+
+    Bez tohoto záznamu nemůže OZO digitálně podepsat dokumenty (signature
+    flow vyžaduje employee_id z `Employee.user_id == current_user.id`).
+
+    Telefon nastavíme na test číslo +420728319744 — pro testování
+    SMS OTP podpisů. Plant = první v abecedě (jen aby byl v evidenci).
+    """
+    plant: Plant | None = next(iter(plants.values()), None) if plants else None
+    parts = (ozo_user.full_name or "OZO").split(maxsplit=1)
+    first = parts[0] if parts else "OZO"
+    last = parts[1] if len(parts) > 1 else "User"
+    emp = Employee(
+        tenant_id=tenant_id,
+        user_id=ozo_user.id,
+        created_by=ozo_user.id,
+        first_name=first,
+        last_name=last,
+        email=ozo_user.email,
+        phone="+420728319744",
+        address_city=plant.city if plant else "Praha",
+        address_zip=plant.zip_code if plant else "11000",
+        employment_type="hpp",
+        plant_id=plant.id if plant else None,
+        workplace_id=None,
+        job_position_id=None,
+        hired_at=date.today() - timedelta(days=730),
+        personal_number=f"OZO-{tenant_id.hex[:6]}",
+    )
+    db.add(emp)
+    await db.flush()
+    return emp
 
 
 async def _seed_trainings(
@@ -881,6 +924,7 @@ async def seed(db: AsyncSession) -> None:
             "workplaces": ["Sklad"],
         },
     ])
+    await _seed_ozo_employee_record(db, abc.id, ozo, plants_abc)
 
     # Pozice na Hala A
     res = await db.execute(
@@ -911,9 +955,11 @@ async def seed(db: AsyncSession) -> None:
     employees_abc = await _seed_employees(
         db, abc.id, ozo.id, plants_abc, positions_abc,
         [
+            # Zaměstnanci s emailem (klasický login)
             {"name": ("Pavel", "Novák"), "plant": "Provozovna Praha", "position": "Soustružník", "role": "employee"},
             {"name": ("Jan", "Svoboda"), "plant": "Provozovna Praha", "position": "Svářeč", "role": "employee"},
-            {"name": ("Tomáš", "Dvořák"), "plant": "Provozovna Praha", "position": "Soustružník", "role": "employee"},
+            # Zaměstnanec bez emailu — login jen přes osobní číslo (subdomain)
+            {"name": ("Tomáš", "Dvořák"), "plant": "Provozovna Praha", "position": "Soustružník", "role": "employee", "no_email": True},
             {"name": ("Petr", "Černý"), "plant": "Provozovna Praha", "position": "Mistr", "role": "equipment_responsible"},
             {"name": ("Eva", "Procházková"), "plant": "Provozovna Brno", "position": "Skladník", "role": "employee"},
             {"name": ("Lucie", "Veselá"), "plant": "Provozovna Brno", "position": "Skladník", "role": "employee"},
@@ -982,6 +1028,7 @@ async def seed(db: AsyncSession) -> None:
             "workplaces": ["Výrobní hala"],
         },
     ])
+    await _seed_ozo_employee_record(db, xyz.id, ozo, plants_xyz)
     res = await db.execute(
         select(Workplace).where(Workplace.tenant_id == xyz.id)
     )
@@ -1056,6 +1103,7 @@ async def seed(db: AsyncSession) -> None:
             "workplaces": ["Stavební část", "Elektromontáže"],
         },
     ])
+    await _seed_ozo_employee_record(db, delta.id, ozo, plants_delta)
 
     res = await db.execute(
         select(Workplace).where(Workplace.plant_id == plants_delta["Stavba Olomouc — bytový dům"].id)
