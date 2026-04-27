@@ -133,6 +133,15 @@ async def create_training_endpoint(
     current_user: User = Depends(require_role("ozo", "hr_manager")),
     db: AsyncSession = Depends(get_db),
 ) -> TrainingResponse:
+    # Unifikovaný flag: pokud je `requires_qes=True` a autor není OZO,
+    # automaticky se vyžaduje OZO schválení (autor podepíše obsah jako
+    # autor, OZO schválí jako approver). Když je autor OZO, schvalování
+    # se nepoužívá (autor sám = OZO). Když je `requires_qes=False`, žádné
+    # schvalování ani podpisy neprobíhají.
+    if data.requires_qes and current_user.role != "ozo":
+        data.requires_ozo_approval = True
+    elif not data.requires_qes:
+        data.requires_ozo_approval = False
     training = await svc.create_training(db, data, current_user.tenant_id, current_user.id)
     return _training_to_response(training)
 

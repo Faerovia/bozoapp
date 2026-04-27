@@ -88,12 +88,19 @@ async def create_training(
             detail=f"Školení '{data.title}' již existuje",
         )
 
-    # Approval workflow (migrace 060):
-    # - Pokud autor je OZO/admin → status='active' rovnou.
-    # - Pokud autor není OZO a vyžaduje schválení → status='pending_approval'.
-    # API endpoint nastaví requires_ozo_approval=False pro OZO uživatele,
-    # takže service jen převezme.
-    initial_status = "pending_approval" if data.requires_ozo_approval else "active"
+    # Approval + signature workflow:
+    # `requires_qes` je teď unifikovaný flag „Je vyžadováno ověření podpisu
+    # školitele a školených zaměstnanců". Když False → žádné podpisy autora,
+    # žádné OZO schvalování, žádné podpisy zaměstnanců. Když True → spustí se
+    # plný flow:
+    # - Pokud je autor OZO → status='active', autor podepíše obsah (FE).
+    # - Pokud je autor non-OZO → automaticky requires_ozo_approval=True,
+    #   status='pending_approval' (autor podepíše obsah, OZO schválí podpisem).
+    # API endpoint odpovídá za to, že předá `requires_ozo_approval` v souladu
+    # s autorovou rolí (UI to už nezadává, viz frontend).
+    requires_qes = bool(data.requires_qes)
+    requires_approval = bool(data.requires_ozo_approval) if requires_qes else False
+    initial_status = "pending_approval" if requires_approval else "active"
 
     training = Training(
         tenant_id=tenant_id,
@@ -104,11 +111,11 @@ async def create_training(
         notes=data.notes,
         outline_text=data.outline_text,
         duration_hours=data.duration_hours,
-        requires_qes=data.requires_qes,
+        requires_qes=requires_qes,
         knowledge_test_required=data.knowledge_test_required,
         created_by=created_by,
         status=initial_status,
-        requires_ozo_approval=data.requires_ozo_approval,
+        requires_ozo_approval=requires_approval,
     )
     db.add(training)
     await db.flush()
@@ -134,6 +141,19 @@ async def update_training(
     for k, v in fields.items():
         setattr(training, k, v)
 
+    # Synchronizace unifikovaného flagu requires_qes → requires_ozo_approval.
+    # Když se vypne requires_qes, vyčistí se i pending approval state — žádné
+    # podpisy nejsou potřeba (viz "prezenční listina bez dokazování hash").
+    if "requires_qes" in fields:
+        if not training.requires_qes:
+            training.requires_ozo_approval = False
+            training.author_signature_id = None
+            training.ozo_approval_signature_id = None
+            training.approved_at = None
+            training.approved_by_user_id = None
+            if training.status == "pending_approval":
+                training.status = "active"
+
     # Pokud se změnilo valid_months, propsat do existujících completed
     # assignments — přepočítat valid_until.
     if (
@@ -143,8 +163,9 @@ async def update_training(
     ):
         await _recompute_valid_until_for_training(db, training)
 
-    # Pokud se změnil obsah, invaliduj podpisy a (případně) reset approval.
-    if content_changed:
+    # Pokud se změnil obsah, invaliduj podpisy — ale jen když je requires_qes
+    # zapnuté. Bez něj žádné podpisy neevidujeme.
+    if content_changed and training.requires_qes:
         training.author_signature_id = None
         if training.requires_ozo_approval:
             training.status = "pending_approval"

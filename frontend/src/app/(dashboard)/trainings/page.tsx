@@ -126,12 +126,11 @@ const trainingSchema = z.object({
   notes: z.string().optional(),
   outline_text: z.string().optional(),
   duration_hours: z.coerce.number().min(0).max(999).optional().or(z.literal("")),
+  // Unifikovaný flag (#105): zaškrtnuto = plný signature flow (autor +
+  // OZO schválení + zaměstnanec ověřený podpis). Backend si dopočítá
+  // `requires_ozo_approval` z role autora. Klient ho už neposílá samostatně.
   requires_qes: z.boolean().optional(),
   knowledge_test_required: z.boolean().optional(),
-  // Approval workflow (#105). HR manager / lead_worker zaškrtne →
-  // school se vytvoří jako pending_approval a nelze přiřadit zaměstnancům
-  // dokud OZO nenahlédne a nepodepíše.
-  requires_ozo_approval: z.boolean().optional(),
 });
 
 type TrainingFormData = z.infer<typeof trainingSchema>;
@@ -274,7 +273,7 @@ function AdminView() {
                           <span className="rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 text-xs font-medium">
                             Archiv
                           </span>
-                        ) : !t.author_signature_id ? (
+                        ) : t.requires_qes && !t.author_signature_id ? (
                           <span
                             className="rounded-full bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 text-xs font-medium"
                             title="Aktivní, ale autor obsahu nepodepsal"
@@ -289,7 +288,7 @@ function AdminView() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center justify-end gap-1">
-                          {t.status === "pending_approval" && authorIsOzo && (
+                          {t.requires_qes && t.status === "pending_approval" && authorIsOzo && (
                             <button
                               onClick={() => setSignContent({ training: t, mode: "approve" })}
                               className="rounded-md border border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 px-2 py-1 text-xs font-medium"
@@ -298,7 +297,7 @@ function AdminView() {
                               Schválit
                             </button>
                           )}
-                          {t.status === "active" && !t.author_signature_id && (
+                          {t.requires_qes && t.status === "active" && !t.author_signature_id && (
                             <button
                               onClick={() => setSignContent({ training: t, mode: "author" })}
                               className="rounded-md border border-blue-300 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 px-2 py-1 text-xs font-medium"
@@ -806,42 +805,31 @@ function TrainingForm({
         />
       </div>
 
-      <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+      {/* Sjednocený flag #105: zaškrtnuto = plný flow ověřených podpisů
+          (autor + OZO schválení + zaměstnanec při dokončení testu, vše s
+          hash chainem). Nezaškrtnuto = jen prezenční listina, žádné podpisy.
+          Backend (create_training endpoint) automaticky doplní
+          requires_ozo_approval podle role autora. */}
+      <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-3 py-2">
         <Label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
             {...register("requires_qes")}
             className="rounded border-gray-300"
           />
-          <span className="text-sm font-medium text-amber-900">
-            Vyžadovat ZES (kvalifikovaný el. podpis)
+          <span className="text-sm font-medium text-amber-900 dark:text-amber-100">
+            Je vyžadováno ověření podpisu školitele a školených zaměstnanců
           </span>
         </Label>
-        <p className="text-xs text-amber-700 mt-1 ml-6">
-          Před podpisem zaměstnanec dostane 6místný kód emailem nebo SMS. Doporučeno pro vysoce rizikové provozy.
+        <p className="text-xs text-amber-700 dark:text-amber-200 mt-1 ml-6">
+          Při zaškrtnutí: školení musí podepsat autor obsahu, schválit OZO
+          (pokud autor není OZO) a zaměstnanci se po dokončení testu ověří
+          (heslem nebo SMS kódem). Vše se zapisuje do nezměnitelného audit logu
+          s hash chainem. <br />
+          Bez zaškrtnutí: žádné ověření, neeviduje se historie ani hash —
+          stačí pouze prezenční listina.
         </p>
       </div>
-
-      {/* Approval workflow — viditelné jen pokud autor není OZO. */}
-      {!authorIsOzo && (
-        <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 px-3 py-2">
-          <Label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              {...register("requires_ozo_approval")}
-              className="rounded border-gray-300"
-            />
-            <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
-              Nechat schválit OZO
-            </span>
-          </Label>
-          <p className="text-xs text-blue-700 dark:text-blue-200 mt-1 ml-6">
-            Pokud zaškrtnete, školení se uloží ve stavu &bdquo;Čeká na schválení&ldquo;
-            a nelze ho přiřadit zaměstnancům dokud OZO nenahlédne obsah a
-            digitálně ho nepodepíše.
-          </p>
-        </div>
-      )}
 
       <div className="space-y-1.5">
         <Label htmlFor="notes">Interní poznámky</Label>
@@ -1467,13 +1455,18 @@ function TrainingRunFlow({
   const [step, setStep] = useState<RunStep>("info");
   const invalidate = () => qc.invalidateQueries({ queryKey: ["my-assignments"] });
 
+  // Sjednocený flag (#105): pokud školení nevyžaduje ověřený podpis,
+  // přeskakujeme krok 'sign' a rovnou jdeme do 'result' — stačí prezenční
+  // listina v assignment.last_completed_at.
+  const requiresSignature = !!assignment.training_requires_qes;
+  const stepAfterCompletion: RunStep = requiresSignature ? "sign" : "result";
+
   const markReadMutation = useMutation({
     mutationFn: () =>
       api.post<TrainingAssignment>(`/trainings/assignments/${assignment.id}/mark-read`),
     onSuccess: () => {
       invalidate();
-      // Po mark-read přechod na podpis (povinný pro platnost školení)
-      setStep("sign");
+      setStep(stepAfterCompletion);
     },
     onError: (err) => {
       // Training má test → přepneme do testu
@@ -1579,8 +1572,8 @@ function TrainingRunFlow({
         assignmentId={assignment.id}
         onDone={() => {
           invalidate();
-          // Po úspěšném testu povinný podpis
-          setStep("sign");
+          // Po úspěšném testu — buď podpis (when requires_qes) nebo rovnou výsledek.
+          setStep(stepAfterCompletion);
         }}
         onCancel={() => setStep("info")}
       />
