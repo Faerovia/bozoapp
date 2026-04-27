@@ -10,6 +10,7 @@ Endpointy:
 Všechny endpointy vyžadují `require_platform_admin()`. Platform admin bypass
 RLS je nastaven v `get_current_user` automaticky pro users s flag.
 """
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -23,6 +24,7 @@ from app.core.database import get_db
 from app.core.permissions import require_platform_admin
 from app.core.rate_limit import limiter  # noqa: F401  — pro budoucí dekorátory
 from app.core.security import create_access_token
+from app.core.tenant_subdomain import RESERVED_SUBDOMAINS, invalidate_cache
 from app.models.employee import Employee
 from app.models.tenant import Tenant
 from app.models.training import TrainingAssignment
@@ -164,12 +166,6 @@ async def admin_update_tenant(
     old_slug = tenant.slug
     new_slug = update_fields.get("slug")
     if new_slug is not None and new_slug != old_slug:
-        import re
-        from app.core.tenant_subdomain import (
-            RESERVED_SUBDOMAINS,
-            invalidate_cache,
-        )
-
         normalized = new_slug.strip().lower()
         if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", normalized):
             raise HTTPException(

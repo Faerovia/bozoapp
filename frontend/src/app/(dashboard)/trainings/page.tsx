@@ -920,7 +920,7 @@ function EditTrainingBody({
           trainer_kind: training.trainer_kind,
           valid_months: training.valid_months,
           notes: training.notes ?? "",
-          requires_ozo_approval: training.requires_ozo_approval,
+          requires_qes: training.requires_qes,
         }}
         onSubmit={onSubmit}
         isSubmitting={isSubmitting}
