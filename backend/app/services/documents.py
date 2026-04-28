@@ -829,6 +829,399 @@ Vrať čistý Markdown, začni nadpisem `# Osnova školení BOZP — …`."""
     return title, content, response.usage.input_tokens, response.usage.output_tokens
 
 
+# ── Generator: Hodnocení rizik (per scope, batch-friendly) ──────────────────
+
+
+_RA_LEVEL_LABEL = {
+    "low": "Nízká",
+    "medium": "Střední",
+    "high": "Vysoká",
+    "critical": "Kritická",
+}
+
+_RA_STATUS_LABEL = {
+    "draft": "Návrh",
+    "open": "Otevřené",
+    "in_progress": "Řešeno",
+    "mitigated": "Zmírněno",
+    "accepted": "Akceptováno",
+    "archived": "Archivováno",
+}
+
+_CONTROL_TYPE_LABEL = {
+    "elimination": "Eliminace",
+    "substitution": "Substituce",
+    "engineering": "Inženýrské opatření",
+    "administrative": "Administrativní opatření",
+    "ppe": "OOPP",
+}
+
+_MEASURE_STATUS_LABEL = {
+    "planned": "Plánováno",
+    "in_progress": "Probíhá",
+    "done": "Hotovo",
+    "cancelled": "Zrušeno",
+}
+
+
+async def _gen_risk_assessment_for_scope(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    *,
+    scope_type: str,
+    scope_id: uuid.UUID,
+) -> tuple[str, str] | None:
+    """Vygeneruje markdown dokument se souhrnem všech aktivních RA pro daný
+    scope (position/workplace/plant). Vrátí (title, content_md) nebo None
+    pokud pro scope neexistuje žádná RA.
+    """
+    from app.models.oopp import OOPP_RISK_COLUMN_LABELS as RA_OOPP_LABELS
+    from app.models.risk_assessment import RiskAssessment, RiskMeasure
+
+    if scope_type not in ("position", "workplace", "plant"):
+        raise ValueError(f"Neplatný scope_type: {scope_type}")
+
+    # Resolve název scope (pro title + heading)
+    scope_label = "—"
+    parent_label = ""
+    if scope_type == "position":
+        pos = (await db.execute(
+            select(JobPosition).where(
+                JobPosition.id == scope_id,
+                JobPosition.tenant_id == tenant_id,
+            ),
+        )).scalar_one_or_none()
+        if pos is None:
+            return None
+        scope_label = pos.name
+        wp = (await db.execute(
+            select(Workplace, Plant)
+            .join(Plant, Workplace.plant_id == Plant.id)
+            .where(Workplace.id == pos.workplace_id),
+        )).first()
+        if wp is not None:
+            parent_label = f"{wp[1].name} → {wp[0].name}"
+    elif scope_type == "workplace":
+        wp_row = (await db.execute(
+            select(Workplace, Plant)
+            .join(Plant, Workplace.plant_id == Plant.id)
+            .where(
+                Workplace.id == scope_id,
+                Workplace.tenant_id == tenant_id,
+            ),
+        )).first()
+        if wp_row is None:
+            return None
+        scope_label = wp_row[0].name
+        parent_label = wp_row[1].name
+    else:  # plant
+        plant = (await db.execute(
+            select(Plant).where(
+                Plant.id == scope_id,
+                Plant.tenant_id == tenant_id,
+            ),
+        )).scalar_one_or_none()
+        if plant is None:
+            return None
+        scope_label = plant.name
+
+    # Načíst všechny aktivní RA pro daný scope
+    ra_query = (
+        select(RiskAssessment)
+        .where(
+            RiskAssessment.tenant_id == tenant_id,
+            RiskAssessment.scope_type == scope_type,
+            RiskAssessment.status != "archived",
+        )
+        .order_by(RiskAssessment.created_at)
+    )
+    if scope_type == "position":
+        ra_query = ra_query.where(RiskAssessment.job_position_id == scope_id)
+    elif scope_type == "workplace":
+        ra_query = ra_query.where(RiskAssessment.workplace_id == scope_id)
+    else:
+        ra_query = ra_query.where(RiskAssessment.plant_id == scope_id)
+
+    ras = list((await db.execute(ra_query)).scalars().all())
+    if not ras:
+        return None
+
+    tenant = await _get_tenant(db, tenant_id)
+    today = datetime.now(UTC).date().strftime("%d. %m. %Y")
+
+    title = f"Hodnocení rizik — {scope_label}"
+
+    md: list[str] = [
+        f"# Hodnocení rizik — {scope_label}",
+        "",
+        f"**{tenant.name}**",
+        "",
+    ]
+    if parent_label:
+        md.append(f"Lokalita: *{parent_label}*")
+        md.append("")
+    md.extend([
+        f"Datum vystavení: {today}",
+        f"Počet hodnocených rizik: **{len(ras)}**",
+        "",
+        "---",
+        "",
+    ])
+
+    # Souhrnná tabulka
+    md.append("## Přehled rizik")
+    md.append("")
+    summary_rows: list[list[str]] = []
+    for ra in ras:
+        risk_label = ""
+        if ra.oopp_risk_column is not None:
+            risk_label = (
+                f"{ra.oopp_risk_column}. "
+                f"{RA_OOPP_LABELS.get(ra.oopp_risk_column, '')}"
+            )
+        else:
+            risk_label = ra.hazard_category or "—"
+        summary_rows.append([
+            risk_label,
+            ra.hazard_description[:60] + ("…" if len(ra.hazard_description) > 60 else ""),
+            f"{ra.initial_probability}×{ra.initial_severity}={ra.initial_score or '—'}",
+            _RA_LEVEL_LABEL.get(ra.initial_level or "", ra.initial_level or "—"),
+            _RA_LEVEL_LABEL.get(ra.residual_level or "", ra.residual_level or "—"),
+            _RA_STATUS_LABEL.get(ra.status, ra.status),
+        ])
+    md.append(_md_table(
+        ["Riziko", "Popis", "P×S", "Vstupní úroveň", "Reziduální", "Stav"],
+        summary_rows,
+    ))
+    md.append("")
+    md.append("---")
+    md.append("")
+
+    # Detail každé RA + opatření
+    md.append("## Detail jednotlivých rizik")
+    md.append("")
+
+    for idx, ra in enumerate(ras, start=1):
+        risk_label = (
+            f"{ra.oopp_risk_column}. {RA_OOPP_LABELS.get(ra.oopp_risk_column, '')}"
+            if ra.oopp_risk_column is not None
+            else ra.hazard_category or "—"
+        )
+        md.append(f"### {idx}. {risk_label}")
+        md.append("")
+        md.append(f"**Popis nebezpečí:** {ra.hazard_description}")
+        md.append("")
+        md.append(f"**Důsledky:** {ra.consequence_description}")
+        md.append("")
+
+        detail_rows: list[list[str]] = []
+        detail_rows.append([
+            "Pravděpodobnost / závažnost (vstupní)",
+            f"{ra.initial_probability} × {ra.initial_severity} = "
+            f"**{ra.initial_score or '—'}** ({_RA_LEVEL_LABEL.get(ra.initial_level or '', '—')})",
+        ])
+        if ra.residual_probability is not None and ra.residual_severity is not None:
+            detail_rows.append([
+                "Pravděpodobnost / závažnost (reziduální)",
+                f"{ra.residual_probability} × {ra.residual_severity} = "
+                f"**{ra.residual_score or '—'}** "
+                f"({_RA_LEVEL_LABEL.get(ra.residual_level or '', '—')})",
+            ])
+        if ra.exposed_persons is not None:
+            detail_rows.append(["Počet exponovaných osob", str(ra.exposed_persons)])
+        if ra.exposure_frequency:
+            detail_rows.append(["Frekvence expozice", ra.exposure_frequency])
+        if ra.existing_controls:
+            detail_rows.append(["Stávající opatření", ra.existing_controls])
+        if ra.existing_oopp:
+            detail_rows.append(["Stávající OOPP", ra.existing_oopp])
+        detail_rows.append(["Stav hodnocení", _RA_STATUS_LABEL.get(ra.status, ra.status)])
+        if ra.review_due_date:
+            detail_rows.append([
+                "Termín revize",
+                ra.review_due_date.strftime("%d. %m. %Y"),
+            ])
+
+        md.append(_md_table(["Atribut", "Hodnota"], detail_rows))
+        md.append("")
+
+        # Opatření per RA
+        measures = list((await db.execute(
+            select(RiskMeasure).where(
+                RiskMeasure.tenant_id == tenant_id,
+                RiskMeasure.risk_assessment_id == ra.id,
+            ).order_by(RiskMeasure.order_index, RiskMeasure.created_at),
+        )).scalars().all())
+
+        if measures:
+            md.append("**Opatření:**")
+            md.append("")
+            measure_rows: list[list[str]] = []
+            for m in measures:
+                measure_rows.append([
+                    _CONTROL_TYPE_LABEL.get(m.control_type, m.control_type),
+                    m.description,
+                    m.deadline.strftime("%d. %m. %Y") if m.deadline else "—",
+                    _MEASURE_STATUS_LABEL.get(m.status, m.status),
+                ])
+            md.append(_md_table(
+                ["Typ", "Popis", "Termín", "Stav"],
+                measure_rows,
+            ))
+            md.append("")
+        else:
+            md.append("*Bez navrhovaných opatření.*")
+            md.append("")
+
+        md.append("")
+
+    # Patička
+    md.append("---")
+    md.append("")
+    md.append(
+        "*Dokument vygenerován z evidence hodnocení rizik (ČSN ISO 45001, "
+        "Zákoník práce §102). Závazná verze je v aplikaci, tento export "
+        "slouží pro tisk a předání auditorovi.*",
+    )
+
+    return title, "\n".join(md)
+
+
+async def generate_risk_assessment_batch(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    *,
+    created_by: uuid.UUID,
+    folder_id: uuid.UUID | None = None,  # noqa: ARG001 — auto-routing přebíjí
+    scope_filter: str | None = None,
+) -> list[GeneratedDocument]:
+    """Vygeneruje sérii dokumentů 'Hodnocení rizik' — jeden per unique scope
+    (pozice/pracoviště/provozovna) v tenant, kde existuje aspoň 1 aktivní RA.
+
+    Auto-routing dokumentů do složek (doména `bozp`):
+      - root složka 'Rizika' (kořenová úroveň) — auto-vytvořena pokud chybí
+      - pod-složky s názvem konkrétního pracoviště — auto-vytvořeny per workplace
+      - dokument scope=position  → složka pracoviště, ke kterému pozice patří
+      - dokument scope=workplace → složka pracoviště
+      - dokument scope=plant     → root složka 'Rizika' (bez pod-složky)
+
+    scope_filter: omezí generování pouze na daný scope_type
+    ('position'|'workplace'|'plant'). Pokud None, generují se všechny tři.
+
+    Parameter `folder_id` je ignorován — auto-routing určuje umístění.
+    """
+    from app.models.risk_assessment import RiskAssessment
+    from app.services.document_folders import find_or_create_folder
+
+    valid_scopes = ("position", "workplace", "plant")
+    scopes_to_process = [scope_filter] if scope_filter else list(valid_scopes)
+    for s in scopes_to_process:
+        if s not in valid_scopes:
+            raise ValueError(f"Neplatný scope_filter: {s}")
+
+    # Auto-vytvořit / najít root složku "Rizika" v doméně bozp
+    rizika_root = await find_or_create_folder(
+        db, tenant_id, created_by,
+        name="Rizika", domain="bozp", parent_id=None,
+    )
+
+    # Cache pod-složek per workplace_id, ať nezakládáme duplicity
+    workplace_folder_cache: dict[uuid.UUID, uuid.UUID] = {}
+
+    async def _resolve_target_folder_id(
+        scope_type: str, scope_id: uuid.UUID,
+    ) -> uuid.UUID:
+        """Pro daný RA scope vrátí ID cílové složky (auto-vytvořené)."""
+        # Resolve workplace_id z scope
+        workplace_id: uuid.UUID | None = None
+        if scope_type == "position":
+            pos = (await db.execute(
+                select(JobPosition).where(
+                    JobPosition.id == scope_id,
+                    JobPosition.tenant_id == tenant_id,
+                ),
+            )).scalar_one_or_none()
+            if pos is not None:
+                workplace_id = pos.workplace_id
+        elif scope_type == "workplace":
+            workplace_id = scope_id
+
+        # scope=plant nebo workplace nelze resolvit → root "Rizika"
+        if workplace_id is None:
+            return rizika_root.id
+
+        # Cache hit?
+        if workplace_id in workplace_folder_cache:
+            return workplace_folder_cache[workplace_id]
+
+        wp = (await db.execute(
+            select(Workplace).where(
+                Workplace.id == workplace_id,
+                Workplace.tenant_id == tenant_id,
+            ),
+        )).scalar_one_or_none()
+        wp_name = wp.name if wp else "Neznámé pracoviště"
+
+        subfolder = await find_or_create_folder(
+            db, tenant_id, created_by,
+            name=wp_name, domain="bozp", parent_id=rizika_root.id,
+        )
+        workplace_folder_cache[workplace_id] = subfolder.id
+        return subfolder.id
+
+    # Najdi unique scope_id per scope_type kde existuje aspoň 1 aktivní RA
+    docs: list[GeneratedDocument] = []
+    for scope_type in scopes_to_process:
+        fk_col = {
+            "position": RiskAssessment.job_position_id,
+            "workplace": RiskAssessment.workplace_id,
+            "plant": RiskAssessment.plant_id,
+        }[scope_type]
+
+        ids_res = await db.execute(
+            select(fk_col)
+            .where(
+                RiskAssessment.tenant_id == tenant_id,
+                RiskAssessment.scope_type == scope_type,
+                RiskAssessment.status != "archived",
+                fk_col.is_not(None),
+            )
+            .distinct(),
+        )
+        scope_ids = [row[0] for row in ids_res.all() if row[0] is not None]
+
+        for scope_id in scope_ids:
+            result = await _gen_risk_assessment_for_scope(
+                db, tenant_id, scope_type=scope_type, scope_id=scope_id,
+            )
+            if result is None:
+                continue
+            title, content = result
+
+            target_folder_id = await _resolve_target_folder_id(scope_type, scope_id)
+
+            doc = GeneratedDocument(
+                tenant_id=tenant_id,
+                document_type="risk_assessment",
+                folder_id=target_folder_id,
+                title=title,
+                content_md=content,
+                params={
+                    "scope_type": scope_type,
+                    "scope_id": str(scope_id),
+                    "generated_at": datetime.now(UTC).isoformat(),
+                },
+                ai_input_tokens=None,
+                ai_output_tokens=None,
+                created_by=created_by,
+            )
+            db.add(doc)
+            docs.append(doc)
+
+    await db.flush()
+    return docs
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 

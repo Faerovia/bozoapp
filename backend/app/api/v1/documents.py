@@ -17,10 +17,13 @@ from app.schemas.documents import (
     DocumentResponse,
     DocumentUpdateRequest,
     GenerateDocumentRequest,
+    GenerateRiskAssessmentBatchRequest,
+    GenerateRiskAssessmentBatchResponse,
 )
 from app.services.document_pdf import render_document_pdf
 from app.services.documents import (
     generate_document,
+    generate_risk_assessment_batch,
     get_document_by_id,
     list_documents,
     update_document,
@@ -76,6 +79,37 @@ async def generate_document_endpoint(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
         ) from e
     return doc
+
+
+@router.post(
+    "/documents/generate/risk-assessments-batch",
+    response_model=GenerateRiskAssessmentBatchResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_risk_assessment_batch_endpoint(
+    data: GenerateRiskAssessmentBatchRequest,
+    current_user: User = Depends(require_role("ozo", "hr_manager")),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Vytvoří sérii dokumentů 'Hodnocení rizik' — jeden per pozice/pracoviště/
+    provozovna, kde existuje aspoň 1 aktivní hodnocení rizik.
+
+    Title formát: 'Hodnocení rizik — <název pozice/pracoviště/provozovny>'.
+    Obsah: souhrn všech RA pro daný scope (P×S, opatření, residual, status).
+    """
+    try:
+        docs = await generate_risk_assessment_batch(
+            db,
+            tenant_id=current_user.tenant_id,
+            created_by=current_user.id,
+            folder_id=data.folder_id,
+            scope_filter=data.scope_filter,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
+        ) from e
+    return {"created_count": len(docs), "documents": docs}
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentResponse)

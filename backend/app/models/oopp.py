@@ -83,6 +83,11 @@ RISK_COLUMNS: list[tuple[int, str, str | None, str]] = [
 VALID_BODY_PARTS = frozenset(bp[0] for bp in BODY_PARTS)
 VALID_RISK_COLS = frozenset(rc[0] for rc in RISK_COLUMNS)
 
+# Label lookup pro generátory dokumentů — sjednocený slovník
+# RA / Účaz / OOPP odkazují na tyto popisy.
+BODY_PART_LABELS: dict[str, str] = {bp[0]: bp[1] for bp in BODY_PARTS}
+OOPP_RISK_COLUMN_LABELS: dict[int, str] = {rc[0]: rc[1] for rc in RISK_COLUMNS}
+
 
 # ── Modely ──────────────────────────────────────────────────────────────────
 

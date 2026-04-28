@@ -829,6 +829,7 @@ export type DocumentType =
   | "training_outline"
   | "revision_schedule"
   | "risk_categorization"
+  | "risk_assessment"
   | "operating_log_summary"
   | "imported";
 
@@ -837,6 +838,7 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   training_outline: "Osnova školení BOZP (per pozice)",
   revision_schedule: "Harmonogram revizí",
   risk_categorization: "Kategorizace prací (RFA)",
+  risk_assessment: "Hodnocení rizik (per pozice/pracoviště)",
   operating_log_summary: "Provozní deníky — souhrn",
   imported: "Importováno",
 };
@@ -850,6 +852,10 @@ export const DOCUMENT_TYPE_DESC: Record<DocumentType, string> = {
     "Tabulkový přehled všech revizí s termíny. Bez AI — čistá data.",
   risk_categorization:
     "Tabulka kategorií prací dle NV 361/2007. Z RFA, bez AI.",
+  risk_assessment:
+    "Série dokumentů — pro každou pozici / pracoviště / provozovnu jeden "
+    + "dokument se souhrnem všech hodnocení rizik (P×S, opatření, status). "
+    + "Vytvoří se jeden dokument per scope, kde existuje aspoň 1 aktivní RA.",
   operating_log_summary:
     "Souhrn provozních deníků zařízení — kategorie, kontrolní úkony, "
     + "posledních 5 zápisů per zařízení. Pro audit SÚIP / OIP.",

@@ -137,6 +137,39 @@ async def create_folder(
     return folder
 
 
+async def find_or_create_folder(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    created_by: uuid.UUID,
+    *,
+    name: str,
+    domain: str,
+    parent_id: uuid.UUID | None = None,
+) -> DocumentFolder:
+    """Idempotentní vytvoření složky.
+
+    Hledá složku podle (tenant_id, parent_id, domain, name). Pokud existuje,
+    vrátí ji. Pokud ne, zavolá create_folder a vrátí novou.
+
+    Volá se z auto-routerů (např. batch generování 'Hodnocení rizik' do
+    `Rizika / <pracoviště>`).
+    """
+    existing = (await db.execute(
+        select(DocumentFolder).where(
+            DocumentFolder.tenant_id == tenant_id,
+            DocumentFolder.parent_id == parent_id,
+            DocumentFolder.domain == domain,
+            DocumentFolder.name == name,
+        ).limit(1),
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    return await create_folder(
+        db, tenant_id, created_by,
+        name=name, domain=domain, parent_id=parent_id,
+    )
+
+
 async def update_folder(
     db: AsyncSession,
     folder: DocumentFolder,

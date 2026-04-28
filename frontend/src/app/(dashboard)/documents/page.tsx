@@ -34,6 +34,7 @@ const TYPE_BADGES: Record<DocumentType, string> = {
   training_outline: "bg-blue-100 text-blue-700",
   revision_schedule: "bg-emerald-100 text-emerald-700",
   risk_categorization: "bg-amber-100 text-amber-700",
+  risk_assessment: "bg-rose-100 text-rose-700",
   operating_log_summary: "bg-cyan-100 text-cyan-700",
   imported: "bg-gray-100 text-gray-700",
 };
@@ -71,20 +72,44 @@ function GenerateDialog({
   });
 
   const generate = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      // Batch generování pro hodnocení rizik — vrátí list dokumentů
+      if (docType === "risk_assessment") {
+        const resp = await api.post<{
+          created_count: number;
+          documents: GeneratedDocument[];
+        }>("/documents/generate/risk-assessments-batch", {
+          folder_id: folderId,
+        });
+        return { batch: true as const, ...resp };
+      }
       const params: Record<string, unknown> = {};
       if (docType === "training_outline") params.position_id = positionId;
-      return api.post<GeneratedDocument>("/documents/generate", {
+      const doc = await api.post<GeneratedDocument>("/documents/generate", {
         document_type: docType,
         params,
         folder_id: folderId,
       });
+      return { batch: false as const, document: doc };
     },
-    onSuccess: (doc) => {
+    onSuccess: (result) => {
       setError(null);
       qc.invalidateQueries({ queryKey: ["documents"] });
       qc.invalidateQueries({ queryKey: ["document-folders"] });
-      onGenerated(doc.id);
+      if (result.batch) {
+        if (result.created_count === 0) {
+          setError(
+            "Nebyl vytvořen žádný dokument — v evidenci nejsou žádná aktivní hodnocení rizik.",
+          );
+          return;
+        }
+        // Otevřeme detail prvního z dokumentů
+        if (result.documents[0]) {
+          onGenerated(result.documents[0].id);
+        }
+      } else {
+        onGenerated(result.document.id);
+      }
     },
     onError: (err) => setError(errMsg(err)),
   });
@@ -118,6 +143,15 @@ function GenerateDialog({
             {DOCUMENT_TYPE_DESC[docType]}
           </p>
         </div>
+
+        {docType === "risk_assessment" && (
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+            Vytvoří složku <strong>Rizika</strong> a v ní pod-složky pro
+            jednotlivá pracoviště. Pro každou pozici / pracoviště s aktivním
+            hodnocením rizik se vygeneruje samostatný dokument do správné
+            pod-složky.
+          </div>
+        )}
 
         {docType === "training_outline" && (
           <div className="space-y-1.5">
