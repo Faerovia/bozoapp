@@ -732,54 +732,75 @@ async def get_revisions(
 # ── Helper pro accident integration ─────────────────────────────────────────
 
 
-async def get_or_create_for_accident(
+async def create_for_accident(
     db: AsyncSession,
     *,
     accident: AccidentReport,
     created_by: uuid.UUID,
 ) -> RiskAssessment:
-    """Vrátí existující RA pro pracoviště úrazu, jinak vytvoří draft.
+    """Vždy vytvoří **nový** placeholder RA pro daný úraz.
 
-    Volá se z accident finalize hooku — vytvoří automaticky placeholder, který
-    OZO doplní později. Action plan item odkáže na něj přes related_risk_assessment_id.
+    Každý úraz má svůj vlastní kontext (specifická situace, body_part, příčina),
+    proto se nesdružují — i když existuje aktuální RA pro stejné pracoviště,
+    nový úraz založí nové hodnocení rizik. Hodnocení rizik je neomezené dle
+    pozic/pracovišť/provozů.
+
+    Scope priorita (preferujeme position kvůli auto-toggle OOPP gridu):
+    1) position — pokud má úraz zaměstnance s přiřazenou pozicí
+    2) position — pokud má úraz workplace_id a je tam přesně 1 aktivní pozice
+    3) workplace — pokud má úraz workplace_id (víc nebo žádná pozice na něm)
+    4) activity — fallback (free text)
+
+    Volá se z accident_action.ensure_default_item, které pak default action item
+    napojí přes related_risk_assessment_id.
     """
     tenant_id = accident.tenant_id
 
-    # Pokus 1: najít existující RA pro stejné pracoviště
-    if accident.workplace_id:
-        existing = (await db.execute(
-            select(RiskAssessment).where(
-                RiskAssessment.tenant_id == tenant_id,
-                RiskAssessment.scope_type == "workplace",
-                RiskAssessment.workplace_id == accident.workplace_id,
-                RiskAssessment.status.in_(["draft", "open", "in_progress", "mitigated"]),
-            ).limit(1),
-        )).scalar_one_or_none()
-        if existing is not None:
-            existing.related_accident_report_id = accident.id
-            existing.review_due_date = accident.accident_date
-            existing.status = "in_progress"
-            existing.notes = (
-                (existing.notes or "")
-                + f"\n[Auto] Po úrazu {accident.id} ({accident.accident_date}) vyžadována revize."
-            )
-            existing.updated_at = datetime.now(UTC)
-            await db.flush()
-            await _create_revision_snapshot(
-                db, existing, revised_by_user_id=created_by,
-                change_reason=f"Po úrazu {accident.id} vyžadována revize",
-            )
-            return existing
+    scope_type: str = "activity"
+    workplace_id: uuid.UUID | None = None
+    job_position_id: uuid.UUID | None = None
 
-    # Pokus 2: vytvořit draft placeholder
+    # 1) Zaměstnanec s pozicí
+    if accident.employee_id is not None:
+        emp = (await db.execute(
+            select(Employee).where(
+                Employee.id == accident.employee_id,
+                Employee.tenant_id == tenant_id,
+            ),
+        )).scalar_one_or_none()
+        if emp is not None and emp.job_position_id is not None:
+            scope_type = "position"
+            job_position_id = emp.job_position_id
+            workplace_id = accident.workplace_id
+
+    # 2) Pracoviště s právě 1 aktivní pozicí
+    if scope_type == "activity" and accident.workplace_id is not None:
+        positions = (await db.execute(
+            select(JobPosition).where(
+                JobPosition.tenant_id == tenant_id,
+                JobPosition.workplace_id == accident.workplace_id,
+                JobPosition.status == "active",
+            ),
+        )).scalars().all()
+        if len(positions) == 1:
+            scope_type = "position"
+            job_position_id = positions[0].id
+            workplace_id = accident.workplace_id
+
+    # 3) Fallback workplace (víc/žádná pozice)
+    if scope_type == "activity" and accident.workplace_id is not None:
+        scope_type = "workplace"
+        workplace_id = accident.workplace_id
+
     workplace_label = accident.workplace or "neuvedené pracoviště"
     placeholder = RiskAssessment(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
-        scope_type="workplace" if accident.workplace_id else "activity",
-        workplace_id=accident.workplace_id,
+        scope_type=scope_type,
+        workplace_id=workplace_id,
+        job_position_id=job_position_id,
         activity_description=(
-            None if accident.workplace_id else f"Pracovní úraz: {workplace_label}"
+            f"Pracovní úraz: {workplace_label}" if scope_type == "activity" else None
         ),
         hazard_category="other",
         hazard_description=(
@@ -793,6 +814,7 @@ async def get_or_create_for_accident(
         initial_level=score_to_level(9),
         status="draft",
         related_accident_report_id=accident.id,
+        review_due_date=accident.accident_date,
         notes=(
             f"Auto-vytvořeno po úrazu {accident.id} ({accident.accident_date}). "
             "OZO musí doplnit detaily."
@@ -806,6 +828,10 @@ async def get_or_create_for_accident(
         change_reason=f"Auto-vytvořeno po úrazu {accident.id}",
     )
     return placeholder
+
+
+# Backward-compat alias — staré jméno se může vyskytovat v importech
+get_or_create_for_accident = create_for_accident
 
 
 # Backward-compat: pomocná fce pro frontend co serializuje JSON
