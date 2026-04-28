@@ -57,7 +57,12 @@ class AccidentReport(Base, TimestampMixin):
 
     # Charakter zranění
     injury_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    # injured_body_part = popisové pole "Detail zranění" (např. "levé předloktí, dorzální strana")
     injured_body_part: Mapped[str] = mapped_column(String(255), nullable=False)
+    # injured_body_part_code = standardizovaný kód A..N dle NV 390/2021 Příloha 2.
+    # Pro nové úrazy povinné na úrovni Pydantic schématu, v DB nullable kvůli
+    # historickým záznamům před migrací 067.
+    injured_body_part_code: Mapped[str | None] = mapped_column(String(1))
     injury_source: Mapped[str] = mapped_column(String(255), nullable=False)
     injury_cause: Mapped[str] = mapped_column(Text, nullable=False)
     injured_count: Mapped[int] = mapped_column(SmallInteger, default=1, nullable=False)

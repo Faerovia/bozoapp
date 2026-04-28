@@ -46,6 +46,7 @@ def _ra_payload(**overrides) -> dict:
         "scope_type": "activity",
         "activity_description": "Práce ve výšce",
         "hazard_category": "working_at_height",
+        "oopp_risk_column": 3,  # "Pády z výšky" dle NV 390/2021
         "hazard_description": "Pád z výšky při čištění oken",
         "consequence_description": "Zlomení končetin",
         "initial_probability": 3,
@@ -288,6 +289,7 @@ _ACCIDENT_PAYLOAD = {
     "shift_start_time": "06:00:00",
     "injury_type": "Zlomenina",
     "injured_body_part": "Levé předloktí",
+    "injured_body_part_code": "H",  # paže (části)
     "injury_source": "Padající předmět",
     "injury_cause": "Špatně zajištěný materiál na regálu",
     "injured_count": 1,
@@ -401,3 +403,169 @@ async def test_filter_by_status_and_level(client: AsyncClient) -> None:
     )
     assert len(critical.json()) == 1
     assert critical.json()[0]["initial_score"] == 25
+
+
+@pytest.mark.asyncio
+async def test_ppe_measure_auto_toggles_oopp_grid(client: AsyncClient) -> None:
+    """End-to-end flow: úraz → RA → PPE measure → auto-zaškrtnutí v OOPP gridu.
+
+    1) Vytvořit pracoviště + pozici + zaměstnance
+    2) Vytvořit úraz s injured_body_part_code='H' (paže)
+    3) Default action item odkazuje na placeholder RA
+    4) Aktualizovat RA s oopp_risk_column=3 (Pády z výšky)
+    5) Přidat measure control_type='ppe'
+    6) Zkontrolovat OOPP grid pozice — měl by obsahovat (H, 3)
+    """
+    headers = await _ozo_headers(client, "13")
+
+    # 1) Pracoviště + pozice
+    plant_resp = await client.post(
+        "/api/v1/plants", json={"name": "Provozovna 1"}, headers=headers,
+    )
+    plant_id = plant_resp.json()["id"]
+    wp_resp = await client.post(
+        "/api/v1/workplaces",
+        json={"plant_id": plant_id, "name": "Hala A"},
+        headers=headers,
+    )
+    wp_id = wp_resp.json()["id"]
+    pos_resp = await client.post(
+        "/api/v1/job-positions",
+        json={"workplace_id": wp_id, "name": "Skladník"},
+        headers=headers,
+    )
+    pos_id = pos_resp.json()["id"]
+
+    # 2) Zaměstnanec na pozici
+    emp_resp = await client.post(
+        "/api/v1/employees",
+        json={
+            "first_name": "Jan",
+            "last_name": "Novák",
+            "personal_id": "9001011234",
+            "personal_number": "EMP001",
+            "employment_type": "hpp",
+            "job_position_id": pos_id,
+            "workplace_id": wp_id,
+        },
+        headers=headers,
+    )
+    assert emp_resp.status_code in (200, 201), emp_resp.text
+    emp_id = emp_resp.json()["id"]
+
+    # 3) Úraz s body_part_code='H'
+    accident_payload = {
+        **_ACCIDENT_PAYLOAD,
+        "employee_id": emp_id,
+        "workplace_id": wp_id,
+        "injured_body_part_code": "H",
+    }
+    accident_resp = await client.post(
+        "/api/v1/accident-reports", json=accident_payload, headers=headers,
+    )
+    assert accident_resp.status_code == 201, accident_resp.text
+    accident_id = accident_resp.json()["id"]
+
+    # Zjisti RA z action plánu
+    items_resp = await client.get(
+        f"/api/v1/accident-reports/{accident_id}/action-items", headers=headers,
+    )
+    default_item = next(i for i in items_resp.json() if i.get("is_default"))
+    ra_id = default_item["related_risk_assessment_id"]
+    assert ra_id is not None
+
+    # 4) OZO doplní RA — nastaví oopp_risk_column=3 (Pády z výšky)
+    patch_resp = await client.patch(
+        f"/api/v1/risk-assessments/{ra_id}",
+        json={"oopp_risk_column": 3, "change_reason": "OZO doplnil sloupec OOPP"},
+        headers=headers,
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+
+    # 5) Přidat PPE measure
+    measure_resp = await client.post(
+        f"/api/v1/risk-assessments/{ra_id}/measures",
+        json={
+            "risk_assessment_id": ra_id,
+            "control_type": "ppe",
+            "description": "Helma + úvazek",
+            "status": "planned",
+        },
+        headers=headers,
+    )
+    assert measure_resp.status_code == 201, measure_resp.text
+
+    # 6) OOPP grid pro pozici musí obsahovat (H, 3)
+    grid_resp = await client.get(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid", headers=headers,
+    )
+    assert grid_resp.status_code == 200, grid_resp.text
+    grid = grid_resp.json().get("grid", {})
+    assert "H" in grid, f"Body part 'H' nenalezena v gridu: {grid}"
+    assert 3 in grid["H"], f"Risk col 3 nenalezen v grid['H']: {grid['H']}"
+
+
+@pytest.mark.asyncio
+async def test_ppe_measure_grid_idempotent(client: AsyncClient) -> None:
+    """Druhé volání create_measure pro stejný (body_part, risk_col) nesmí
+    duplikovat políčko v gridu."""
+    headers = await _ozo_headers(client, "14")
+
+    # Setup pracoviště/pozice/zaměstnanec — zkrácená varianta předchozího testu
+    plant_id = (await client.post(
+        "/api/v1/plants", json={"name": "P14"}, headers=headers,
+    )).json()["id"]
+    wp_id = (await client.post(
+        "/api/v1/workplaces",
+        json={"plant_id": plant_id, "name": "WP14"}, headers=headers,
+    )).json()["id"]
+    pos_id = (await client.post(
+        "/api/v1/job-positions",
+        json={"workplace_id": wp_id, "name": "Pos14"}, headers=headers,
+    )).json()["id"]
+    emp_id = (await client.post(
+        "/api/v1/employees",
+        json={
+            "first_name": "Test", "last_name": "T14",
+            "personal_id": "9001011234", "personal_number": "T14",
+            "employment_type": "hpp",
+            "job_position_id": pos_id, "workplace_id": wp_id,
+        },
+        headers=headers,
+    )).json()["id"]
+
+    accident_id = (await client.post(
+        "/api/v1/accident-reports",
+        json={**_ACCIDENT_PAYLOAD, "employee_id": emp_id, "workplace_id": wp_id,
+              "injured_body_part_code": "G"},
+        headers=headers,
+    )).json()["id"]
+    items = (await client.get(
+        f"/api/v1/accident-reports/{accident_id}/action-items", headers=headers,
+    )).json()
+    ra_id = next(i for i in items if i.get("is_default"))["related_risk_assessment_id"]
+
+    await client.patch(
+        f"/api/v1/risk-assessments/{ra_id}",
+        json={"oopp_risk_column": 6, "change_reason": "doplnit"},
+        headers=headers,
+    )
+
+    # 2× PPE measure
+    for _ in range(2):
+        await client.post(
+            f"/api/v1/risk-assessments/{ra_id}/measures",
+            json={
+                "risk_assessment_id": ra_id,
+                "control_type": "ppe",
+                "description": "Rukavice",
+                "status": "planned",
+            },
+            headers=headers,
+        )
+
+    grid = (await client.get(
+        f"/api/v1/job-positions/{pos_id}/oopp-grid", headers=headers,
+    )).json().get("grid", {})
+    # Bez duplicit: G obsahuje 6 právě jednou
+    assert grid.get("G", []).count(6) == 1

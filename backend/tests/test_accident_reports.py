@@ -48,6 +48,7 @@ def _report_payload(**overrides) -> dict:
         "shift_start_time": "06:00:00",
         "injury_type": "Zlomenina",
         "injured_body_part": "Levé předloktí",
+        "injured_body_part_code": "H",
         "injury_source": "Padající předmět",
         "injury_cause": "Špatně zajištěný materiál na regálu",
         "injured_count": 1,

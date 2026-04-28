@@ -260,6 +260,7 @@ async def create_accident_report(
         shift_start_time=data.shift_start_time,
         injury_type=data.injury_type,
         injured_body_part=data.injured_body_part,
+        injured_body_part_code=data.injured_body_part_code,
         injury_source=data.injury_source,
         injury_cause=data.injury_cause,
         injured_count=data.injured_count,

@@ -12,7 +12,8 @@ import { MultiSignerPanel } from "@/components/signature/multi-signer-panel";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
-import type { AccidentReport, Employee, Workplace } from "@/types/api";
+import type { AccidentReport, Employee, Workplace, BodyPartCode } from "@/types/api";
+import { BODY_PARTS } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,7 +65,10 @@ const schema = z.object({
 
   // Charakter zranění
   injury_type:           z.string().min(1, "Druh zranění je povinný").max(255),
-  injured_body_part:     z.string().min(1, "Zraněná část těla je povinná").max(255),
+  injured_body_part_code: z.enum(["A","B","C","D","E","F","G","H","I","J","K","L","M","N"], {
+    required_error: "Vyber část těla dle OOPP gridu",
+  }),
+  injured_body_part:     z.string().min(1, "Detail zranění je povinný").max(255),
   injury_source:         z.string().min(1, "Zdroj zranění je povinný").max(255),
   injury_cause:          z.string().min(1, "Příčina úrazu je povinná"),
   injured_count:         z.coerce.number().int().min(1, "Minimálně 1").default(1),
@@ -286,10 +290,38 @@ function AccidentForm({
             {errors.injury_type && <p className="text-xs text-red-600">{errors.injury_type.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="injured_body_part">Zraněná část těla *</Label>
-            <Input id="injured_body_part" placeholder="např. levá ruka — prst" {...register("injured_body_part")} />
-            {errors.injured_body_part && <p className="text-xs text-red-600">{errors.injured_body_part.message}</p>}
+            <Label htmlFor="injured_body_part_code">Část těla (OOPP) *</Label>
+            <select
+              id="injured_body_part_code"
+              {...register("injured_body_part_code")}
+              className="block w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+            >
+              <option value="">— vyber —</option>
+              {BODY_PARTS.map((bp) => (
+                <option key={bp.code} value={bp.code}>
+                  {bp.code}. {bp.label}{bp.group ? ` (${bp.group})` : ""}
+                </option>
+              ))}
+            </select>
+            {errors.injured_body_part_code && (
+              <p className="text-xs text-red-600">{errors.injured_body_part_code.message}</p>
+            )}
+            <p className="text-xs text-gray-500">
+              Standardizovaný kód dle NV 390/2021 — automaticky propojí úraz s OOPP gridem.
+            </p>
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="injured_body_part">Detail zranění *</Label>
+          <Input
+            id="injured_body_part"
+            placeholder="např. levá ruka — prst, dorzální strana"
+            {...register("injured_body_part")}
+          />
+          {errors.injured_body_part && (
+            <p className="text-xs text-red-600">{errors.injured_body_part.message}</p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -962,6 +994,7 @@ export default function AccidentReportsPage() {
               accident_time:           editReport.accident_time?.slice(0, 5) ?? "",
               shift_start_time:        editReport.shift_start_time?.slice(0, 5) ?? "",
               injury_type:             editReport.injury_type,
+              injured_body_part_code:  (editReport.injured_body_part_code ?? "") as BodyPartCode,
               injured_body_part:       editReport.injured_body_part,
               injury_source:           editReport.injury_source,
               injury_cause:            editReport.injury_cause,

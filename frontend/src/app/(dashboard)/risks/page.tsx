@@ -27,6 +27,7 @@ import type {
 import {
   HAZARD_CATEGORY_LABELS, CONTROL_TYPE_LABELS, RISK_LEVEL_COLORS,
   RISK_LEVEL_LABELS, RISK_STATUS_LABELS, MEASURE_STATUS_LABELS,
+  OOPP_RISK_COLUMNS, OOPP_RISK_COLUMN_LABELS,
 } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -308,7 +309,9 @@ export default function RisksPage() {
                               <div className="text-sm font-medium text-gray-900">{scopeLabel || "—"}</div>
                             </td>
                             <td className="py-3 px-4 text-xs text-gray-600">
-                              {HAZARD_CATEGORY_LABELS[r.hazard_category] ?? r.hazard_category}
+                              {r.oopp_risk_column != null
+                                ? `${r.oopp_risk_column}. ${OOPP_RISK_COLUMN_LABELS[r.oopp_risk_column as keyof typeof OOPP_RISK_COLUMN_LABELS] ?? ""}`
+                                : (HAZARD_CATEGORY_LABELS[r.hazard_category] ?? r.hazard_category)}
                             </td>
                             <td className="py-3 px-4 max-w-[280px]">
                               <div className="text-sm text-gray-800 truncate" title={r.hazard_description}>
@@ -445,6 +448,7 @@ interface FormState {
   plant_id: string;
   activity_description: string;
   hazard_category: HazardCategory;
+  oopp_risk_column: number | null;
   hazard_description: string;
   consequence_description: string;
   initial_probability: number;
@@ -471,6 +475,7 @@ function RiskAssessmentForm({
     plant_id: defaults?.plant_id ?? "",
     activity_description: defaults?.activity_description ?? "",
     hazard_category: defaults?.hazard_category ?? "slip_trip",
+    oopp_risk_column: defaults?.oopp_risk_column ?? 2,
     hazard_description: defaults?.hazard_description ?? "",
     consequence_description: defaults?.consequence_description ?? "",
     initial_probability: defaults?.initial_probability ?? 3,
@@ -504,6 +509,7 @@ function RiskAssessmentForm({
         const payload: Record<string, unknown> = {
           scope_type: state.scope_type,
           hazard_category: state.hazard_category,
+          oopp_risk_column: state.oopp_risk_column,
           hazard_description: state.hazard_description,
           consequence_description: state.consequence_description,
           initial_probability: state.initial_probability,
@@ -537,16 +543,29 @@ function RiskAssessmentForm({
           </select>
         </div>
         <div>
-          <Label>Kategorie nebezpečí *</Label>
+          <Label>Riziko (sloupec OOPP gridu) *</Label>
           <select
-            value={state.hazard_category}
-            onChange={(e) => setState({ ...state, hazard_category: e.target.value as HazardCategory })}
+            value={state.oopp_risk_column ?? ""}
+            onChange={(e) => {
+              const col = e.target.value ? Number(e.target.value) : null;
+              setState({ ...state, oopp_risk_column: col });
+            }}
             className={SELECT_CLS}
           >
-            {(Object.keys(HAZARD_CATEGORY_LABELS) as HazardCategory[]).map((k) => (
-              <option key={k} value={k}>{HAZARD_CATEGORY_LABELS[k]}</option>
+            <option value="">— vyber —</option>
+            {(["fyzikální", "chemická", "biologické", "jiná"] as const).map((group) => (
+              <optgroup key={group} label={group.charAt(0).toUpperCase() + group.slice(1)}>
+                {OOPP_RISK_COLUMNS.filter((rc) => rc.group === group).map((rc) => (
+                  <option key={rc.col} value={rc.col}>
+                    {rc.col}. {rc.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Standardizovaný sloupec dle NV 390/2021 — propojí RA s OOPP gridem pozice.
+          </p>
         </div>
       </div>
 
@@ -772,6 +791,7 @@ function RiskDetailBody({
             plant_id: risk.plant_id ?? "",
             activity_description: risk.activity_description ?? "",
             hazard_category: risk.hazard_category,
+            oopp_risk_column: risk.oopp_risk_column,
             hazard_description: risk.hazard_description,
             consequence_description: risk.consequence_description,
             initial_probability: risk.initial_probability,

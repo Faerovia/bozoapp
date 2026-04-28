@@ -8,6 +8,13 @@ from pydantic import BaseModel, Field, model_validator
 TestResult = Literal["negative", "positive"]
 AccidentReportStatus = Literal["draft", "final", "archived"]
 
+# Body part dle NV 390/2021 Příloha 2 (kódy A..N, sjednocený slovník
+# napříč Účaz/RA/OOPP). Pro nové úrazy povinné.
+BodyPartCode = Literal[
+    "A", "B", "C", "D", "E", "F", "G",
+    "H", "I", "J", "K", "L", "M", "N",
+]
+
 
 class WitnessInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -35,7 +42,11 @@ class AccidentReportCreateRequest(BaseModel):
 
     # Charakter zranění
     injury_type: str = Field(..., min_length=1, max_length=255)
+    # injured_body_part = popisové pole (volný text, např. "levé předloktí")
     injured_body_part: str = Field(..., min_length=1, max_length=255)
+    # injured_body_part_code = standardizovaný kód A..N dle NV 390/2021
+    # Příloha 2 (sjednocení s OOPP gridem). Povinné pro nové úrazy.
+    injured_body_part_code: BodyPartCode
     injury_source: str = Field(..., min_length=1, max_length=255)
     injury_cause: str = Field(..., min_length=1)
     injured_count: int = Field(default=1, ge=1)
@@ -106,6 +117,7 @@ class AccidentReportUpdateRequest(BaseModel):
     shift_start_time: time | None = None
     injury_type: str | None = Field(None, min_length=1, max_length=255)
     injured_body_part: str | None = Field(None, min_length=1, max_length=255)
+    injured_body_part_code: BodyPartCode | None = None
     injury_source: str | None = Field(None, min_length=1, max_length=255)
     injury_cause: str | None = Field(None, min_length=1)
     injured_count: int | None = Field(None, ge=1)
@@ -145,6 +157,7 @@ class AccidentReportResponse(BaseModel):
 
     injury_type: str
     injured_body_part: str
+    injured_body_part_code: str | None = None
     injury_source: str
     injury_cause: str
     injured_count: int

@@ -53,6 +53,9 @@ class RiskAssessmentCreateRequest(BaseModel):
     activity_description: str | None = None
 
     hazard_category: HazardCategory
+    # oopp_risk_column = sloupec 1..26 dle NV 390/2021 Příloha 2 (sjednocení s OOPP gridem).
+    # Povinné pro nové RA, propojuje hodnocení s konkrétním sloupcem OOPP gridu pozice.
+    oopp_risk_column: int = Field(..., ge=1, le=26)
     hazard_description: str = Field(..., min_length=1)
     consequence_description: str = Field(..., min_length=1)
     exposed_persons: int | None = Field(None, ge=0, le=100000)
@@ -102,6 +105,7 @@ class RiskAssessmentUpdateRequest(BaseModel):
     activity_description: str | None = None
 
     hazard_category: HazardCategory | None = None
+    oopp_risk_column: int | None = Field(None, ge=1, le=26)
     hazard_description: str | None = Field(None, min_length=1)
     consequence_description: str | None = Field(None, min_length=1)
     exposed_persons: int | None = Field(None, ge=0, le=100000)
@@ -143,6 +147,7 @@ class RiskAssessmentResponse(BaseModel):
     activity_description: str | None = None
 
     hazard_category: str
+    oopp_risk_column: int | None = None
     hazard_description: str
     consequence_description: str
     exposed_persons: int | None = None

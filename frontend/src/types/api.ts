@@ -668,6 +668,7 @@ export interface AccidentReport {
 
   injury_type: string;
   injured_body_part: string;
+  injured_body_part_code: BodyPartCode | null;
   injury_source: string;
   injury_cause: string;
   injured_count: number;
@@ -969,6 +970,7 @@ export interface RiskAssessment {
   plant_name: string | null;
   activity_description: string | null;
   hazard_category: HazardCategory;
+  oopp_risk_column: OoppRiskColumn | null;
   hazard_description: string;
   consequence_description: string;
   exposed_persons: number | null;
@@ -1091,6 +1093,84 @@ export const EXPOSURE_FREQUENCY_LABELS: Record<ExposureFrequency, string> = {
   frequent:   "Často",
   continuous: "Trvale",
 };
+
+// ── NV 390/2021 Příloha 2: standardizovaný slovník OOPP ──────────────────────
+// Tyto konstanty jsou sdíleny moduly Účaz (injured_body_part_code) a
+// Hodnocení rizik (oopp_risk_column) — sjednotí vstupy do OOPP gridu.
+
+export type BodyPartCode =
+  | "A" | "B" | "C" | "D" | "E" | "F" | "G"
+  | "H" | "I" | "J" | "K" | "L" | "M" | "N";
+
+export interface BodyPartDef {
+  code: BodyPartCode;
+  label: string;
+  group: string | null;
+}
+
+export const BODY_PARTS: BodyPartDef[] = [
+  { code: "A", label: "Lebka",                   group: "hlava" },
+  { code: "B", label: "Celá hlava",              group: "hlava" },
+  { code: "C", label: "Uši / sluch",             group: null },
+  { code: "D", label: "Oči / zrak",              group: null },
+  { code: "E", label: "Obličej",                 group: null },
+  { code: "F", label: "Dýchací orgány",          group: null },
+  { code: "G", label: "Ruce",                    group: null },
+  { code: "H", label: "Paže (části)",            group: null },
+  { code: "I", label: "Nohy (chodidla)",         group: null },
+  { code: "J", label: "Nohy (části)",            group: null },
+  { code: "K", label: "Pokožka",                 group: null },
+  { code: "L", label: "Trup / břicho",           group: null },
+  { code: "M", label: "Část těla",               group: null },
+  { code: "N", label: "Celé tělo",               group: null },
+];
+
+export const BODY_PART_LABELS: Record<BodyPartCode, string> =
+  BODY_PARTS.reduce((acc, bp) => ({ ...acc, [bp.code]: bp.label }), {} as Record<BodyPartCode, string>);
+
+export type OoppRiskColumn =
+  | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
+  | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20
+  | 21 | 22 | 23 | 24 | 25 | 26;
+
+export interface OoppRiskColumnDef {
+  col: OoppRiskColumn;
+  label: string;
+  subgroup: string | null;
+  group: "fyzikální" | "chemická" | "biologické" | "jiná";
+}
+
+export const OOPP_RISK_COLUMNS: OoppRiskColumnDef[] = [
+  { col: 1,  label: "Náraz",                                                 subgroup: "mechanická",        group: "fyzikální" },
+  { col: 2,  label: "Uklouznutí",                                            subgroup: "mechanická",        group: "fyzikální" },
+  { col: 3,  label: "Pády z výšky",                                          subgroup: "mechanická",        group: "fyzikální" },
+  { col: 4,  label: "Vibrace",                                               subgroup: "mechanická",        group: "fyzikální" },
+  { col: 5,  label: "Statické stlačení části těla",                          subgroup: "mechanická",        group: "fyzikální" },
+  { col: 6,  label: "Odření, perforace, řezné a jiné rány, kousnutí, bodnutí", subgroup: "mechanická",      group: "fyzikální" },
+  { col: 7,  label: "Zachycení, uskřípnutí",                                 subgroup: "mechanická",        group: "fyzikální" },
+  { col: 8,  label: "Hluk",                                                  subgroup: null,                group: "fyzikální" },
+  { col: 9,  label: "Teplo, oheň",                                           subgroup: "tepelná",           group: "fyzikální" },
+  { col: 10, label: "Chlad",                                                 subgroup: "tepelná",           group: "fyzikální" },
+  { col: 11, label: "Úraz elektrickým proudem",                              subgroup: "elektrická",        group: "fyzikální" },
+  { col: 12, label: "Statická elektřina",                                    subgroup: "elektrická",        group: "fyzikální" },
+  { col: 13, label: "Neionizující záření",                                   subgroup: "radiační",          group: "fyzikální" },
+  { col: 14, label: "Ionizující záření",                                     subgroup: "radiační",          group: "fyzikální" },
+  { col: 15, label: "Prach, vlákna, dýmy, výpary",                           subgroup: "aerosoly pevné",    group: "chemická" },
+  { col: 16, label: "Mlhy, jemné mlhy",                                      subgroup: "aerosoly kapalné",  group: "chemická" },
+  { col: 17, label: "Ponoření",                                              subgroup: "kapaliny",          group: "chemická" },
+  { col: 18, label: "Postříkání, rozprášení, vystříknutí",                   subgroup: "kapaliny",          group: "chemická" },
+  { col: 19, label: "Plyny, páry",                                           subgroup: null,                group: "chemická" },
+  { col: 20, label: "Pevných a kapalných (aerosoly)",                        subgroup: "aerosoly",          group: "biologické" },
+  { col: 21, label: "Přímý a nepřímý kontakt (kapaliny)",                    subgroup: "kapaliny",          group: "biologické" },
+  { col: 22, label: "Postříkání, rozprášení, vystříknutí (kapaliny)",        subgroup: "kapaliny",          group: "biologické" },
+  { col: 23, label: "Přímý a nepřímý kontakt (materiály, osoby, zvířata)",   subgroup: "materiály",         group: "biologické" },
+  { col: 24, label: "Utonutí",                                               subgroup: null,                group: "jiná" },
+  { col: 25, label: "Nedostatek kyslíku",                                    subgroup: null,                group: "jiná" },
+  { col: 26, label: "Nedostatečná viditelnost",                              subgroup: null,                group: "jiná" },
+];
+
+export const OOPP_RISK_COLUMN_LABELS: Record<OoppRiskColumn, string> =
+  OOPP_RISK_COLUMNS.reduce((acc, rc) => ({ ...acc, [rc.col]: rc.label }), {} as Record<OoppRiskColumn, string>);
 
 // ── Generický API error ───────────────────────────────────────────────────────
 

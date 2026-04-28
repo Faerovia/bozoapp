@@ -270,6 +270,7 @@ async def create_risk_assessment(
         plant_id=data.plant_id,
         activity_description=data.activity_description,
         hazard_category=data.hazard_category,
+        oopp_risk_column=data.oopp_risk_column,
         hazard_description=data.hazard_description,
         consequence_description=data.consequence_description,
         exposed_persons=data.exposed_persons,
@@ -504,7 +505,101 @@ async def create_measure(
                 measure.id, e,
             )
 
+    # OOPP grid auto-toggle: pro PPE measure zaškrtnout buňku v gridu pozice.
+    # Vstupní data:
+    # - body_part_code z navázaného úrazu (ra.related_accident_report_id) nebo
+    #   z RA scope=position → primární zaměstnanec → účaz
+    # - risk_col z ra.oopp_risk_column
+    # Pokud chybí jakýkoli vstup, integrace se přeskočí (loguje warning).
+    if data.control_type == "ppe":
+        try:
+            await _auto_toggle_oopp_grid(
+                db, tenant_id=tenant_id, ra=ra, created_by=created_by,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "OOPP grid auto-toggle failed for risk measure %s: %s",
+                measure.id, e,
+            )
+
     return measure
+
+
+async def _auto_toggle_oopp_grid(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    ra: RiskAssessment,
+    created_by: uuid.UUID,
+) -> None:
+    """Auto-zaškrtne políčko v OOPP gridu pozice na základě RA + úraz.
+
+    Resolve target position:
+    1) ra.scope_type == 'position' → ra.job_position_id
+    2) ra.related_accident_report_id → účaz.employee.job_position_id
+
+    Resolve body_part_code:
+    1) ra.related_accident_report_id → účaz.injured_body_part_code
+
+    Resolve risk_col:
+    1) ra.oopp_risk_column
+
+    Pokud chybí jakýkoli vstup, no-op.
+    """
+    # Risk column
+    if ra.oopp_risk_column is None:
+        log.debug("RA %s has no oopp_risk_column — skip grid toggle", ra.id)
+        return
+
+    # Target position + body_part
+    position_id: uuid.UUID | None = None
+    body_part: str | None = None
+
+    if ra.related_accident_report_id is not None:
+        accident = (await db.execute(
+            select(AccidentReport).where(
+                AccidentReport.id == ra.related_accident_report_id,
+                AccidentReport.tenant_id == tenant_id,
+            ),
+        )).scalar_one_or_none()
+        if accident is not None:
+            body_part = accident.injured_body_part_code
+            if accident.employee_id is not None:
+                emp = (await db.execute(
+                    select(Employee).where(
+                        Employee.id == accident.employee_id,
+                        Employee.tenant_id == tenant_id,
+                    ),
+                )).scalar_one_or_none()
+                if emp is not None and emp.job_position_id is not None:
+                    position_id = emp.job_position_id
+
+    if position_id is None and ra.scope_type == "position":
+        position_id = ra.job_position_id
+
+    if position_id is None or body_part is None:
+        log.info(
+            "RA %s: nelze vyhodnotit cílovou pozici/body_part (position=%s, body_part=%s) — skip grid toggle",
+            ra.id, position_id, body_part,
+        )
+        return
+
+    # Lokální import — kruhová závislost s services/oopp.py (oopp už importuje schemas)
+    from app.services.oopp import mark_grid_cell
+
+    grid, was_added = await mark_grid_cell(
+        db,
+        position_id=position_id,
+        tenant_id=tenant_id,
+        body_part=body_part,
+        risk_col=ra.oopp_risk_column,
+        created_by=created_by,
+    )
+    if was_added:
+        log.info(
+            "OOPP grid auto-toggle: position=%s, body_part=%s, risk_col=%s (RA=%s)",
+            position_id, body_part, ra.oopp_risk_column, ra.id,
+        )
 
 
 async def _ensure_oopp_issued_for_affected(

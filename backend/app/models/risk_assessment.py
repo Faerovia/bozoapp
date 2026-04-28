@@ -112,6 +112,10 @@ class RiskAssessment(Base, TimestampMixin):
 
     # Identifikace nebezpečí
     hazard_category: Mapped[str] = mapped_column(String(50), nullable=False)
+    # oopp_risk_column = sloupec 1..26 dle NV 390/2021 Příloha 2 (standardizovaný
+    # slovník sjednocující RA s OOPP gridem). Pro nové RA povinné v Pydantic
+    # schématu, v DB nullable kvůli historickým záznamům před migrací 067.
+    oopp_risk_column: Mapped[int | None] = mapped_column(SmallInteger)
     hazard_description: Mapped[str] = mapped_column(Text, nullable=False)
     consequence_description: Mapped[str] = mapped_column(Text, nullable=False)
     exposed_persons: Mapped[int | None] = mapped_column(SmallInteger)

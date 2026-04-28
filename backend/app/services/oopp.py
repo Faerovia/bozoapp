@@ -85,6 +85,62 @@ async def upsert_risk_grid(
     return grid
 
 
+async def mark_grid_cell(
+    db: AsyncSession,
+    *,
+    position_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    body_part: str,
+    risk_col: int,
+    created_by: uuid.UUID,
+) -> tuple[PositionRiskGrid, bool]:
+    """Přidá kombinaci (body_part, risk_col) do gridu pozice.
+
+    Idempotentní — pokud už políčko zaškrtnuté je, nic se neděje.
+    Vrací (grid, was_added) — was_added=True znamená, že došlo ke změně.
+
+    Volá se z risk_assessments.create_measure pro PPE measure jako auto-flow:
+    Účaz → RA → Měřítko PPE → automatické zaškrtnutí v OOPP gridu.
+
+    POZNÁMKA: pokud OZO ručně odškrtl políčko v UI, automatika ho NEMÁ znovu
+    zaškrtnout. Aktuální implementace toto pravidlo splňuje implicitně —
+    voláme jen z create_measure (jednorázový event), ne z update flow.
+    """
+    if body_part not in VALID_BODY_PARTS:
+        raise ValueError(f"Neplatná část těla: {body_part}")
+    if risk_col not in VALID_RISK_COLS:
+        raise ValueError(f"Neplatný sloupec rizik: {risk_col}")
+
+    await assert_in_tenant(
+        db, JobPosition, position_id, tenant_id, field_name="job_position_id",
+    )
+
+    grid = await get_risk_grid(db, position_id, tenant_id)
+    if grid is None:
+        grid = PositionRiskGrid(
+            tenant_id=tenant_id,
+            job_position_id=position_id,
+            grid={body_part: [risk_col]},
+            created_by=created_by,
+        )
+        db.add(grid)
+        await db.flush()
+        return grid, True
+
+    current_matrix = dict(grid.grid or {})
+    cols = list(current_matrix.get(body_part, []))
+    if risk_col in cols:
+        return grid, False  # už zaškrtnuté, no-op
+
+    cols.append(risk_col)
+    cols.sort()
+    current_matrix[body_part] = cols
+    # Reassign celý dict, aby SQLAlchemy detekoval změnu JSONB
+    grid.grid = current_matrix
+    await db.flush()
+    return grid, True
+
+
 # ── Position OOPP items ──────────────────────────────────────────────────────
 
 
