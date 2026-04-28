@@ -319,6 +319,10 @@ export interface TrainingAssignment {
   status: AssignmentStatus;
   signed_at?: string | null;
   signature_method?: "simple" | "qes" | null;
+  /** Pro auto-školení 'Změna rizik' — odkaz na 'Hodnocení rizik' dokument
+   * (markdown obsah), který má zaměstnanec přečíst. Null pro běžná školení
+   * s nahraným PDF. */
+  content_document_id?: string | null;
 }
 
 export interface TestQuestionForAttempt {

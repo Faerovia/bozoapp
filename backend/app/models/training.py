@@ -99,6 +99,13 @@ class Training(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"),
     )
 
+    # Pro auto-generovaná školení (např. "Změna rizik") obsah pochází
+    # z GeneratedDocument místo nahraného PDF. Per-assignment override
+    # (TrainingAssignment.content_document_id) má prioritu.
+    content_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_documents.id", ondelete="SET NULL"),
+    )
+
     @property
     def has_test(self) -> bool:
         return self.test_questions is not None and len(self.test_questions) > 0
@@ -157,6 +164,17 @@ class TrainingAssignment(Base, TimestampMixin):
     # zůstává pro backward compat. Frontend ukáže to, co je vyplněno.
     universal_signature_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("signatures.id", ondelete="SET NULL")
+    )
+
+    # Per-assignment override content_document_id (migrace 070).
+    # Pro auto-generované školení 'Změna rizik' — každý zaměstnanec může mít
+    # vlastní dokument (jiné pracoviště → jiný 'Hodnocení rizik' dokument).
+    # Při změně RA service aktualizuje toto pole na NEJNOVĚJŠÍ verzi
+    # dokumentu pro daný scope, aby se zaměstnanec školil vždy na aktuální
+    # rizika. Po dokončení (status=completed) zůstává hodnota zachována jako
+    # audit historie — jaký konkrétní dokument absolvoval.
+    content_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_documents.id", ondelete="SET NULL"),
     )
 
     @property

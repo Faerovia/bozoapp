@@ -114,6 +114,9 @@ class AssignmentResponse(BaseModel):
     status: str
     signed_at: datetime | None = None
     signature_method: str | None = None
+    # Pro auto-generované školení 'Změna rizik' — odkaz na dokument 'Hodnocení rizik'
+    # který má zaměstnanec přečíst (obsah školení).
+    content_document_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

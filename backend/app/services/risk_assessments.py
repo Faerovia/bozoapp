@@ -332,6 +332,11 @@ async def update_risk_assessment(
     previous_status = ra.status
     new_status = fields.get("status", previous_status)
     became_closed = previous_status != "accepted" and new_status == "accepted"
+    # Trigger 'Změna rizik' školení při milestone přechodu na mitigated/accepted
+    became_milestone = (
+        previous_status != new_status
+        and new_status in ("mitigated", "accepted")
+    )
 
     for k, v in fields.items():
         setattr(ra, k, v)
@@ -359,6 +364,19 @@ async def update_risk_assessment(
         await _close_linked_accident_action_items(
             db, ra=ra, closed_by=revised_by_user_id,
         )
+
+    # Hook: auto-školení 'Změna rizik' při milestone přechodu (mitigated/accepted)
+    if became_milestone:
+        try:
+            from app.services.training_changes import trigger_change_training_for_ra
+            await trigger_change_training_for_ra(
+                db, ra=ra, triggered_by=revised_by_user_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "Change training trigger failed for RA %s status update: %s",
+                ra.id, e,
+            )
 
     await _create_revision_snapshot(
         db, ra, revised_by_user_id=revised_by_user_id,
@@ -504,6 +522,17 @@ async def create_measure(
                 "OOPP integration failed for risk measure %s: %s",
                 measure.id, e,
             )
+
+    # Auto-školení 'Změna rizik' pro dotčené zaměstnance — nové opatření
+    # je významná změna, na kterou musí být zaměstnanci proškoleni.
+    try:
+        from app.services.training_changes import trigger_change_training_for_ra
+        await trigger_change_training_for_ra(db, ra=ra, triggered_by=created_by)
+    except Exception as e:  # noqa: BLE001
+        log.warning(
+            "Change training trigger failed for risk measure %s: %s",
+            measure.id, e,
+        )
 
     # OOPP grid auto-toggle: pro PPE measure zaškrtnout buňku v gridu pozice.
     # Vstupní data:

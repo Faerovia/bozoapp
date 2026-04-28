@@ -1453,6 +1453,60 @@ function EmployeeView() {
   );
 }
 
+// ── Reader pro auto-školení 'Změna rizik' (markdown content z GeneratedDocument) ──
+
+function ContentDocumentReader({
+  documentId,
+  onCancel,
+  onMarkRead,
+  markReadPending,
+}: {
+  documentId: string;
+  onCancel: () => void;
+  onMarkRead: () => void;
+  markReadPending: boolean;
+}) {
+  const { data, isLoading, error } = useQuery<{ content_md: string; title: string }>({
+    queryKey: ["document", documentId],
+    queryFn: () => api.get(`/documents/${documentId}`),
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 max-h-[65vh] overflow-y-auto">
+        {isLoading && (
+          <p className="text-sm text-gray-400">Načítám dokument…</p>
+        )}
+        {error && (
+          <p className="text-sm text-red-600">
+            Chyba při načítání: {error instanceof ApiError ? error.detail : "neznámá"}
+          </p>
+        )}
+        {data && (
+          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-gray-800 dark:text-gray-200">
+            {data.content_md}
+          </pre>
+        )}
+      </div>
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={onCancel}>
+          <ChevronLeft className="h-4 w-4 mr-1" />
+          Zpět
+        </Button>
+        <Button
+          onClick={onMarkRead}
+          loading={markReadPending}
+          disabled={isLoading || !!error}
+        >
+          <CheckCircle2 className="h-4 w-4 mr-1.5" />
+          Dočetl jsem — ukončit školení
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+
 // ── Run flow: info → PDF → test → výsledek ──────────────────────────────────
 
 type RunStep = "info" | "pdf" | "test" | "sign" | "result";
@@ -1555,6 +1609,18 @@ function TrainingRunFlow({
   }
 
   if (step === "pdf") {
+    // Pokud assignment má content_document_id (auto-školení 'Změna rizik'),
+    // renderujeme markdown content místo PDF iframe.
+    if (assignment.content_document_id) {
+      return (
+        <ContentDocumentReader
+          documentId={assignment.content_document_id}
+          onCancel={() => setStep("info")}
+          onMarkRead={() => markReadMutation.mutate()}
+          markReadPending={markReadMutation.isPending}
+        />
+      );
+    }
     return (
       <div className="space-y-3">
         <iframe
