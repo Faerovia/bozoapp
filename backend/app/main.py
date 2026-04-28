@@ -98,6 +98,116 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
     )
 
 
+# ── Global exception handlers — převádí unhandled exceptions na user-friendly ─
+
+# Chceme předejít hrubému HTTP 500 a místo toho vracet smysluplné CZ hlášky.
+# Zachycujeme:
+#   - ValueError      → 422 (business validation v service vrstvě)
+#   - LookupError     → 404 (entita nenalezena)
+#   - PermissionError → 403 (operace zakázána aktuální roli)
+#   - IntegrityError  → 422 (DB constraints — FK, unique, NOT NULL, CHECK)
+# Všechny logujeme přes structlog s request_id, aby vývojář v Sentry/log
+# viděl plný traceback. Klient dostane jen čitelnou zprávu.
+
+import logging  # noqa: E402
+
+from sqlalchemy.exc import IntegrityError  # noqa: E402
+
+_exc_log = logging.getLogger("app.exceptions")
+
+
+def _detail_from_integrity(exc: IntegrityError) -> str:
+    """Z asyncpg/Postgres IntegrityError vyextrahovat user-friendly hlášku."""
+    msg = str(exc.orig) if exc.orig else str(exc)
+    low = msg.lower()
+    if "foreign key" in low or "violates foreign key" in low:
+        return "Odkaz na neexistující záznam (chybný identifikátor)."
+    if "unique constraint" in low or "duplicate key" in low:
+        return "Záznam s těmito údaji už existuje."
+    if "not-null constraint" in low or "null value in column" in low:
+        return "Některé povinné pole nebylo vyplněno."
+    if "check constraint" in low:
+        # Specifické check constrainty mohou mít vlastní hlášku
+        if "ck_doc_type" in low:
+            return "Neplatný typ dokumentu."
+        if "body_part_code" in low:
+            return "Neplatný kód části těla (povolené: A–N)."
+        if "oopp_risk_column" in low:
+            return "Neplatný sloupec rizika OOPP (povolené: 1–26)."
+        if "source_category" in low or "cause_category" in low:
+            return "Neplatná kategorie zdroje/příčiny úrazu."
+        return "Hodnota porušuje pravidla validace."
+    return "Operace narušila integritu dat."
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+    """Service vrstva často vyhazuje ValueError pro business validace."""
+    _exc_log.info("ValueError → 422: %s", exc, extra={"path": request.url.path})
+    return JSONResponse(status_code=422, content={"detail": str(exc) or "Neplatný požadavek."})
+
+
+@app.exception_handler(LookupError)
+async def lookup_error_handler(request: Request, exc: LookupError) -> JSONResponse:
+    _exc_log.info("LookupError → 404: %s", exc, extra={"path": request.url.path})
+    return JSONResponse(status_code=404, content={"detail": str(exc) or "Záznam nenalezen."})
+
+
+@app.exception_handler(PermissionError)
+async def permission_error_handler(
+    request: Request, exc: PermissionError,
+) -> JSONResponse:
+    _exc_log.info("PermissionError → 403: %s", exc, extra={"path": request.url.path})
+    return JSONResponse(
+        status_code=403,
+        content={"detail": str(exc) or "Tuto akci nemáte povolenou."},
+    )
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(
+    request: Request, exc: IntegrityError,
+) -> JSONResponse:
+    """Postgres / SQLAlchemy IntegrityError — FK, unique, NOT NULL, CHECK."""
+    detail = _detail_from_integrity(exc)
+    # Plný traceback do logu; klient dostane jen čitelnou hlášku
+    _exc_log.warning(
+        "IntegrityError → 422: %s (%s)",
+        detail, exc.orig if exc.orig else exc,
+        extra={"path": request.url.path},
+        exc_info=True,
+    )
+    return JSONResponse(status_code=422, content={"detail": detail})
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(
+    request: Request, exc: Exception,
+) -> JSONResponse:
+    """Posledni instance — neočekávané exceptions. Logujeme plný traceback,
+    klient dostane neutrální 500 hlášku (žádné stack trace v odpovědi)."""
+    # HTTPException má vlastní handler v FastAPI/Starlette — neperme se s ním.
+    from fastapi.exceptions import HTTPException as FastAPIHTTPException
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    if isinstance(exc, (FastAPIHTTPException, StarletteHTTPException)):
+        raise exc
+
+    _exc_log.exception(
+        "Unhandled exception → 500",
+        extra={"path": request.url.path},
+    )
+    # Sentry zachytí přes default integraci — žádné explicitní capture nutné
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": (
+                "Vnitřní chyba serveru. Zkuste to prosím znovu, "
+                "nebo kontaktujte podporu pokud potíže přetrvávají."
+            ),
+        },
+    )
+
+
 # ── Audit log infrastructure ─────────────────────────────────────────────────
 # install_audit_listeners() zavěsí SQLAlchemy before_flush listener, který
 # při každém session.commit() zachytí INSERT/UPDATE/DELETE a zapíše do
