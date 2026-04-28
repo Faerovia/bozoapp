@@ -579,7 +579,8 @@ async def _auto_toggle_oopp_grid(
 
     if position_id is None or body_part is None:
         log.info(
-            "RA %s: nelze vyhodnotit cílovou pozici/body_part (position=%s, body_part=%s) — skip grid toggle",
+            "RA %s: nelze vyhodnotit cílovou pozici/body_part "
+            "(position=%s, body_part=%s) — skip grid toggle",
             ra.id, position_id, body_part,
         )
         return
