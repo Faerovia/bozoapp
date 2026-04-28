@@ -25,6 +25,7 @@ from app.core.permissions import require_platform_admin, require_role
 from app.models.employee import Employee
 from app.models.signature import (
     ALL_DOC_TYPES,
+    AUTH_METHOD_HANDWRITTEN,
     AUTH_METHOD_PASSWORD,
     AUTH_METHOD_SMS_OTP,
     Signature,
@@ -45,7 +46,11 @@ router = APIRouter()
 DocType = Literal[
     "oopp_issue", "accident_report", "training_attempt", "training_content",
 ]
-AuthMethod = Literal["password", "sms_otp"]
+AuthMethod = Literal["password", "sms_otp", "handwritten"]
+
+# Limit pro PNG canvas podpis — typicky 800×400 px @ ~30 KB. 500 KB je bezpečný
+# strop chránící před DoS přes velké obrázky.
+MAX_HANDWRITTEN_IMAGE_BYTES = 500_000
 
 
 class InitiateRequest(BaseModel):
@@ -68,7 +73,12 @@ class VerifyRequest(BaseModel):
     doc_id: uuid.UUID
     employee_id: uuid.UUID
     auth_method: AuthMethod
-    code_or_password: str = Field(..., min_length=1, max_length=200)
+    # Pro password / sms_otp: aktuální heslo nebo 6místný OTP kód
+    # Pro handwritten: může být prázdné — image je v signature_image_b64
+    code_or_password: str | None = Field(None, max_length=200)
+    # Pro handwritten auth_method: PNG canvas jako data URI nebo čistý base64.
+    # Validace + uložení do auth_proof.signature_image_b64 (součást hash chainu).
+    signature_image_b64: str | None = Field(None, max_length=700_000)
 
 
 class SignatureResponse(BaseModel):
@@ -146,6 +156,17 @@ async def initiate_endpoint(
             message=f"SMS kód byl odeslán na {_redact_phone(otp.sent_to)}",
         )
 
+    if data.auth_method == AUTH_METHOD_HANDWRITTEN:
+        # Vlastnoruční podpis — žádný server-side initiation,
+        # frontend rovnou otevře canvas.
+        return InitiateResponse(
+            ok=True,
+            auth_method=AUTH_METHOD_HANDWRITTEN,
+            sms_sent_to=None,
+            expires_in_seconds=None,
+            message="Nakreslete podpis prstem nebo myší.",
+        )
+
     # password — žádná akce na backendu, ack
     if emp.user_id is None:
         raise HTTPException(
@@ -181,6 +202,11 @@ async def verify_endpoint(
     auth_proof: dict[str, Any] = {"verified_by_user_id": str(current_user.id)}
 
     if data.auth_method == AUTH_METHOD_SMS_OTP:
+        if not data.code_or_password:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Pro SMS podpis je nutné zadat 6místný kód.",
+            )
         try:
             otp = await verify_sms_otp(
                 db,
@@ -197,6 +223,11 @@ async def verify_endpoint(
         auth_proof["otp_id"] = str(otp.id)
         auth_proof["sent_to_redacted"] = _redact_phone(otp.sent_to)
     elif data.auth_method == AUTH_METHOD_PASSWORD:
+        if not data.code_or_password:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Pro podpis heslem je nutné heslo zadat.",
+            )
         try:
             ok = await verify_employee_password(
                 db, employee=emp, password=data.code_or_password,
@@ -212,6 +243,55 @@ async def verify_endpoint(
                 detail="Nesprávné heslo",
             )
         auth_proof["password_verified"] = True
+    elif data.auth_method == AUTH_METHOD_HANDWRITTEN:
+        # Vlastnoruční podpis přes canvas (myš / dotyk / stylus). Zaměstnanec
+        # nakreslí v UI, frontend pošle PNG jako base64 (data URI nebo čistá
+        # base64). Image je součástí auth_proof a tedy součástí payload hashe —
+        # tampering se projeví jako neplatný chain_hash.
+        import base64
+        import hashlib
+
+        if not data.signature_image_b64:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Pro vlastnoruční podpis je třeba poslat obrázek (signature_image_b64).",
+            )
+        # Strip data URI prefix pokud existuje ("data:image/png;base64,...")
+        raw_b64 = data.signature_image_b64
+        if raw_b64.startswith("data:"):
+            comma = raw_b64.find(",")
+            if comma == -1:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Neplatný formát obrázku (chybí čárka v data URI).",
+                )
+            raw_b64 = raw_b64[comma + 1:]
+        try:
+            png_bytes = base64.b64decode(raw_b64, validate=True)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Obrázek podpisu není platný base64.",
+            ) from e
+        if len(png_bytes) > MAX_HANDWRITTEN_IMAGE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Obrázek podpisu je příliš velký "
+                    f"({len(png_bytes)} B, limit {MAX_HANDWRITTEN_IMAGE_BYTES} B)."
+                ),
+            )
+        # Magic number check — PNG začíná \x89PNG\r\n\x1a\n
+        if not png_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Obrázek podpisu musí být ve formátu PNG.",
+            )
+        # Hash + uložení base64 do auth_proof (součást chainu)
+        image_hash = hashlib.sha256(png_bytes).hexdigest()
+        auth_proof["signature_image_b64"] = raw_b64
+        auth_proof["signature_image_sha256"] = image_hash
+        auth_proof["signature_image_size_bytes"] = len(png_bytes)
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

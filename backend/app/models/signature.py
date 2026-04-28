@@ -50,6 +50,7 @@ ALL_DOC_TYPES = (
 
 AUTH_METHOD_PASSWORD = "password"
 AUTH_METHOD_SMS_OTP = "sms_otp"
+AUTH_METHOD_HANDWRITTEN = "handwritten"
 
 # Initial prev_hash pro první řádek v chainu
 GENESIS_HASH = "0" * 64

@@ -785,7 +785,7 @@ export type SignatureDocType =
   | "accident_report"
   | "training_attempt"
   | "training_content";
-export type SignatureAuthMethod = "password" | "sms_otp";
+export type SignatureAuthMethod = "password" | "sms_otp" | "handwritten";
 
 export interface SignatureRecord {
   id: string;

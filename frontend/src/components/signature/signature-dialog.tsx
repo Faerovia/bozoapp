@@ -3,31 +3,21 @@
 /**
  * Univerzální dialog pro digitální podpis zaměstnance.
  *
- * Použití:
- *   <SignatureDialog
- *     open={open}
- *     onClose={() => setOpen(false)}
- *     docType="oopp_issue"
- *     docId={issue.id}
- *     employeeId={issue.employee_id}
- *     employeeName={issue.employee_name}
- *     hasLoginAccount={true}  // false → forced SMS-only
- *     onSigned={(signature) => { ...attach to doc... }}
- *   />
+ * Tři metody ověření identity:
+ * 1. Heslo (zaměstnanec má login do DigitalOZO)
+ * 2. SMS kód (6 číslic, platnost 5 min)
+ * 3. Vlastnoruční podpis myší / prstem (canvas → PNG base64)
  *
- * Flow:
- * 1. Uživatel vybere auth_method: "password" nebo "sms_otp" (radio).
- * 2. Klik na "Pokračovat" → POST /signatures/initiate.
- *    - Pro sms_otp se odešle SMS (v dev mode mock = 111111).
- *    - Pro password se jen otevře input pro heslo.
- * 3. Zadá heslo nebo SMS kód → POST /signatures/verify.
- * 4. Po úspěchu callback onSigned(signature) — caller si zařídí
- *    attach (např. /oopp/issues/{id}/attach-signature).
+ * Image pro handwritten je uložen do auth_proof a je součástí payload hashe
+ * v hash chainu signatures — tampering by zlomil chain_hash.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ShieldCheck, KeyRound, Smartphone, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  ShieldCheck, KeyRound, Smartphone, Pencil, AlertCircle, CheckCircle2,
+  Eraser,
+} from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type {
   SignatureDocType,
@@ -48,7 +38,7 @@ interface SignatureDialogProps {
   docId: string;
   employeeId: string;
   employeeName: string;
-  /** Pokud false, je možný jen sms_otp (zaměstnanec nemá login). */
+  /** Pokud false, je možný jen sms_otp / handwritten (zaměstnanec nemá login). */
   hasLoginAccount: boolean;
   /** Volá se po úspěšném vytvoření podpisu — caller ho přilepí k dokumentu. */
   onSigned: (signature: SignatureRecord) => void;
@@ -56,7 +46,7 @@ interface SignatureDialogProps {
   title?: string;
 }
 
-type Step = "choose" | "code" | "password";
+type Step = "choose" | "code" | "password" | "canvas";
 
 export function SignatureDialog({
   open,
@@ -76,6 +66,7 @@ export function SignatureDialog({
   const [codeOrPassword, setCodeOrPassword] = useState("");
   const [smsInfo, setSmsInfo] = useState<SignatureInitiateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [signatureImage, setSignatureImage] = useState<string | null>(null);
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -85,6 +76,7 @@ export function SignatureDialog({
       setCodeOrPassword("");
       setSmsInfo(null);
       setError(null);
+      setSignatureImage(null);
     }
   }, [open, hasLoginAccount]);
 
@@ -98,7 +90,9 @@ export function SignatureDialog({
       }),
     onSuccess: (resp, m) => {
       setSmsInfo(resp);
-      setStep(m === "sms_otp" ? "code" : "password");
+      if (m === "sms_otp") setStep("code");
+      else if (m === "password") setStep("password");
+      else setStep("canvas");
       setError(null);
     },
     onError: (e: unknown) => {
@@ -113,7 +107,8 @@ export function SignatureDialog({
         doc_id: docId,
         employee_id: employeeId,
         auth_method: authMethod,
-        code_or_password: codeOrPassword,
+        code_or_password: authMethod === "handwritten" ? null : codeOrPassword,
+        signature_image_b64: authMethod === "handwritten" ? signatureImage : null,
       }),
     onSuccess: (sig) => {
       onSigned(sig);
@@ -190,13 +185,36 @@ export function SignatureDialog({
                   </div>
                 </div>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setAuthMethod("handwritten")}
+                className={cn(
+                  "w-full text-left rounded-md border-2 p-3 transition-colors",
+                  authMethod === "handwritten"
+                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                    : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <Pencil className="h-5 w-5 text-purple-600" />
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text-gray-100">
+                      Vlastnoruční podpis
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      Nakreslete podpis prstem na dotykovém displeji nebo myší.
+                    </div>
+                  </div>
+                </div>
+              </button>
             </div>
 
             {!hasLoginAccount && (
               <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                 Tento zaměstnanec nemá vlastní login do aplikace, proto je
-                možný pouze podpis přes SMS kód.
+                možný jen podpis přes SMS kód nebo vlastnoruční podpis.
               </div>
             )}
 
@@ -301,7 +319,188 @@ export function SignatureDialog({
             </div>
           </>
         )}
+
+        {step === "canvas" && (
+          <SignatureCanvasStep
+            error={error}
+            verifying={verifyMut.isPending}
+            onBack={() => setStep("choose")}
+            onSign={(b64) => {
+              setSignatureImage(b64);
+              setError(null);
+              // Trigger verify after state set — useEffect by mohl, ale
+              // pro jednoduchost necháme caller submitnout přes tlačítko
+              // a verifyMut.mutate() použije aktuální signatureImage.
+              // Místo state závodu — pošlu rovnou v argumentu:
+              verifyMut.mutate(undefined, {
+                onError: () => {},  // error už handled výše
+              });
+            }}
+            signatureImage={signatureImage}
+            setSignatureImage={setSignatureImage}
+          />
+        )}
       </div>
     </Dialog>
+  );
+}
+
+
+// ── Canvas komponenta pro vlastnoruční podpis ───────────────────────────────
+
+function SignatureCanvasStep({
+  error,
+  verifying,
+  onBack,
+  onSign,
+  signatureImage,
+  setSignatureImage,
+}: {
+  error: string | null;
+  verifying: boolean;
+  onBack: () => void;
+  onSign: (b64: string) => void;
+  signatureImage: string | null;
+  setSignatureImage: (b64: string | null) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const hasStrokeRef = useRef(false);
+
+  // Init canvas (white bg, černé pero)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#1f2937";
+    ctx.lineWidth = 2.5;
+  }, []);
+
+  const getPoint = useCallback((evt: PointerEvent): { x: number; y: number } => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((evt.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((evt.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const onDown = (e: PointerEvent) => {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      drawingRef.current = true;
+      lastPointRef.current = getPoint(e);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!drawingRef.current) return;
+      const p = getPoint(e);
+      const last = lastPointRef.current;
+      if (last) {
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        hasStrokeRef.current = true;
+      }
+      lastPointRef.current = p;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (drawingRef.current) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+      drawingRef.current = false;
+      lastPointRef.current = null;
+    };
+
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("pointercancel", onUp);
+    canvas.addEventListener("pointerleave", onUp);
+    return () => {
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onUp);
+      canvas.removeEventListener("pointerleave", onUp);
+    };
+  }, [getPoint]);
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    hasStrokeRef.current = false;
+    setSignatureImage(null);
+  };
+
+  const handleSubmit = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (!hasStrokeRef.current) return;
+    // PNG data URI — backend si strip prefix
+    const dataUri = canvas.toDataURL("image/png");
+    onSign(dataUri);
+  };
+
+  return (
+    <>
+      <p className="text-sm text-gray-600 dark:text-gray-300">
+        Nakreslete podpis prstem nebo myší v rámečku níže.
+      </p>
+
+      <div className="rounded-md border-2 border-gray-300 dark:border-gray-600 bg-white">
+        <canvas
+          ref={canvasRef}
+          width={600}
+          height={200}
+          className="w-full h-[200px] touch-none cursor-crosshair"
+          style={{ touchAction: "none" }}
+        />
+      </div>
+
+      <div className="flex justify-between items-center text-xs text-gray-500">
+        <span>Tip: na mobilu / tabletu použijte prst nebo stylus.</span>
+        <button
+          type="button"
+          onClick={clearCanvas}
+          className="flex items-center gap-1 hover:text-gray-700"
+        >
+          <Eraser className="h-3 w-3" />
+          Smazat
+        </button>
+      </div>
+
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-between gap-2 pt-2">
+        <Button variant="outline" onClick={onBack}>Zpět</Button>
+        <Button
+          onClick={handleSubmit}
+          disabled={verifying || (!!signatureImage)}
+        >
+          {verifying ? "Ukládám podpis…" : "Podepsat"}
+        </Button>
+      </div>
+    </>
   );
 }
