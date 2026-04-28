@@ -69,8 +69,8 @@ async def ensure_default_item(
         # Pokud položka existuje ale ještě nemá napojení na RA (legacy data
         # před migrací 066), doplníme ho.
         if existing.related_risk_assessment_id is None:
-            from app.services.risk_assessments import get_or_create_for_accident
-            ra = await get_or_create_for_accident(
+            from app.services.risk_assessments import create_for_accident
+            ra = await create_for_accident(
                 db, accident=accident, created_by=created_by,
             )
             existing.related_risk_assessment_id = ra.id
@@ -78,8 +78,8 @@ async def ensure_default_item(
         return existing
 
     # Vytvoř (nebo najdi) RiskAssessment placeholder pro toto pracoviště
-    from app.services.risk_assessments import get_or_create_for_accident
-    ra = await get_or_create_for_accident(
+    from app.services.risk_assessments import create_for_accident
+    ra = await create_for_accident(
         db, accident=accident, created_by=created_by,
     )
     related_ra_id: uuid.UUID = ra.id
