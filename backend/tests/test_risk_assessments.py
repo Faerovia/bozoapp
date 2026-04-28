@@ -610,3 +610,205 @@ async def test_ppe_measure_grid_idempotent(client: AsyncClient) -> None:
     )).json().get("grid", {})
     # Bez duplicit: G obsahuje 6 právě jednou
     assert grid.get("G", []).count(6) == 1
+
+
+# ── Auto-školení 'Změna rizik' ──────────────────────────────────────────────
+
+
+async def _setup_position_with_employee(
+    client: AsyncClient, headers: dict,
+) -> tuple[str, str, str, str]:
+    """Helper: vytvoří plant → workplace → position → employee.
+    Vrací (plant_id, workplace_id, position_id, employee_id)."""
+    plant_id = (await client.post(
+        "/api/v1/plants", json={"name": "Plant CT"}, headers=headers,
+    )).json()["id"]
+    wp_id = (await client.post(
+        "/api/v1/workplaces",
+        json={"plant_id": plant_id, "name": "Hala CT"},
+        headers=headers,
+    )).json()["id"]
+    pos_id = (await client.post(
+        "/api/v1/job-positions",
+        json={"workplace_id": wp_id, "name": "Operátor CT"},
+        headers=headers,
+    )).json()["id"]
+    emp_id = (await client.post(
+        "/api/v1/employees",
+        json={
+            "first_name": "Jan",
+            "last_name": "Test",
+            "personal_id": "9001011234",
+            "personal_number": "EMP-CT",
+            "employment_type": "hpp",
+            "job_position_id": pos_id,
+            "workplace_id": wp_id,
+        },
+        headers=headers,
+    )).json()["id"]
+    return plant_id, wp_id, pos_id, emp_id
+
+
+async def _list_change_training_assignments(
+    client: AsyncClient, headers: dict, employee_id: str,
+) -> list[dict]:
+    """Vrátí všechny assignmenty 'Změna rizik' pro daného zaměstnance.
+
+    Singleton 'Změna rizik' šablona se hledá v /trainings, pak se vrátí
+    její assignmenty a vyfiltrují per employee_id. Pokud šablona ještě
+    neexistuje (žádný RA trigger), vrací prázdný list.
+    """
+    trainings = (await client.get("/api/v1/trainings", headers=headers)).json()
+    template = next(
+        (t for t in trainings if t.get("title") == "Změna rizik"), None,
+    )
+    if template is None:
+        return []
+    assignments_resp = await client.get(
+        f"/api/v1/trainings/{template['id']}/assignments", headers=headers,
+    )
+    assert assignments_resp.status_code == 200, assignments_resp.text
+    return [
+        a for a in assignments_resp.json() if a["employee_id"] == employee_id
+    ]
+
+
+@pytest.mark.asyncio
+async def test_change_training_assignment_on_measure_create(
+    client: AsyncClient,
+) -> None:
+    """Po přidání měřítka k RA se zaměstnancům dotčené pozice vytvoří
+    assignment 'Změna rizik' s napojeným dokumentem."""
+    headers = await _ozo_headers(client, "ct1")
+    _, _, pos_id, emp_id = await _setup_position_with_employee(client, headers)
+
+    # Před přidáním měřítka: žádný assignment 'Změna rizik'
+    before = await _list_change_training_assignments(client, headers, emp_id)
+    assert before == []
+
+    # Vytvoř RA scope=position
+    ra = (await client.post(
+        "/api/v1/risk-assessments",
+        json=_ra_payload(scope_type="position", job_position_id=pos_id,
+                         activity_description=None),
+        headers=headers,
+    )).json()
+    ra_id = ra["id"]
+
+    # Přidej měřítko → trigger
+    measure_resp = await client.post(
+        f"/api/v1/risk-assessments/{ra_id}/measures",
+        json={
+            "risk_assessment_id": ra_id,
+            "control_type": "engineering",
+            "description": "Instalace zábradlí",
+            "status": "planned",
+        },
+        headers=headers,
+    )
+    assert measure_resp.status_code == 201, measure_resp.text
+
+    # Po měřítku: assignment 'Změna rizik' existuje
+    after = await _list_change_training_assignments(client, headers, emp_id)
+    assert len(after) == 1, f"Očekáván 1 assignment, got {after}"
+    assignment = after[0]
+    assert assignment["status"] == "pending"
+    assert assignment["content_document_id"] is not None
+
+    # Dokument je dostupný a obsahuje 'Hodnocení rizik' v titulu
+    doc_id = assignment["content_document_id"]
+    doc_resp = await client.get(f"/api/v1/documents/{doc_id}", headers=headers)
+    assert doc_resp.status_code == 200
+    assert doc_resp.json()["title"].startswith("Hodnocení rizik")
+
+
+@pytest.mark.asyncio
+async def test_change_training_open_assignment_updates_to_latest_doc(
+    client: AsyncClient,
+) -> None:
+    """Když přijde druhá změna RA dřív než zaměstnanec absolvuje, otevřený
+    assignment se aktualizuje na nejnovější verzi dokumentu (1 assignment,
+    poslední verze)."""
+    headers = await _ozo_headers(client, "ct2")
+    _, _, pos_id, emp_id = await _setup_position_with_employee(client, headers)
+
+    ra = (await client.post(
+        "/api/v1/risk-assessments",
+        json=_ra_payload(scope_type="position", job_position_id=pos_id,
+                         activity_description=None),
+        headers=headers,
+    )).json()
+    ra_id = ra["id"]
+
+    # 1. trigger — přidání prvního měřítka
+    await client.post(
+        f"/api/v1/risk-assessments/{ra_id}/measures",
+        json={
+            "risk_assessment_id": ra_id,
+            "control_type": "engineering",
+            "description": "První opatření",
+            "status": "planned",
+        },
+        headers=headers,
+    )
+    after_first = await _list_change_training_assignments(client, headers, emp_id)
+    assert len(after_first) == 1
+    first_doc_id = after_first[0]["content_document_id"]
+
+    # 2. trigger — přidání druhého měřítka
+    await client.post(
+        f"/api/v1/risk-assessments/{ra_id}/measures",
+        json={
+            "risk_assessment_id": ra_id,
+            "control_type": "ppe",
+            "description": "Druhé opatření",
+            "status": "planned",
+        },
+        headers=headers,
+    )
+    after_second = await _list_change_training_assignments(client, headers, emp_id)
+
+    # Stále jen 1 assignment, ale s novým dokumentem
+    assert len(after_second) == 1, "Open assignment nesmí být duplikován"
+    second_doc_id = after_second[0]["content_document_id"]
+    assert second_doc_id is not None
+    assert second_doc_id != first_doc_id, (
+        "Po druhé změně se musí content_document_id aktualizovat na nejnovější"
+    )
+
+
+@pytest.mark.asyncio
+async def test_change_training_status_milestone_triggers_assignment(
+    client: AsyncClient,
+) -> None:
+    """Změna RA status na 'mitigated' nebo 'accepted' také triggeruje školení."""
+    headers = await _ozo_headers(client, "ct3")
+    _, _, pos_id, emp_id = await _setup_position_with_employee(client, headers)
+
+    ra = (await client.post(
+        "/api/v1/risk-assessments",
+        json=_ra_payload(scope_type="position", job_position_id=pos_id,
+                         activity_description=None),
+        headers=headers,
+    )).json()
+    ra_id = ra["id"]
+
+    # Status: open (default) → žádný trigger
+    before = await _list_change_training_assignments(client, headers, emp_id)
+    assert before == []
+
+    # Update na mitigated → trigger
+    patch_resp = await client.patch(
+        f"/api/v1/risk-assessments/{ra_id}",
+        json={
+            "residual_probability": 2,
+            "residual_severity": 2,
+            "status": "mitigated",
+            "change_reason": "Po opatřeních",
+        },
+        headers=headers,
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+
+    after = await _list_change_training_assignments(client, headers, emp_id)
+    assert len(after) == 1, "Přechod na 'mitigated' musí triggerovat školení"
