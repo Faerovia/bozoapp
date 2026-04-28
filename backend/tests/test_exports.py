@@ -117,6 +117,7 @@ async def test_export_accident_log_pdf(client: AsyncClient) -> None:
             "accident_time": "09:00:00",
             "injury_type": "Řezná rána",
             "injured_body_part": "Ruka",
+            "injured_body_part_code": "G",
             "injury_source": "Nůž",
             "injury_cause": "Skluz při řezání",
             "description": "Zaměstnanec se řízl.",

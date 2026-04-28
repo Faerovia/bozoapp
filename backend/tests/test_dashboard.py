@@ -94,6 +94,7 @@ async def test_dashboard_pending_risk_reviews(client: AsyncClient) -> None:
             "accident_time": "10:00:00",
             "injury_type": "Modřina",
             "injured_body_part": "Koleno",
+            "injured_body_part_code": "J",
             "injury_source": "Přepravka",
             "injury_cause": "Zakopnutí",
             "description": "Zaměstnanec zakopnul.",
