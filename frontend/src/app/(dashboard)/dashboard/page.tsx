@@ -211,7 +211,7 @@ export default function DashboardPage() {
                     </p>
                     <p className="text-xs text-red-700">
                       Každé pracoviště musí mít určenou kategorii rizik (RFA).
-                      Klikněte pro přejití do modulu Úroveň rizik na pracovištích.
+                      Klikněte pro přejití do modulu Rizikové faktory na pracovištích.
                     </p>
                   </div>
                 </div>

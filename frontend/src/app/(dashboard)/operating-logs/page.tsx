@@ -66,7 +66,7 @@ function CopyItemsFromDevice({
   const [allCategories, setAllCategories] = useState(false);
 
   const { data: devices = [] } = useQuery<OperatingLogDevice[]>({
-    queryKey: ["operating-log-devices-all", allCategories ? "all" : category],
+    queryKey: ["operating-logs", "devices-all", allCategories ? "all" : category],
     queryFn: () => {
       const qs = new URLSearchParams({ device_status: "active" });
       if (!allCategories && category) qs.set("category", category);
@@ -197,7 +197,7 @@ function DeviceForm({
   const { data: employees = [] } = useQuery<Array<{
     id: string; full_name: string; email: string | null;
   }>>({
-    queryKey: ["employees-for-responsible"],
+    queryKey: ["employees", "active"],
     queryFn: () => api.get("/employees?status=active"),
   });
   const responsibleEmpId = watch("responsible_employee_id");

@@ -51,6 +51,13 @@ class AccidentActionItem(Base, TimestampMixin):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sort_order: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
 
+    # Provázanost s Risk Assessment modulem (migrace 066). Default položka
+    # „Revize a případná změna rizik" odkazuje na konkrétní hodnocení, které
+    # OZO musí revidovat — klikem na položku UI otevře detail rizika.
+    related_risk_assessment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("risk_assessments.id", ondelete="SET NULL"),
+    )
+
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

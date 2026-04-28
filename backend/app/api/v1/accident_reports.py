@@ -391,6 +391,7 @@ class ActionItemResponse(_BaseModel):
     completed_at: Any | None
     is_default: bool
     sort_order: int
+    related_risk_assessment_id: uuid.UUID | None = None
     created_by: uuid.UUID
 
     model_config = {"from_attributes": True}

@@ -55,7 +55,8 @@ async def ensure_default_item(
     accident: AccidentReport,
     created_by: uuid.UUID,
 ) -> AccidentActionItem:
-    """Idempotentně vytvoří výchozí položku „Revize a případná změna rizik"."""
+    """Idempotentně vytvoří výchozí položku „Revize a případná změna rizik"
+    a napojí ji na konkrétní RiskAssessment (vytvoří/najde placeholder)."""
     res = await db.execute(
         select(AccidentActionItem).where(
             AccidentActionItem.tenant_id == accident.tenant_id,
@@ -65,7 +66,23 @@ async def ensure_default_item(
     )
     existing = res.scalar_one_or_none()
     if existing is not None:
+        # Pokud položka existuje ale ještě nemá napojení na RA (legacy data
+        # před migrací 066), doplníme ho.
+        if existing.related_risk_assessment_id is None:
+            from app.services.risk_assessments import get_or_create_for_accident
+            ra = await get_or_create_for_accident(
+                db, accident=accident, created_by=created_by,
+            )
+            existing.related_risk_assessment_id = ra.id
+            await db.flush()
         return existing
+
+    # Vytvoř (nebo najdi) RiskAssessment placeholder pro toto pracoviště
+    from app.services.risk_assessments import get_or_create_for_accident
+    ra = await get_or_create_for_accident(
+        db, accident=accident, created_by=created_by,
+    )
+    related_ra_id: uuid.UUID = ra.id
 
     item = AccidentActionItem(
         tenant_id=accident.tenant_id,
@@ -75,6 +92,7 @@ async def ensure_default_item(
         status="pending",
         is_default=True,
         sort_order=0,
+        related_risk_assessment_id=related_ra_id,
         created_by=created_by,
     )
     db.add(item)

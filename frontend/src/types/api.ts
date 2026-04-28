@@ -924,6 +924,174 @@ export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
   cancelled: "Storno",
 };
 
+// ── Risk Assessment (ČSN ISO 45001) ─────────────────────────────────────────
+
+export type RiskScopeType = "workplace" | "position" | "plant" | "activity";
+export type RiskStatus =
+  | "draft" | "open" | "in_progress" | "mitigated" | "accepted" | "archived";
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+export type ExposureFrequency = "rare" | "occasional" | "frequent" | "continuous";
+export type ControlType =
+  | "elimination" | "substitution" | "engineering" | "administrative" | "ppe";
+export type MeasureStatus = "planned" | "in_progress" | "done" | "cancelled";
+export type HazardCategory =
+  | "slip_trip"
+  | "splash_flying_particles"
+  | "hot_surfaces"
+  | "manual_handling"
+  | "chemical_splash"
+  | "dust"
+  | "gas"
+  | "falling_object"
+  | "pressure_release"
+  | "working_at_height"
+  | "cutting"
+  | "low_clearance"
+  | "tool_drop"
+  | "electrical"
+  | "forklift"
+  | "machine_entanglement"
+  | "noise"
+  | "fire_explosion"
+  | "confined_space"
+  | "crane"
+  | "other";
+
+export interface RiskAssessment {
+  id: string;
+  tenant_id: string;
+  scope_type: RiskScopeType;
+  workplace_id: string | null;
+  workplace_name: string | null;
+  job_position_id: string | null;
+  job_position_name: string | null;
+  plant_id: string | null;
+  plant_name: string | null;
+  activity_description: string | null;
+  hazard_category: HazardCategory;
+  hazard_description: string;
+  consequence_description: string;
+  exposed_persons: number | null;
+  exposure_frequency: ExposureFrequency | null;
+  initial_probability: number;
+  initial_severity: number;
+  initial_score: number | null;
+  initial_level: RiskLevel | null;
+  existing_controls: string | null;
+  existing_oopp: string | null;
+  residual_probability: number | null;
+  residual_severity: number | null;
+  residual_score: number | null;
+  residual_level: RiskLevel | null;
+  status: RiskStatus;
+  assessed_at: string | null;
+  assessed_by_user_id: string | null;
+  review_due_date: string | null;
+  last_reviewed_at: string | null;
+  last_reviewed_by_user_id: string | null;
+  related_accident_report_id: string | null;
+  related_revision_id: string | null;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  measures_count: number;
+  measures_open_count: number;
+}
+
+export interface RiskMeasure {
+  id: string;
+  tenant_id: string;
+  risk_assessment_id: string;
+  order_index: number;
+  control_type: ControlType;
+  description: string;
+  position_oopp_item_id: string | null;
+  position_oopp_item_name: string | null;
+  training_template_id: string | null;
+  training_template_title: string | null;
+  responsible_employee_id: string | null;
+  responsible_employee_name: string | null;
+  responsible_user_id: string | null;
+  deadline: string | null;
+  status: MeasureStatus;
+  completed_at: string | null;
+  completed_by_user_id: string | null;
+  evidence_file_path: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const HAZARD_CATEGORY_LABELS: Record<HazardCategory, string> = {
+  slip_trip:               "Uklouznutí / zakopnutí",
+  splash_flying_particles: "Postříkání / odlétající částice",
+  hot_surfaces:            "Horké povrchy / materiál",
+  manual_handling:         "Ruční manipulace / opakovaná námaha",
+  chemical_splash:         "Potřísnění chem. látkami",
+  dust:                    "Prach",
+  gas:                     "Plyn",
+  falling_object:          "Pád / převrácení předmětu",
+  pressure_release:        "Uvolnění tlaku nebo jiné energie",
+  working_at_height:       "Práce ve výškách",
+  cutting:                 "Nebezpečí pořezání",
+  low_clearance:           "Nízké průchody / prostupy",
+  tool_drop:               "Náhlé uvolnění / pád nářadí",
+  electrical:              "Nebezpečí el. proudem",
+  forklift:                "Pohyb vysokozdvižných vozíků",
+  machine_entanglement:    "Zachycení strojem",
+  noise:                   "Hluk",
+  fire_explosion:          "Oheň / exploze",
+  confined_space:          "Stísněné prostory",
+  crane:                   "Manipulace jeřábem",
+  other:                   "Jiná nebezpečí",
+};
+
+export const CONTROL_TYPE_LABELS: Record<ControlType, string> = {
+  elimination:    "Eliminace",
+  substitution:   "Substituce",
+  engineering:    "Inženýrské opatření",
+  administrative: "Administrativní opatření",
+  ppe:            "OOPP",
+};
+
+export const RISK_LEVEL_COLORS: Record<RiskLevel, string> = {
+  low:      "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  medium:   "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  high:     "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  critical: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+};
+
+export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
+  low:      "Nízké",
+  medium:   "Střední",
+  high:     "Vysoké",
+  critical: "Kritické",
+};
+
+export const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
+  draft:       "Návrh",
+  open:        "Otevřené",
+  in_progress: "V řešení",
+  mitigated:   "Mitigováno",
+  accepted:    "Akceptováno",
+  archived:    "Archiv",
+};
+
+export const MEASURE_STATUS_LABELS: Record<MeasureStatus, string> = {
+  planned:     "Naplánováno",
+  in_progress: "V řešení",
+  done:        "Hotovo",
+  cancelled:   "Zrušeno",
+};
+
+export const EXPOSURE_FREQUENCY_LABELS: Record<ExposureFrequency, string> = {
+  rare:       "Zřídka",
+  occasional: "Občasně",
+  frequent:   "Často",
+  continuous: "Trvale",
+};
+
 // ── Generický API error ───────────────────────────────────────────────────────
 
 export interface ApiError {

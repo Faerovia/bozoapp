@@ -31,6 +31,7 @@ from app.api.v1 import (
     periodic_checks,
     reminders_admin,
     revisions,
+    risk_assessments,
     risks,
     signatures,
     tenant,
@@ -229,6 +230,7 @@ app.include_router(users.router, prefix="/api/v1", tags=["users"])
 app.include_router(tenant.router, prefix="/api/v1", tags=["tenant"])
 app.include_router(employees.router, prefix="/api/v1", tags=["employees"])
 app.include_router(risks.router, prefix="/api/v1", tags=["risks"])
+app.include_router(risk_assessments.router, prefix="/api/v1", tags=["risk-assessments"])
 app.include_router(trainings.router, prefix="/api/v1", tags=["trainings"])
 app.include_router(revisions.router, prefix="/api/v1", tags=["revisions", "calendar"])
 app.include_router(accident_reports.router, prefix="/api/v1", tags=["accident-reports"])

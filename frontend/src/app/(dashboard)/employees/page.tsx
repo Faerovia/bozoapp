@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { UserPlus, Pencil, UserX, Download, RefreshCw, Copy, Upload, FileText } from "lucide-react";
 import { api, ApiError, uploadFile } from "@/lib/api";
+import { invalidatePositions } from "@/lib/query-keys";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import type { Employee, EmploymentType, JobPosition, Plant, UserResponse, Workplace } from "@/types/api";
@@ -119,7 +120,7 @@ function PositionSelect({
         name,
       }),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["job-positions"] });
+      invalidatePositions(qc);
       onChange(res.id);
       setAddingNew(false);
       setNewName("");

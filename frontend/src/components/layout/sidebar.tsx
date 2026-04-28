@@ -69,7 +69,7 @@ interface NavItem {
 // 10. Pravidelné kontroly    — všichni (zobrazí se jen co mají přiřazené)
 // 11. Provozní deníky        — všichni
 // 12. Provozovny, pracoviště — OZO + HR
-// 13. Úroveň rizik           — OZO + HR
+// 13. Rizikové faktory       — OZO + HR
 // 14. Dokumenty              — OZO + HR
 // 15. Fakturace              — OZO + HR
 const NAV_ITEMS: NavItem[] = [
@@ -148,8 +148,14 @@ const NAV_ITEMS: NavItem[] = [
     roles: MANAGERS,
   },
   {
+    href: "/risks",
+    label: "Hodnocení rizik",
+    icon: AlertTriangle,
+    roles: MANAGERS,
+  },
+  {
     href: "/risk-overview",
-    label: "Úroveň rizik na pracovištích",
+    label: "Rizikové faktory na pracovištích",
     icon: ShieldAlert,
     roles: MANAGERS,
   },

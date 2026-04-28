@@ -19,6 +19,11 @@ import {
   Building2, Briefcase, Factory, ShieldCheck,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import {
+  invalidatePlants,
+  invalidateWorkplaces,
+  invalidatePositions,
+} from "@/lib/query-keys";
 import type {
   Plant, Workplace, JobPosition,
 } from "@/types/api";
@@ -263,7 +268,7 @@ function PositionForm({
       </div>
       <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
         Kategorie práce se odvozuje z hodnocení rizik (RFA) — vyplníte ji
-        v modulu &bdquo;Úroveň rizik na pracovištích&ldquo;. Lhůta lékařské
+        v modulu &bdquo;Rizikové faktory na pracovištích&ldquo;. Lhůta lékařské
         prohlídky se vypočítá automaticky podle kategorie a věku zaměstnance
         (vyhláška 79/2013 Sb.).
       </div>
@@ -308,7 +313,7 @@ function WorkplaceRfaMatrixBody({
       api.put(`/workplaces/${workplaceId}/risk-assessment`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workplace-rfa", workplaceId] });
-      qc.invalidateQueries({ queryKey: ["positions"] });
+      invalidatePositions(qc);
     },
     onError: (err) => setSaveError(errMsg(err)),
   });
@@ -400,7 +405,7 @@ function PositionsTable({
   onDeletePosition: (jp: JobPosition) => void;
 }) {
   const { data: positions = [] } = useQuery<JobPosition[]>({
-    queryKey: ["positions", workplaceId],
+    queryKey: ["job-positions", workplaceId],
     queryFn: () => api.get(`/job-positions?workplace_id=${workplaceId}&jp_status=active`),
   });
 
@@ -580,7 +585,7 @@ export default function WorkplacesPage() {
   const createPlant = useMutation({
     mutationFn: (data: Partial<Plant>) => api.post("/plants", data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["plants"] });
+      invalidatePlants(qc);
       setPlantModal(null);
       setFormError(null);
     },
@@ -590,7 +595,7 @@ export default function WorkplacesPage() {
     mutationFn: ({ id, data }: { id: string; data: Partial<Plant> }) =>
       api.patch(`/plants/${id}`, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["plants"] });
+      invalidatePlants(qc);
       setPlantModal(null);
       setFormError(null);
     },
@@ -598,33 +603,33 @@ export default function WorkplacesPage() {
   });
   const deletePlant = useMutation({
     mutationFn: (id: string) => api.delete(`/plants/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["plants"] }),
+    onSuccess: () => invalidatePlants(qc),
   });
 
   const createWp = useMutation({
     mutationFn: (data: { plant_id: string; name: string; notes: string | null }) =>
       api.post("/workplaces", data),
-    onSuccess: (_res, vars) => {
-      qc.invalidateQueries({ queryKey: ["workplaces", vars.plant_id] });
+    onSuccess: () => {
+      invalidateWorkplaces(qc);
       setWpModal(null);
       setFormError(null);
     },
     onError: (err) => setFormError(errMsg(err)),
   });
   const updateWp = useMutation({
-    mutationFn: ({ id, data, plantId }: { id: string; data: Partial<Workplace>; plantId: string }) =>
-      api.patch(`/workplaces/${id}`, data).then(() => plantId),
-    onSuccess: (plantId) => {
-      qc.invalidateQueries({ queryKey: ["workplaces", plantId] });
+    mutationFn: ({ id, data }: { id: string; data: Partial<Workplace>; plantId: string }) =>
+      api.patch(`/workplaces/${id}`, data),
+    onSuccess: () => {
+      invalidateWorkplaces(qc);
       setWpModal(null);
       setFormError(null);
     },
     onError: (err) => setFormError(errMsg(err)),
   });
   const deleteWp = useMutation({
-    mutationFn: ({ id, plantId }: { id: string; plantId: string }) =>
-      api.delete(`/workplaces/${id}`).then(() => plantId),
-    onSuccess: (plantId) => qc.invalidateQueries({ queryKey: ["workplaces", plantId] }),
+    mutationFn: ({ id }: { id: string; plantId: string }) =>
+      api.delete(`/workplaces/${id}`),
+    onSuccess: () => invalidateWorkplaces(qc),
   });
 
   const createPos = useMutation({
@@ -633,28 +638,28 @@ export default function WorkplacesPage() {
       work_category: string | null; medical_exam_period_months: number | null;
       skip_vstupni_exam: boolean;
     }) => api.post("/job-positions", data),
-    onSuccess: (_res, vars) => {
-      qc.invalidateQueries({ queryKey: ["positions", vars.workplace_id] });
+    onSuccess: () => {
+      invalidatePositions(qc);
       setPosModal(null);
       setFormError(null);
     },
     onError: (err) => setFormError(errMsg(err)),
   });
   const updatePos = useMutation({
-    mutationFn: ({ id, data, workplaceId }: {
+    mutationFn: ({ id, data }: {
       id: string; data: Partial<JobPosition>; workplaceId: string;
-    }) => api.patch(`/job-positions/${id}`, data).then(() => workplaceId),
-    onSuccess: (workplaceId) => {
-      qc.invalidateQueries({ queryKey: ["positions", workplaceId] });
+    }) => api.patch(`/job-positions/${id}`, data),
+    onSuccess: () => {
+      invalidatePositions(qc);
       setPosModal(null);
       setFormError(null);
     },
     onError: (err) => setFormError(errMsg(err)),
   });
   const deletePos = useMutation({
-    mutationFn: ({ id, workplaceId }: { id: string; workplaceId: string }) =>
-      api.delete(`/job-positions/${id}`).then(() => workplaceId),
-    onSuccess: (workplaceId) => qc.invalidateQueries({ queryKey: ["positions", workplaceId] }),
+    mutationFn: ({ id }: { id: string; workplaceId: string }) =>
+      api.delete(`/job-positions/${id}`),
+    onSuccess: () => invalidatePositions(qc),
   });
 
   function toggleExpanded(plantId: string) {
@@ -708,7 +713,7 @@ export default function WorkplacesPage() {
       <CsvImportDialog
         open={importPlantsOpen}
         onClose={() => setImportPlantsOpen(false)}
-        onImported={() => qc.invalidateQueries({ queryKey: ["plants"] })}
+        onImported={() => invalidatePlants(qc)}
         title="Import provozoven z CSV"
         templateUrl="/api/v1/plants/import/template"
         uploadEndpoint="/plants/import"
@@ -723,7 +728,7 @@ export default function WorkplacesPage() {
       <CsvImportDialog
         open={importWorkplacesOpen}
         onClose={() => setImportWorkplacesOpen(false)}
-        onImported={() => qc.invalidateQueries({ queryKey: ["workplaces"] })}
+        onImported={() => invalidateWorkplaces(qc)}
         title="Import pracovišť z CSV"
         templateUrl="/api/v1/workplaces/import/template"
         uploadEndpoint="/workplaces/import"
@@ -738,7 +743,7 @@ export default function WorkplacesPage() {
       <CsvImportDialog
         open={importPositionsOpen}
         onClose={() => setImportPositionsOpen(false)}
-        onImported={() => qc.invalidateQueries({ queryKey: ["positions"] })}
+        onImported={() => invalidatePositions(qc)}
         title="Import pracovních pozic z CSV"
         templateUrl="/api/v1/job-positions/import/template"
         uploadEndpoint="/job-positions/import"

@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Modul „Úroveň rizik na pracovištích".
+ * Modul „Rizikové faktory na pracovištích".
  *
  * Hierarchický přehled: Plant → Workplace → Position → 13 rizikových faktorů.
  * Pro každou pozici je k dispozici interaktivní matrix 13×5 (faktor × rating).
- * Úroveň rizika pracoviště = maximum kategorií (category_proposed) ze všech
- * jeho pozic. Úroveň provozovny = maximum všech pracovišť.
+ * Úroveň rizikových faktorů pracoviště = maximum kategorií (category_proposed)
+ * ze všech jeho pozic. Úroveň provozovny = maximum všech pracovišť.
  *
  * RFA se vytvoří automaticky při prvním kliknutí na rating, pokud pro pozici
  * ještě neexistuje. Změna ratingu propisuje přes PATCH /risk-factors/{id}.
@@ -353,7 +353,7 @@ export default function RiskOverviewPage() {
   return (
     <div>
       <Header
-        title="Úroveň rizik na pracovištích"
+        title="Rizikové faktory na pracovištích"
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={expandAll}>
@@ -484,7 +484,7 @@ export default function RiskOverviewPage() {
           <ShieldCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
           Klikněte na pozici pro rozbalení matrixu 13 rizikových faktorů.
           U každého faktoru přiřaďte kategorii kliknutím na 1/2/2R/3/4 (toggle).
-          Úroveň rizika pracoviště = nejvyšší kategorie ze všech pozic na pracovišti.
+          Úroveň rizikových faktorů pracoviště = nejvyšší kategorie ze všech pozic na pracovišti.
           Pro upload PDF protokolů a další detaily použijte modul Provozovny.
         </div>
       </div>

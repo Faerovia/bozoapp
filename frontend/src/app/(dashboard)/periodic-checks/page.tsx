@@ -106,7 +106,7 @@ function CheckForm({
   const { data: employees = [] } = useQuery<Array<{
     id: string; full_name: string; email: string | null;
   }>>({
-    queryKey: ["employees-for-responsible-pc"],
+    queryKey: ["employees", "active"],
     queryFn: () => api.get("/employees?status=active"),
   });
   const periodInfo = selectedKind

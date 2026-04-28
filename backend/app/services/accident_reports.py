@@ -286,6 +286,15 @@ async def create_accident_report(
     )
     db.add(report)
     await db.flush()
+
+    # Akční plán — výchozí položka „Revize a případná změna rizik" se vytvoří
+    # už při založení úrazu (i v draft fázi) a napojí se na placeholder
+    # RiskAssessment. Když OZO uzavře RA, položka se automaticky uzavře.
+    # Invariant: úraz nesmí existovat bez default action item — pokud to
+    # selže, propagujeme exception a transakce se rollbackne.
+    from app.services.accident_action import ensure_default_item
+    await ensure_default_item(db, report, created_by)
+
     return report
 
 
