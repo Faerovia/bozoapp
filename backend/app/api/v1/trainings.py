@@ -380,6 +380,14 @@ async def download_certificate(
         select(User).where(User.id == a.assigned_by)
     )).scalar_one_or_none()
 
+    # Schvalovatel = OZO, který šablonu školení odsouhlasil. Povinně se zapisuje
+    # do prezenční listiny / certifikátu jako odborný garant školení.
+    approver = None
+    if training.approved_by_user_id is not None:
+        approver = (await db.execute(
+            select(User).where(User.id == training.approved_by_user_id)
+        )).scalar_one_or_none()
+
     # Pokud assignment má napojený univerzální podpis (#105), přiložíme
     # tamper-evident metadata (seq + chain_hash) do certifikátu.
     universal_signature: dict[str, object] | None = None
@@ -401,6 +409,7 @@ async def download_certificate(
         assignment=a,
         employee=emp,
         issuer_name=issuer.full_name if issuer else None,
+        approver_name=approver.full_name if approver else None,
         universal_signature=universal_signature,
     )
     safe_title = training.title[:40].replace(" ", "_")

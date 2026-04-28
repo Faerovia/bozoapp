@@ -59,9 +59,15 @@ def generate_certificate_pdf(
     assignment: TrainingAssignment,
     employee: Employee,
     issuer_name: str | None = None,
+    approver_name: str | None = None,
     universal_signature: dict[str, object] | None = None,
 ) -> bytes:
-    """Vrací PDF bytes. issuer_name = jméno osoby která školení vystavila (OZO user).
+    """Vrací PDF bytes.
+
+    issuer_name   = jméno osoby která školení assignment vytvořila (HR/OZO).
+    approver_name = jméno OZO, který šablonu školení schválil
+                    (training.approved_by_user_id) — povinně se zapisuje do
+                    prezenční listiny jako odborný garant školení.
 
     universal_signature (volitelné): pokud zaměstnanec podepsal absolvování
     přes universal flow (heslo / SMS), vykreslí se v patičce informace o
@@ -137,6 +143,9 @@ def generate_certificate_pdf(
         ),
         ("Školitel:", TRAINER_LABEL.get(training.trainer_kind, training.trainer_kind)),
     ]
+    if approver_name:
+        # OZO, který šablonu schválil — odborný garant na prezenční listině
+        detail.append(("Schválil (OZO):", approver_name))
     if issuer_name:
         detail.append(("Vystavil:", issuer_name))
 
