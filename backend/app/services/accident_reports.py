@@ -396,6 +396,12 @@ async def update_accident_report(
         or "workplace_external_description" in update_fields
     )
 
+    # workplace = NOT NULL textový snapshot. Pokud klient pošle prázdnou
+    # hodnotu (None nebo ""), ignorujeme — zachováme stávající nebo
+    # přepočítáme z workplace_id/external_description níže.
+    if "workplace" in update_fields and not update_fields["workplace"]:
+        update_fields.pop("workplace")
+
     for field, value in update_fields.items():
         setattr(report, field, value)
 
