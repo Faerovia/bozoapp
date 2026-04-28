@@ -291,7 +291,9 @@ _ACCIDENT_PAYLOAD = {
     "injured_body_part": "Levé předloktí",
     "injured_body_part_code": "H",  # paže (části)
     "injury_source": "Padající předmět",
+    "injury_source_category": "tools",
     "injury_cause": "Špatně zajištěný materiál na regálu",
+    "injury_cause_category": "workplace_defect",
     "injured_count": 1,
     "is_fatal": False,
     "has_other_injuries": False,
@@ -403,6 +405,45 @@ async def test_filter_by_status_and_level(client: AsyncClient) -> None:
     )
     assert len(critical.json()) == 1
     assert critical.json()[0]["initial_score"] == 25
+
+
+@pytest.mark.asyncio
+async def test_two_accidents_create_two_distinct_risk_assessments(
+    client: AsyncClient,
+) -> None:
+    """Každý úraz musí založit vlastní (nový) placeholder RA — žádné sdružování,
+    i když jde o stejné pracoviště. Hodnocení rizik je neomezené."""
+    headers = await _ozo_headers(client, "ra_per_accident")
+
+    # Dva úrazy na stejném pracovišti
+    a1 = await client.post(
+        "/api/v1/accident-reports", json=_ACCIDENT_PAYLOAD, headers=headers,
+    )
+    assert a1.status_code == 201
+    a2_payload = {**_ACCIDENT_PAYLOAD, "accident_date": "2026-04-01"}
+    a2 = await client.post(
+        "/api/v1/accident-reports", json=a2_payload, headers=headers,
+    )
+    assert a2.status_code == 201
+
+    # Action items pro každý úraz mají vlastní RA
+    items1 = (await client.get(
+        f"/api/v1/accident-reports/{a1.json()['id']}/action-items", headers=headers,
+    )).json()
+    items2 = (await client.get(
+        f"/api/v1/accident-reports/{a2.json()['id']}/action-items", headers=headers,
+    )).json()
+    ra1 = next(i for i in items1 if i.get("is_default"))["related_risk_assessment_id"]
+    ra2 = next(i for i in items2 if i.get("is_default"))["related_risk_assessment_id"]
+    assert ra1 != ra2, "Každý úraz musí mít vlastní RA"
+
+    # V seznamu RA jsou obě (status='draft' = placeholder)
+    ra_list = (await client.get(
+        "/api/v1/risk-assessments?ra_status=draft", headers=headers,
+    )).json()
+    ids = {r["id"] for r in ra_list}
+    assert ra1 in ids
+    assert ra2 in ids
 
 
 @pytest.mark.asyncio

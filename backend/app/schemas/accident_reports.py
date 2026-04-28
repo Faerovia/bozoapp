@@ -15,6 +15,30 @@ BodyPartCode = Literal[
     "H", "I", "J", "K", "L", "M", "N",
 ]
 
+# Standardizovaná kategorie zdroje úrazu dle metodiky SÚIP (6 hodnot).
+InjurySourceCategory = Literal[
+    "vehicles",            # Dopravní prostředky
+    "machines",            # Stroje a zařízení
+    "tools",               # Nářadí, nástroje a předměty
+    "hazardous_substances",  # Nebezpečné látky
+    "persons_animals",     # Lidé, zvířata a přírodní vlivy
+    "work_environment",    # Pracovní prostředí
+]
+
+# Standardizovaná kategorie příčiny úrazu dle metodiky SÚIP (10 hodnot).
+InjuryCauseCategory = Literal[
+    "workplace_defect",    # Nepříznivý stav nebo vadné uspořádání pracoviště
+    "missing_protection",  # Chybějící nebo nedostatečná ochranná zařízení
+    "oopp_misuse",         # Nepoužívání nebo nevhodné OOPP
+    "source_defect",       # Nepříznivý stav nebo vady zdroje úrazu
+    "poor_organization",   # Nesprávná organizace práce
+    "high_risk_work",      # Práce s vysokým rizikem (i při dodržení předpisů)
+    "personal_factors",    # Nedostatky v osobních předpokladech
+    "unsafe_behavior",     # Nesprávné nebo nebezpečné jednání zaměstnance
+    "third_party",         # Jednání jiné osoby
+    "unforeseen",          # Nepředvídatelné případy (vyšší moc)
+]
+
 
 class WitnessInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -47,8 +71,11 @@ class AccidentReportCreateRequest(BaseModel):
     # injured_body_part_code = standardizovaný kód A..N dle NV 390/2021
     # Příloha 2 (sjednocení s OOPP gridem). Povinné pro nové úrazy.
     injured_body_part_code: BodyPartCode
+    # injury_source / injury_cause = popisová pole (detail), kategorie = SÚIP enum
     injury_source: str = Field(..., min_length=1, max_length=255)
+    injury_source_category: InjurySourceCategory
     injury_cause: str = Field(..., min_length=1)
+    injury_cause_category: InjuryCauseCategory
     injured_count: int = Field(default=1, ge=1)
     is_fatal: bool = False
     has_other_injuries: bool = False
@@ -119,7 +146,9 @@ class AccidentReportUpdateRequest(BaseModel):
     injured_body_part: str | None = Field(None, min_length=1, max_length=255)
     injured_body_part_code: BodyPartCode | None = None
     injury_source: str | None = Field(None, min_length=1, max_length=255)
+    injury_source_category: InjurySourceCategory | None = None
     injury_cause: str | None = Field(None, min_length=1)
+    injury_cause_category: InjuryCauseCategory | None = None
     injured_count: int | None = Field(None, ge=1)
     is_fatal: bool | None = None
     has_other_injuries: bool | None = None
@@ -159,7 +188,9 @@ class AccidentReportResponse(BaseModel):
     injured_body_part: str
     injured_body_part_code: str | None = None
     injury_source: str
+    injury_source_category: str | None = None
     injury_cause: str
+    injury_cause_category: str | None = None
     injured_count: int
     is_fatal: bool
     has_other_injuries: bool

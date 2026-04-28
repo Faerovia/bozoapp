@@ -12,8 +12,11 @@ import { MultiSignerPanel } from "@/components/signature/multi-signer-panel";
 import { api, ApiError } from "@/lib/api";
 import { useTableSort } from "@/lib/use-table-sort";
 import { SortableHeader } from "@/components/ui/sortable-header";
-import type { AccidentReport, Employee, Workplace, BodyPartCode } from "@/types/api";
-import { BODY_PARTS } from "@/types/api";
+import type {
+  AccidentReport, Employee, Workplace, BodyPartCode,
+  InjurySourceCategory, InjuryCauseCategory,
+} from "@/types/api";
+import { BODY_PARTS, INJURY_SOURCE_CATEGORIES, INJURY_CAUSE_CATEGORIES } from "@/types/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -69,8 +72,16 @@ const schema = z.object({
     required_error: "Vyber část těla dle OOPP gridu",
   }),
   injured_body_part:     z.string().min(1, "Detail zranění je povinný").max(255),
-  injury_source:         z.string().min(1, "Zdroj zranění je povinný").max(255),
-  injury_cause:          z.string().min(1, "Příčina úrazu je povinná"),
+  injury_source_category: z.enum([
+    "vehicles","machines","tools","hazardous_substances","persons_animals","work_environment",
+  ], { required_error: "Vyber kategorii zdroje úrazu" }),
+  injury_source:         z.string().min(1, "Detail zdroje úrazu je povinný").max(255),
+  injury_cause_category: z.enum([
+    "workplace_defect","missing_protection","oopp_misuse","source_defect",
+    "poor_organization","high_risk_work","personal_factors","unsafe_behavior",
+    "third_party","unforeseen",
+  ], { required_error: "Vyber kategorii příčiny úrazu" }),
+  injury_cause:          z.string().min(1, "Detail příčiny úrazu je povinný"),
   injured_count:         z.coerce.number().int().min(1, "Minimálně 1").default(1),
   is_fatal:              z.boolean().default(false),
   has_other_injuries:    z.boolean().default(false),
@@ -324,16 +335,65 @@ function AccidentForm({
           )}
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="injury_source">Zdroj zranění *</Label>
-          <Input id="injury_source" placeholder="např. ostrý nástroj, padající předmět" {...register("injury_source")} />
-          {errors.injury_source && <p className="text-xs text-red-600">{errors.injury_source.message}</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="injury_source_category">Kategorie zdroje úrazu *</Label>
+            <select
+              id="injury_source_category"
+              {...register("injury_source_category")}
+              className="block w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+            >
+              <option value="">— vyber —</option>
+              {INJURY_SOURCE_CATEGORIES.map((c) => (
+                <option key={c.code} value={c.code}>{c.label}</option>
+              ))}
+            </select>
+            {errors.injury_source_category && (
+              <p className="text-xs text-red-600">{errors.injury_source_category.message}</p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="injury_source">Detail zdroje úrazu *</Label>
+            <Input
+              id="injury_source"
+              placeholder="např. soustruh CNC, padající karton"
+              {...register("injury_source")}
+            />
+            {errors.injury_source && (
+              <p className="text-xs text-red-600">{errors.injury_source.message}</p>
+            )}
+          </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="injury_cause">Příčina úrazu *</Label>
-          <textarea id="injury_cause" rows={2} {...register("injury_cause")} className={TEXTAREA_CLS} />
-          {errors.injury_cause && <p className="text-xs text-red-600">{errors.injury_cause.message}</p>}
+          <Label htmlFor="injury_cause_category">Kategorie příčiny úrazu *</Label>
+          <select
+            id="injury_cause_category"
+            {...register("injury_cause_category")}
+            className="block w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+          >
+            <option value="">— vyber —</option>
+            {INJURY_CAUSE_CATEGORIES.map((c) => (
+              <option key={c.code} value={c.code}>{c.label}</option>
+            ))}
+          </select>
+          {errors.injury_cause_category && (
+            <p className="text-xs text-red-600">{errors.injury_cause_category.message}</p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="injury_cause">Detail příčiny úrazu *</Label>
+          <textarea
+            id="injury_cause"
+            rows={2}
+            placeholder="Konkrétní okolnosti, jak k úrazu došlo"
+            {...register("injury_cause")}
+            className={TEXTAREA_CLS}
+          />
+          {errors.injury_cause && (
+            <p className="text-xs text-red-600">{errors.injury_cause.message}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-3">
@@ -997,7 +1057,9 @@ export default function AccidentReportsPage() {
               injured_body_part_code:  (editReport.injured_body_part_code ?? "") as BodyPartCode,
               injured_body_part:       editReport.injured_body_part,
               injury_source:           editReport.injury_source,
+              injury_source_category:  (editReport.injury_source_category ?? "") as InjurySourceCategory,
               injury_cause:            editReport.injury_cause,
+              injury_cause_category:   (editReport.injury_cause_category ?? "") as InjuryCauseCategory,
               injured_count:           editReport.injured_count,
               is_fatal:                editReport.is_fatal,
               has_other_injuries:      editReport.has_other_injuries,

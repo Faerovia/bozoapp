@@ -670,7 +670,9 @@ export interface AccidentReport {
   injured_body_part: string;
   injured_body_part_code: BodyPartCode | null;
   injury_source: string;
+  injury_source_category: InjurySourceCategory | null;
   injury_cause: string;
+  injury_cause_category: InjuryCauseCategory | null;
   injured_count: number;
   is_fatal: boolean;
   has_other_injuries: boolean;
@@ -1171,6 +1173,57 @@ export const OOPP_RISK_COLUMNS: OoppRiskColumnDef[] = [
 
 export const OOPP_RISK_COLUMN_LABELS: Record<OoppRiskColumn, string> =
   OOPP_RISK_COLUMNS.reduce((acc, rc) => ({ ...acc, [rc.col]: rc.label }), {} as Record<OoppRiskColumn, string>);
+
+// ── Pracovní úraz: kategorie zdroje + příčiny (metodika SÚIP) ────────────────
+
+export type InjurySourceCategory =
+  | "vehicles" | "machines" | "tools"
+  | "hazardous_substances" | "persons_animals" | "work_environment";
+
+export const INJURY_SOURCE_CATEGORIES: { code: InjurySourceCategory; label: string; hint: string }[] = [
+  { code: "vehicles",             label: "Dopravní prostředky",
+    hint: "Vozidla, vozíky, letadla" },
+  { code: "machines",             label: "Stroje a zařízení",
+    hint: "Soustruhy, vrtačky, pily" },
+  { code: "tools",                label: "Nářadí, nástroje a předměty",
+    hint: "Ruční nářadí, žebříky, volně ložený materiál" },
+  { code: "hazardous_substances", label: "Nebezpečné látky",
+    hint: "Chemikálie, horké kapaliny, plyny" },
+  { code: "persons_animals",      label: "Lidé, zvířata a přírodní vlivy",
+    hint: "Napadení jinou osobou, kousnutí psem, úder blesku" },
+  { code: "work_environment",     label: "Pracovní prostředí",
+    hint: "Pád na rovině, pád z výšky, zavalení zeminou" },
+];
+
+export const INJURY_SOURCE_CATEGORY_LABELS: Record<InjurySourceCategory, string> =
+  INJURY_SOURCE_CATEGORIES.reduce(
+    (acc, c) => ({ ...acc, [c.code]: c.label }),
+    {} as Record<InjurySourceCategory, string>,
+  );
+
+export type InjuryCauseCategory =
+  | "workplace_defect" | "missing_protection" | "oopp_misuse"
+  | "source_defect" | "poor_organization" | "high_risk_work"
+  | "personal_factors" | "unsafe_behavior" | "third_party" | "unforeseen";
+
+export const INJURY_CAUSE_CATEGORIES: { code: InjuryCauseCategory; label: string }[] = [
+  { code: "workplace_defect",   label: "Nepříznivý stav nebo vadné uspořádání pracoviště" },
+  { code: "missing_protection", label: "Chybějící nebo nedostatečná ochranná zařízení a zajištění" },
+  { code: "oopp_misuse",        label: "Nepoužívání nebo nevhodné OOPP" },
+  { code: "source_defect",      label: "Nepříznivý stav nebo vady zdroje úrazu" },
+  { code: "poor_organization",  label: "Nesprávná organizace práce" },
+  { code: "high_risk_work",     label: "Práce s vysokým rizikem (i při dodržení předpisů)" },
+  { code: "personal_factors",   label: "Nedostatky v osobních předpokladech (únava, neznalost)" },
+  { code: "unsafe_behavior",    label: "Nesprávné nebo nebezpečné jednání zaměstnance" },
+  { code: "third_party",        label: "Jednání jiné osoby" },
+  { code: "unforeseen",         label: "Nepředvídatelné případy (vyšší moc)" },
+];
+
+export const INJURY_CAUSE_CATEGORY_LABELS: Record<InjuryCauseCategory, string> =
+  INJURY_CAUSE_CATEGORIES.reduce(
+    (acc, c) => ({ ...acc, [c.code]: c.label }),
+    {} as Record<InjuryCauseCategory, string>,
+  );
 
 // ── Generický API error ───────────────────────────────────────────────────────
 

@@ -63,8 +63,16 @@ class AccidentReport(Base, TimestampMixin):
     # Pro nové úrazy povinné na úrovni Pydantic schématu, v DB nullable kvůli
     # historickým záznamům před migrací 067.
     injured_body_part_code: Mapped[str | None] = mapped_column(String(1))
+    # injury_source = popisové pole (volný text, např. "padající karton z regálu")
     injury_source: Mapped[str] = mapped_column(String(255), nullable=False)
+    # injury_source_category = standardizovaná kategorie zdroje úrazu dle SÚIP.
+    # 6 hodnot. Povinné pro nové, nullable v DB (migrace 068).
+    injury_source_category: Mapped[str | None] = mapped_column(String(32))
+    # injury_cause = popisové pole (volný text, detail příčiny)
     injury_cause: Mapped[str] = mapped_column(Text, nullable=False)
+    # injury_cause_category = standardizovaná kategorie příčiny úrazu dle SÚIP.
+    # 10 hodnot. Povinné pro nové, nullable v DB (migrace 068).
+    injury_cause_category: Mapped[str | None] = mapped_column(String(32))
     injured_count: Mapped[int] = mapped_column(SmallInteger, default=1, nullable=False)
     is_fatal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     has_other_injuries: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
